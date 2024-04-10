@@ -13,6 +13,8 @@ The Request builder simplifies creating HTTP requests, providing methods to cust
    - [Cookies](#cookies)
    - [Body Content](#body-content)
    - [Timeout and Retries](#timeout-and-retries)
+   - [Sending Requests](#sending-requests)
+   - [Handling Cancellation](#handling-cancellation)
 3. [Advanced Features](#advanced-features)
    - [Path Parameters](#path-parameters)
    - [Form Data](#form-data)
@@ -79,28 +81,58 @@ request.Method("POST").Path("/users/create")
 
 ### Query Parameters
 
-Add query parameters to your request using `Query` or `Queries` for single or multiple parameters respectively:
+Add query parameters to your request using `Query`, `Queries`, `QueriesStruct`, or remove them with `DelQuery`.
 
 ```go
+// Add a single query parameter
 request.Query("search", "query")
+
+// Add multiple query parameters
 request.Queries(url.Values{"sort": []string{"date"}, "limit": []string{"10"}})
+
+// Add query parameters from a struct
+type queryParams struct {
+    Sort  string `url:"sort"`
+    Limit int    `url:"limit"`
+}
+request.QueriesStruct(queryParams{Sort: "date", Limit: 10})
+
+// Remove one or more query parameters
+request.DelQuery("sort", "limit")
 ```
 
 ### Headers
 
-Set request headers using `Header`, `Headers`, or related methods:
+Set request headers using `Header`, `Headers`, or related methods. The library also offers convenient methods for commonly used headers, simplifying the syntax.
 
 ```go
 request.Header("Authorization", "Bearer YOUR_ACCESS_TOKEN")
 request.Headers(http.Header{"Content-Type": []string{"application/json"}})
+
+// Convenient methods for common headers
+request.ContentType("application/json")
+request.Accept("application/json")
+request.UserAgent("MyCustomClient/1.0")
+request.Referer("https://example.com")
 ```
 
 ### Cookies
 
-Add cookies to your request:
+Add cookies to your request using `Cookie`, `Cookies`, or remove them with `DelCookie`. 
 
 ```go
+// Add a single cookie
 request.Cookie("session_token", "YOUR_SESSION_TOKEN")
+
+// Add multiple cookies at once
+request.Cookies(map[string]string{
+    "session_token": "YOUR_SESSION_TOKEN",
+    "user_id": "12345",
+})
+
+// Remove one or more cookies
+request.DelCookie("session_token", "user_id")
+
 ```
 
 ### Body Content
@@ -130,6 +162,34 @@ Configure request-specific timeout and retry strategies:
 
 ```go
 request.Timeout(10 * time.Second).MaxRetries(3)
+```
+
+### Sending Requests
+
+The `Send(ctx)` method executes the HTTP request built with the Request builder. It requires a `context.Context` argument, allowing you to control request cancellation and timeouts.
+
+```go
+resp, err := request.Send(context.Background())
+if err != nil {
+    log.Fatalf("Request failed: %v", err)
+}
+// Process response...
+```
+
+
+### Handling Cancellation
+
+To cancel a request, simply use the context's cancel function. This is particularly useful for long-running requests that you may want to abort if they take too long or if certain conditions are met.
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel() // Ensures resources are freed up after the operation completes or times out
+
+// Cancel the request if it hasn't completed within the timeout
+resp, err := request.Send(ctx)
+if errors.Is(err, context.Canceled) {
+    log.Println("Request was canceled")
+}
 ```
 
 ## Advanced Features
@@ -182,7 +242,10 @@ request.Files(file1, file2)
 Apply authentication methods directly to the request:
 
 ```go
-request.Auth(requests.BasicAuth{Username: "user", Password: "pass"})
+request.Auth(requests.BasicAuth{
+   Username: "user", 
+   Password: "pass",
+})
 ```
 
 ### Middleware
@@ -199,3 +262,5 @@ request.AddMiddleware(func(next requests.MiddlewareHandlerFunc) requests.Middlew
     }
 })
 ```
+
+For more details, visit [middleware.md](./middleware.md).

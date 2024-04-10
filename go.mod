@@ -1,4 +1,4 @@
-module requests
+module github.com/kaptinlin/requests
 
 go 1.22.1
 

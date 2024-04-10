@@ -154,7 +154,7 @@ This library was inspired by and built upon the work of several other HTTP clien
 - [Go-resty/resty](https://github.com/go-resty/resty)
 - [Dghubble/sling](https://github.com/dghubble/sling)
 - [Henomis/restclientgo](https://github.com/henomis/restclientgo)
-- [Fiber](https://github.com/gofiber/fiber)
+- [Fiber Client](https://github.com/gofiber/fiber)
 
 ## How to Contribute
 

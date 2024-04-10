@@ -9,7 +9,6 @@ The Requests library in Go provides a simplified yet powerful interface for maki
    - [Initializing the Client](#initializing-the-client)
    - [Configuring with Set Methods](#configuring-with-set-methods)
 3. [Client Configuration](#client-configuration)
-   - [Creating a Client](#creating-a-client)
    - [Configuring BaseURL](#configuring-baseurl)
    - [Setting Headers](#setting-headers)
    - [Managing Cookies](#managing-cookies)
@@ -171,6 +170,8 @@ client.SetRetryIf(func(req *http.Request, resp *http.Response, err error) bool {
 })
 ```
 
+For more details, visit [retry.md](./retry.md).
+
 ### Proxy Configuration
 
 Route requests through a proxy server:
@@ -215,6 +216,8 @@ logMiddleware := func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHa
 client := requests.URL("https://api.example.com")
 client.AddMiddleware(logMiddleware)
 ```
+
+For more details, visit [middleware.md](./middleware.md).
 
 ### HTTP Client Customization
 
