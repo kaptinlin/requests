@@ -4,10 +4,10 @@ This section describes how to activate and tailor logging in the Requests librar
 
 ### Enabling Logging
 
-To enable logging, you'll need to explicitly set the `Logger` in the client configuration. The `DefaultLogger` outputs to `os.Stderr` and is initially set to log only errors.
+To turn on logging, you must explicitly initialize and set a `Logger` in the client configuration. Here's how to create and use the `DefaultLogger`, which logs to `os.Stderr` by default, and is configured to log errors only:
 
 ```go
-logger := requests.DefaultLogger
+logger := requests.NewDefaultLogger(os.Stderr, slog.LevelError)
 client := requests.Create(&requests.Config{
     Logger: logger,
 })
@@ -16,7 +16,7 @@ client := requests.Create(&requests.Config{
 Or, for an already instantiated client:
 
 ```go
-client.SetLogger(requests.DefaultLogger)
+client.SetLogger(requests.NewDefaultLogger(os.Stderr, slog.LevelError))
 ```
 
 ### Adjusting Log Levels
@@ -24,7 +24,7 @@ client.SetLogger(requests.DefaultLogger)
 Adjusting the log level is straightforward. After defining your logger, simply set the desired level. This allows you to control the verbosity of the logs based on your requirements.
 
 ```go
-logger := requests.DefaultLogger
+logger := requests.NewDefaultLogger(os.Stderr, requests.LevelError)
 logger.SetLevel(requests.LevelInfo) // Set to Info level to capture more detailed logs
 
 client := requests.Create(&requests.Config{

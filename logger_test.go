@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"golang.org/x/exp/slog"
 )
 
 type mockLoggerRecorder struct {
@@ -22,9 +21,9 @@ func (m *mockLoggerRecorder) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func TestSlogLoggerLevels(t *testing.T) {
+func TestDefaultLoggerLevels(t *testing.T) {
 	rec := &mockLoggerRecorder{}
-	logger := NewSlogLogger(rec, slog.LevelDebug)
+	logger := NewDefaultLogger(rec, LevelDebug)
 
 	logger.Debugf("debug %s", "message")
 	logger.Infof("info %s", "message")
