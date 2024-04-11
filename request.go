@@ -34,6 +34,7 @@ type RequestBuilder struct {
 	retryStrategy BackoffStrategy
 	retryIf       RetryIfFunc
 	auth          AuthMethod
+	stream        StreamCallback
 }
 
 // NewRequestBuilder creates a new RequestBuilder with default settings
@@ -471,6 +472,12 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 	return finalHandler(req)
 }
 
+// Stream sets the stream callback for the request
+func (b *RequestBuilder) Stream(callback StreamCallback) *RequestBuilder {
+	b.stream = callback
+	return b
+}
+
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	var body io.Reader
@@ -578,12 +585,16 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		if b.client.Logger != nil {
 			b.client.Logger.Errorf("Error executing request: %v", err)
 		}
+
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	// Wrap and return the response.
-	return NewResponse(ctx, resp, b.client)
+	return NewResponse(ctx, resp, b.client, b.stream)
 }
 
 func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {

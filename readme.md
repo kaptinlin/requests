@@ -145,6 +145,7 @@ For more on handling responses, see [docs/response.md](docs/response.md).
 - **Logging:** Learn how to configure logging for your requests. See [docs/logging.md](docs/logging.md).
 - **Middleware:** Extend functionality with custom middleware. See [docs/middleware.md](docs/middleware.md).
 - **Retry Mechanism:** Implement retry strategies for transient errors. See [docs/retry.md](docs/retry.md).
+- **Stream Support:** Utilize streaming for real-time data processing. See [docs/stream.md](docs/stream.md).
 
 ## Credits
 

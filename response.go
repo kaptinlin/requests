@@ -1,6 +1,7 @@
 package requests
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -14,6 +15,9 @@ import (
 )
 
 type Response struct {
+	stream      StreamCallback
+	streamErr   StreamErrCallback
+	streamDone  StreamDoneCallback
 	RawResponse *http.Response
 	BodyBytes   []byte
 	Context     context.Context
@@ -21,27 +25,67 @@ type Response struct {
 }
 
 // NewResponse creates a new wrapped response object, leveraging the buffer pool for efficient memory usage.
-func NewResponse(ctx context.Context, resp *http.Response, client *Client) (*Response, error) {
+func NewResponse(ctx context.Context, resp *http.Response, client *Client, stream StreamCallback) (*Response, error) {
 	response := &Response{
 		RawResponse: resp,
 		Context:     ctx,
 		BodyBytes:   nil,
+		stream:      stream,
 		Client:      client,
 	}
 
-	buf := GetBuffer() // Use the buffer pool
-	defer PutBuffer(buf)
+	if response.stream != nil {
+		go func() {
+			defer func() {
+				_ = resp.Body.Close()
+				if response.streamDone != nil {
+					response.streamDone()
+				}
+			}()
 
-	_, err := buf.ReadFrom(resp.Body)
-	if err != nil {
-		return response, fmt.Errorf("%w: %v", ErrResponseReadFailed, err)
+			scanner := bufio.NewScanner(resp.Body)
+
+			scanBuf := make([]byte, 0, maxStreamBufferSize)
+			scanner.Buffer(scanBuf, maxStreamBufferSize)
+
+			for scanner.Scan() {
+				err := response.stream(scanner.Bytes())
+				if err != nil && response.streamErr != nil {
+					break
+				}
+			}
+
+			if err := scanner.Err(); err != nil {
+				if response.streamErr != nil {
+					response.streamErr(err)
+				}
+			}
+		}()
+	} else {
+		buf := GetBuffer() // Use the buffer pool
+		defer PutBuffer(buf)
+
+		_, err := buf.ReadFrom(resp.Body)
+		if err != nil {
+			return response, fmt.Errorf("%w: %v", ErrResponseReadFailed, err)
+		}
+		_ = resp.Body.Close()
+
+		resp.Body = io.NopCloser(bytes.NewReader(buf.B))
+		response.BodyBytes = buf.B
 	}
-	_ = resp.Body.Close()
-
-	resp.Body = io.NopCloser(bytes.NewReader(buf.B))
-	response.BodyBytes = buf.B
 
 	return response, nil
+}
+
+// StreamErr sets the error callback for the response stream.
+func (r *Response) StreamErr(callback StreamErrCallback) {
+	r.streamErr = callback
+}
+
+// StreamDone sets the done callback for the response stream.
+func (r *Response) StreamDone(callback StreamDoneCallback) {
+	r.streamDone = callback
 }
 
 // StatusCode returns the HTTP status code of the response.
