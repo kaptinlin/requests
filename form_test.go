@@ -32,7 +32,7 @@ func startFileUploadServer() *httptest.Server {
 					http.Error(w, "Failed to open file", http.StatusInternalServerError)
 					return
 				}
-				defer file.Close()
+				defer file.Close() //nolint: errcheck
 
 				// Read file content (for demonstration; in real tests, might hash or skip)
 				content, err := io.ReadAll(file)

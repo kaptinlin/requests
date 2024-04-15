@@ -14,6 +14,7 @@ import (
 	"strings"
 )
 
+// Response represents an HTTP response.
 type Response struct {
 	stream      StreamCallback
 	streamErr   StreamErrCallback
@@ -37,46 +38,57 @@ func NewResponse(ctx context.Context, resp *http.Response, client *Client, strea
 	}
 
 	if response.stream != nil {
-		go func() {
-			defer resp.Body.Close()
-
-			scanner := bufio.NewScanner(resp.Body)
-
-			scanBuf := make([]byte, 0, maxStreamBufferSize)
-			scanner.Buffer(scanBuf, maxStreamBufferSize)
-
-			for scanner.Scan() {
-				err := response.stream(scanner.Bytes())
-				if err != nil {
-					break
-				}
-			}
-
-			if err := scanner.Err(); err != nil {
-				if response.streamErr != nil {
-					response.streamErr(err)
-				}
-			}
-
-			if response.streamDone != nil {
-				response.streamDone()
-			}
-		}()
+		go response.handleStream()
 	} else {
-		buf := GetBuffer() // Use the buffer pool
-		defer PutBuffer(buf)
-
-		_, err := buf.ReadFrom(resp.Body)
-		if err != nil {
-			return response, fmt.Errorf("%w: %v", ErrResponseReadFailed, err)
+		if err := response.handleNonStream(); err != nil {
+			return nil, err
 		}
-		_ = resp.Body.Close()
-
-		resp.Body = io.NopCloser(bytes.NewReader(buf.B))
-		response.BodyBytes = buf.B
 	}
 
 	return response, nil
+}
+
+// handleStream processes the HTTP response as a stream.
+func (r *Response) handleStream() {
+	defer func() {
+		if err := r.RawResponse.Body.Close(); err != nil {
+			r.Client.Logger.Errorf("failed to close response body: %v", err)
+		}
+	}()
+
+	scanner := bufio.NewScanner(r.RawResponse.Body)
+	scanBuf := make([]byte, 0, maxStreamBufferSize)
+	scanner.Buffer(scanBuf, maxStreamBufferSize)
+
+	for scanner.Scan() {
+		if err := r.stream(scanner.Bytes()); err != nil {
+			break
+		}
+	}
+
+	if err := scanner.Err(); err != nil && r.streamErr != nil {
+		r.streamErr(err)
+	}
+
+	if r.streamDone != nil {
+		r.streamDone()
+	}
+}
+
+// handleNonStream reads the HTTP response body into a buffer for non-streaming responses.
+func (r *Response) handleNonStream() error {
+	buf := GetBuffer() // Use the buffer pool
+	defer PutBuffer(buf)
+
+	_, err := buf.ReadFrom(r.RawResponse.Body)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrResponseReadFailed, err) //nolint:errorlint
+	}
+	_ = r.RawResponse.Body.Close()
+
+	r.RawResponse.Body = io.NopCloser(bytes.NewReader(buf.B))
+	r.BodyBytes = buf.B
+	return nil
 }
 
 // StatusCode returns the HTTP status code of the response.
@@ -114,7 +126,7 @@ func (r *Response) ContentType() string {
 	return r.Header().Get("Content-Type")
 }
 
-// Checks if the response Content-Type header matches a given content type.
+// IsContentType Checks if the response Content-Type header matches a given content type.
 func (r *Response) IsContentType(contentType string) bool {
 	return strings.Contains(r.ContentType(), contentType)
 }
@@ -165,13 +177,15 @@ func (r *Response) String() string {
 
 // Scan attempts to unmarshal the response body based on its content type.
 func (r *Response) Scan(v interface{}) error {
-	if r.IsJSON() {
+	switch {
+	case r.IsJSON():
 		return r.ScanJSON(v)
-	} else if r.IsXML() {
+	case r.IsXML():
 		return r.ScanXML(v)
-	} else if r.IsYAML() {
+	case r.IsYAML():
 		return r.ScanYAML(v)
 	}
+
 	return fmt.Errorf("%w: %s", ErrUnsupportedContentType, r.ContentType())
 }
 
@@ -199,6 +213,8 @@ func (r *Response) ScanYAML(v interface{}) error {
 	return r.Client.YAMLDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
 }
 
+const dirPermissions = 0o750
+
 // Save saves the response body to a file or io.Writer.
 func (r *Response) Save(v any) error {
 	switch p := v.(type) {
@@ -212,7 +228,7 @@ func (r *Response) Save(v any) error {
 				return fmt.Errorf("failed to check directory: %w", err)
 			}
 
-			if err = os.MkdirAll(dir, 0o750); err != nil {
+			if err = os.MkdirAll(dir, dirPermissions); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		}
@@ -222,7 +238,11 @@ func (r *Response) Save(v any) error {
 		if err != nil {
 			return fmt.Errorf("failed to create file: %w", err)
 		}
-		defer outFile.Close() // Ensure file is closed after writing
+		defer func() {
+			if err := outFile.Close(); err != nil {
+				r.Client.Logger.Errorf("failed to close file: %v", err)
+			}
+		}()
 
 		// Write the response body to the file
 		_, err = io.Copy(outFile, bytes.NewReader(r.Body()))
@@ -239,7 +259,9 @@ func (r *Response) Save(v any) error {
 		}
 		// If the writer can be closed, close it
 		if pc, ok := p.(io.WriteCloser); ok {
-			defer pc.Close() // Deferred close, ignoring errors as they are not critical here
+			if err := pc.Close(); err != nil {
+				r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
+			}
 		}
 
 		return nil

@@ -6,10 +6,12 @@ import (
 	"io"
 )
 
+// XMLEncoder handles encoding of XML data.
 type XMLEncoder struct {
 	MarshalFunc func(v any) ([]byte, error)
 }
 
+// Encode marshals the provided value into XML format.
 func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
 	var err error
 	var data []byte
@@ -34,18 +36,22 @@ func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
 	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
 }
 
+// ContentType returns the content type for XML data.
 func (e *XMLEncoder) ContentType() string {
 	return "application/xml;charset=utf-8"
 }
 
+// DefaultXMLEncoder instance using the standard xml.Marshal function
 var DefaultXMLEncoder = &XMLEncoder{
 	MarshalFunc: xml.Marshal,
 }
 
+// XMLDecoder handles decoding of XML data.
 type XMLDecoder struct {
 	UnmarshalFunc func(data []byte, v any) error
 }
 
+// Decode reads the data from the reader and unmarshals it into the provided value.
 func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -59,6 +65,7 @@ func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 	return xml.Unmarshal(data, v) // Fallback to standard XML unmarshal
 }
 
+// DefaultXMLDecoder instance using the standard xml.Unmarshal function
 var DefaultXMLDecoder = &XMLDecoder{
 	UnmarshalFunc: xml.Unmarshal,
 }

@@ -835,7 +835,7 @@ func (b *RequestBuilder) Body(body interface{}) *RequestBuilder {
 	return b
 }
 
-func (b *RequestBuilder) JsonBody(v interface{}) *RequestBuilder {
+func (b *RequestBuilder) JSONBody(v interface{}) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/json")
 	return b

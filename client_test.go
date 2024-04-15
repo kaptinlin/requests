@@ -153,7 +153,7 @@ func TestSetHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close()
+	defer resp.Close() //nolint: errcheck
 
 	// Verify that the server responded with a 200 OK, indicating the custom cookie was successfully added.
 	if resp.StatusCode() != http.StatusOK {
@@ -297,7 +297,7 @@ func TestSetJSONMarshal(t *testing.T) {
 	}
 
 	// Send a request with the custom marshaled body.
-	resp, err := client.Post("/").JsonBody(&data).Send(context.Background())
+	resp, err := client.Post("/").JSONBody(&data).Send(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
@@ -489,7 +489,7 @@ func TestSetAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close()
+	defer resp.Close() //nolint: errcheck
 
 	// Check the response status code.
 	if resp.StatusCode() != http.StatusOK {

@@ -45,7 +45,7 @@ func TestMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close()
+	defer resp.Close() //nolint: errcheck
 
 	// Check if the server responded with a 200 OK, indicating the middleware applied the header successfully
 	if resp.StatusCode() != http.StatusOK {
@@ -99,7 +99,7 @@ func TestNestedMiddleware(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close()
+	defer resp.Close() //nolint: errcheck
 
 	expected := "0>>1>>2>>(served)>>2>>1>>0"
 	if buf.String() != expected {

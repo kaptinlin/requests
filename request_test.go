@@ -526,7 +526,7 @@ func TestBody(t *testing.T) {
 	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"], "The content type should be set correctly.")
 }
 
-func TestJsonBody(t *testing.T) {
+func TestJSONBody(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
@@ -537,7 +537,7 @@ func TestJsonBody(t *testing.T) {
 	jsonDataStr, _ := json.Marshal(jsonData)
 
 	resp, err := client.Post("/").
-		JsonBody(jsonData).
+		JSONBody(jsonData).
 		Send(context.Background())
 	assert.NoError(t, err)
 
@@ -855,7 +855,7 @@ func TestAuthRequest(t *testing.T) {
 		// If there's an error sending the request, fail the test.
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close() // Ensure the response body is closed after handling.
+	defer resp.Close() //nolint: errcheck
 
 	// Check if the response status code is 200 OK, which indicates successful authentication.
 	if resp.StatusCode() != http.StatusOK {

@@ -33,15 +33,15 @@ func (c *Client) SetProxy(proxyURL string) error {
 		return err
 	}
 
-	// Ensure the HttpClient's Transport is properly initialized
-	if c.HttpClient.Transport == nil {
-		c.HttpClient.Transport = &http.Transport{}
+	// Ensure the HTTPClient's Transport is properly initialized
+	if c.HTTPClient.Transport == nil {
+		c.HTTPClient.Transport = &http.Transport{}
 	}
 
 	// Assert the Transport to *http.Transport to access the Proxy field
-	transport, ok := c.HttpClient.Transport.(*http.Transport)
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
 	if !ok {
-		return fmt.Errorf("expected *http.Transport, got %T", c.HttpClient.Transport)
+		return fmt.Errorf("%w: expected *http.Transport, got %T", ErrInvalidTransportType, c.HTTPClient.Transport)
 	}
 
 	// Set the proxy
@@ -54,11 +54,11 @@ func (c *Client) RemoveProxy() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.HttpClient.Transport == nil {
+	if c.HTTPClient.Transport == nil {
 		return
 	}
 
-	transport, ok := c.HttpClient.Transport.(*http.Transport)
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
 	if !ok {
 		return // If it's not *http.Transport, it doesn't have a proxy to remove
 	}

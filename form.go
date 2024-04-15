@@ -16,18 +16,22 @@ type File struct {
 	Content  io.ReadCloser // File content
 }
 
+// SetContent sets the content of the file
 func (f *File) SetContent(content io.ReadCloser) {
 	f.Content = content
 }
 
+// SetFileName sets the file name
 func (f *File) SetFileName(fileName string) {
 	f.FileName = fileName
 }
 
+// SetName sets the form field name
 func (f *File) SetName(name string) {
 	f.Name = name
 }
 
+// parseFormFields parses the given form fields into url.Values.
 func parseFormFields(fields any) (url.Values, error) {
 	switch data := fields.(type) {
 	case url.Values:
@@ -49,11 +53,12 @@ func parseFormFields(fields any) (url.Values, error) {
 			return values, nil
 		} else {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err)
+			return nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err) //nolint:errorlint
 		}
 	}
 }
 
+// parseForm parses the given form data into url.Values and []*File.
 func parseForm(v any) (url.Values, []*File, error) {
 	switch data := v.(type) {
 	case url.Values:
@@ -96,7 +101,7 @@ func parseForm(v any) (url.Values, []*File, error) {
 			return values, nil, nil
 		} else {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err)
+			return nil, nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err) //nolint:errorlint
 		}
 	}
 }
@@ -127,9 +132,10 @@ func (e *FormEncoder) Encode(v any) (io.Reader, error) {
 			return strings.NewReader(values.Encode()), nil
 		} else {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, fmt.Errorf("%w: %v", ErrEncodingFailed, err)
+			return nil, fmt.Errorf("%w: %v", ErrEncodingFailed, err) //nolint:errorlint
 		}
 	}
 }
 
+// DefaultFormEncoder instance
 var DefaultFormEncoder = &FormEncoder{}

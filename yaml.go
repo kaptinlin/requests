@@ -7,10 +7,12 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// YAMLEncoder handles encoding of YAML data.
 type YAMLEncoder struct {
 	MarshalFunc func(v any) ([]byte, error)
 }
 
+// Encode marshals the provided value into YAML format.
 func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 	var err error
 	var data []byte
@@ -36,6 +38,7 @@ func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
 }
 
+// ContentType returns the content type for YAML data.
 func (e *YAMLEncoder) ContentType() string {
 	return "application/yaml;charset=utf-8"
 }
@@ -45,10 +48,12 @@ var DefaultYAMLEncoder = &YAMLEncoder{
 	MarshalFunc: yaml.Marshal,
 }
 
+// YAMLDecoder handles decoding of YAML data.
 type YAMLDecoder struct {
 	UnmarshalFunc func(data []byte, v any) error
 }
 
+// Decode reads the data from the reader and unmarshals it into the provided value.
 func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 	data, err := io.ReadAll(r)
 	if err != nil {

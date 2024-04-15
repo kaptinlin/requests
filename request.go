@@ -109,7 +109,7 @@ func (b *RequestBuilder) preparePath() string {
 	preparedPath := b.path
 	for key, value := range b.pathParams {
 		placeholder := "{" + key + "}"
-		preparedPath = strings.Replace(preparedPath, placeholder, url.PathEscape(value), -1)
+		preparedPath = strings.ReplaceAll(preparedPath, placeholder, url.PathEscape(value))
 	}
 	return preparedPath
 }
@@ -345,30 +345,35 @@ func (b *RequestBuilder) Body(body interface{}) *RequestBuilder {
 	return b
 }
 
-func (b *RequestBuilder) JsonBody(v interface{}) *RequestBuilder {
+// JSONBody sets the request body as JSON
+func (b *RequestBuilder) JSONBody(v interface{}) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/json")
 	return b
 }
 
+// XMLBody sets the request body as XML
 func (b *RequestBuilder) XMLBody(v interface{}) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/xml")
 	return b
 }
 
+// YAMLBody sets the request body as YAML
 func (b *RequestBuilder) YAMLBody(v interface{}) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/yaml")
 	return b
 }
 
+// TextBody sets the request body as plain text
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "text/plain")
 	return b
 }
 
+// RawBody sets the request body as raw bytes
 func (b *RequestBuilder) RawBody(v []byte) *RequestBuilder {
 	b.bodyData = v
 	return b
@@ -416,13 +421,13 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 		}
 
 		if maxRetries < 1 {
-			return b.client.HttpClient.Do(req) // Single request, no retries
+			return b.client.HTTPClient.Do(req) // Single request, no retries
 		}
 
 		var lastErr error
 		var resp *http.Response
 		for attempt := 0; attempt <= maxRetries; attempt++ {
-			resp, lastErr = b.client.HttpClient.Do(req)
+			resp, lastErr = b.client.HTTPClient.Do(req)
 
 			// Determine if a retry is needed
 			shouldRetry := lastErr != nil || (resp != nil && retryIf != nil && retryIf(req, resp, lastErr))
@@ -436,7 +441,11 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 			}
 
 			if resp != nil {
-				resp.Body.Close() // Prevent resource leaks
+				if err := resp.Body.Close(); err != nil {
+					if b.client.Logger != nil {
+						b.client.Logger.Errorf("Error closing response body: %v", err)
+					}
+				}
 			}
 
 			// Logging retry decision
@@ -498,13 +507,16 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	var contentType string
 	var err error
 
-	// Check if the request includes files, indicating multipart/form-data encoding is required.
-	if len(b.formFiles) > 0 {
+	switch {
+	case len(b.formFiles) > 0:
+		// If the request includes files, indicating multipart/form-data encoding is required.
 		body, contentType, err = b.prepareMultipartBody()
-	} else if len(b.formFields) > 0 {
+
+	case len(b.formFields) > 0:
 		// For form fields without files, use application/x-www-form-urlencoded encoding.
-		body, contentType, err = b.prepareFormFieldsBody()
-	} else if b.bodyData != nil {
+		body, contentType = b.prepareFormFieldsBody()
+
+	case b.bodyData != nil:
 		// Fallback to handling as per original logic for JSON, XML, etc.
 		body, contentType, err = b.prepareBodyBasedOnContentType()
 	}
@@ -554,7 +566,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		if b.client.Logger != nil {
 			b.client.Logger.Errorf("Error creating request: %v", err)
 		}
-		return nil, fmt.Errorf("%w: %v", ErrRequestCreationFailed, err)
+		return nil, fmt.Errorf("%w: %v", ErrRequestCreationFailed, err) //nolint:errorlint
 	}
 
 	if b.auth != nil {
@@ -612,7 +624,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 			b.client.Logger.Errorf("Response is nil")
 		}
 
-		return nil, fmt.Errorf("%w: %v", ErrResponseNil, err)
+		return nil, fmt.Errorf("%w: %v", ErrResponseNil, err) //nolint:errorlint
 	}
 
 	// Wrap and return the response.
@@ -667,10 +679,10 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 	return &buf, writer.FormDataContentType(), nil
 }
 
-func (b *RequestBuilder) prepareFormFieldsBody() (io.Reader, string, error) {
+func (b *RequestBuilder) prepareFormFieldsBody() (io.Reader, string) {
 	// Encode formFields as URL-encoded string
 	data := b.formFields.Encode()
-	return strings.NewReader(data), "application/x-www-form-urlencoded", nil
+	return strings.NewReader(data), "application/x-www-form-urlencoded"
 }
 
 func (b *RequestBuilder) prepareBodyBasedOnContentType() (io.Reader, string, error) {

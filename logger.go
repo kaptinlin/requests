@@ -7,6 +7,7 @@ import (
 	"golang.org/x/exp/slog"
 )
 
+// Level is a type that represents the log level.
 type Level int
 
 // The levels of logs.
@@ -26,6 +27,7 @@ type Logger interface {
 	SetLevel(level Level)
 }
 
+// DefaultLogger is a default logger that uses `slog` as the underlying logger.
 type DefaultLogger struct {
 	logger *slog.Logger
 	level  *slog.LevelVar
@@ -65,6 +67,7 @@ func (l *DefaultLogger) SetLevel(level Level) {
 	}
 }
 
+// NewDefaultLogger creates a new `DefaultLogger` with the given output and log level.
 func NewDefaultLogger(output io.Writer, level Level) Logger {
 	levelVar := &slog.LevelVar{}
 

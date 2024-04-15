@@ -19,7 +19,7 @@ type Client struct {
 	MaxRetries    int             // Maximum number of retry attempts
 	RetryStrategy BackoffStrategy // The backoff strategy function
 	RetryIf       RetryIfFunc     // Custom function to determine retry based on request and response
-	HttpClient    *http.Client
+	HTTPClient    *http.Client
 	JSONEncoder   Encoder
 	JSONDecoder   Decoder
 	XMLEncoder    Encoder
@@ -75,7 +75,7 @@ func Create(config *Config) *Client {
 	client := &Client{
 		BaseURL:     config.BaseURL,
 		Headers:     config.Headers,
-		HttpClient:  httpClient,
+		HTTPClient:  httpClient,
 		JSONEncoder: DefaultJSONEncoder,
 		JSONDecoder: DefaultJSONDecoder,
 		XMLEncoder:  DefaultXMLEncoder,
@@ -151,16 +151,16 @@ func (c *Client) SetTLSConfig(config *tls.Config) *Client {
 
 	c.TLSConfig = config
 
-	if c.HttpClient == nil {
-		c.HttpClient = &http.Client{}
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
 	}
 
 	// Apply the TLS configuration to the existing transport if possible.
 	// If the current transport is not an *http.Transport, replace it.
-	if transport, ok := c.HttpClient.Transport.(*http.Transport); ok {
+	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
 		transport.TLSClientConfig = config
 	} else {
-		c.HttpClient.Transport = &http.Transport{
+		c.HTTPClient.Transport = &http.Transport{
 			TLSClientConfig: config,
 		}
 	}
@@ -174,18 +174,20 @@ func (c *Client) InsecureSkipVerify() *Client {
 	defer c.mu.Unlock()
 
 	if c.TLSConfig == nil {
-		c.TLSConfig = &tls.Config{}
+		c.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 
 	c.TLSConfig.InsecureSkipVerify = true
 
-	if c.HttpClient == nil {
-		c.HttpClient = &http.Client{}
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
 	}
-	if transport, ok := c.HttpClient.Transport.(*http.Transport); ok {
+	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
 		transport.TLSClientConfig = c.TLSConfig
 	} else {
-		c.HttpClient.Transport = &http.Transport{
+		c.HTTPClient.Transport = &http.Transport{
 			TLSClientConfig: c.TLSConfig,
 		}
 	}
@@ -198,7 +200,7 @@ func (c *Client) SetHTTPClient(httpClient *http.Client) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HttpClient = httpClient
+	c.HTTPClient = httpClient
 }
 
 // SetDefaultHeaders sets the default headers for the client
@@ -266,7 +268,7 @@ func (c *Client) SetDefaultTimeout(timeout time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HttpClient.Timeout = timeout
+	c.HTTPClient.Timeout = timeout
 }
 
 // SetDefaultTransport sets the default transport for the client
@@ -274,7 +276,7 @@ func (c *Client) SetDefaultTransport(transport http.RoundTripper) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HttpClient.Transport = transport
+	c.HTTPClient.Transport = transport
 }
 
 // SetDefaultCookieJar sets the default cookie jar for the client
@@ -282,7 +284,7 @@ func (c *Client) SetDefaultCookieJar(jar *cookiejar.Jar) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HttpClient.Jar = jar
+	c.HTTPClient.Jar = jar
 }
 
 // SetDefaultCookies sets the default cookies for the client

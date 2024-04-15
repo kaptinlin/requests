@@ -35,6 +35,7 @@ func ExponentialBackoffStrategy(initialInterval time.Duration, multiplier float6
 	}
 }
 
+// RetryConfig defines the configuration for retrying requests.
 type RetryConfig struct {
 	MaxRetries int             // Maximum number of retry attempts
 	Strategy   BackoffStrategy // The backoff strategy function

@@ -137,11 +137,11 @@ request.DelCookie("session_token", "user_id")
 
 ### Body Content
 
-Specify the request body directly with `Body` or use format-specific methods like `JsonBody`, `XMLBody`, `YAMLBody`, `TextBody`, or `RawBody` for appropriate content types.
+Specify the request body directly with `Body` or use format-specific methods like `JSONBody`, `XMLBody`, `YAMLBody`, `TextBody`, or `RawBody` for appropriate content types.
 
 ```go
 // Setting JSON body
-request.JsonBody(map[string]interface{}{"key": "value"})
+request.JSONBody(map[string]interface{}{"key": "value"})
 
 // Setting XML body
 request.XMLBody(myXmlStruct)
