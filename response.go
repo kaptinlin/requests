@@ -25,23 +25,20 @@ type Response struct {
 }
 
 // NewResponse creates a new wrapped response object, leveraging the buffer pool for efficient memory usage.
-func NewResponse(ctx context.Context, resp *http.Response, client *Client, stream StreamCallback) (*Response, error) {
+func NewResponse(ctx context.Context, resp *http.Response, client *Client, stream StreamCallback, streamErr StreamErrCallback, streamDone StreamDoneCallback) (*Response, error) {
 	response := &Response{
 		RawResponse: resp,
 		Context:     ctx,
 		BodyBytes:   nil,
 		stream:      stream,
+		streamErr:   streamErr,
+		streamDone:  streamDone,
 		Client:      client,
 	}
 
 	if response.stream != nil {
 		go func() {
-			defer func() {
-				_ = resp.Body.Close()
-				if response.streamDone != nil {
-					response.streamDone()
-				}
-			}()
+			defer resp.Body.Close()
 
 			scanner := bufio.NewScanner(resp.Body)
 
@@ -50,7 +47,7 @@ func NewResponse(ctx context.Context, resp *http.Response, client *Client, strea
 
 			for scanner.Scan() {
 				err := response.stream(scanner.Bytes())
-				if err != nil && response.streamErr != nil {
+				if err != nil {
 					break
 				}
 			}
@@ -59,6 +56,10 @@ func NewResponse(ctx context.Context, resp *http.Response, client *Client, strea
 				if response.streamErr != nil {
 					response.streamErr(err)
 				}
+			}
+
+			if response.streamDone != nil {
+				response.streamDone()
 			}
 		}()
 	} else {
@@ -76,16 +77,6 @@ func NewResponse(ctx context.Context, resp *http.Response, client *Client, strea
 	}
 
 	return response, nil
-}
-
-// StreamErr sets the error callback for the response stream.
-func (r *Response) StreamErr(callback StreamErrCallback) {
-	r.streamErr = callback
-}
-
-// StreamDone sets the done callback for the response stream.
-func (r *Response) StreamDone(callback StreamDoneCallback) {
-	r.streamDone = callback
 }
 
 // StatusCode returns the HTTP status code of the response.

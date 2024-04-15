@@ -138,8 +138,14 @@ func TestQueryStructWithClient(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		queryParams := r.URL.Query()
 		w.Header().Set("Content-Type", "application/json")
-		// JSON encode the query parameters map for easy assertion in the client
-		json.NewEncoder(w).Encode(queryParams)
+
+		if encoder := json.NewEncoder(w); encoder != nil {
+			if err := encoder.Encode(queryParams); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			}
+		} else {
+			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -408,7 +414,13 @@ func startEchoServer() *httptest.Server {
 			"body":        string(bodyBytes),
 			"contentType": r.Header.Get("Content-Type"),
 		}
-		json.NewEncoder(w).Encode(response)
+		if encoder := json.NewEncoder(w); encoder != nil {
+			if err := encoder.Encode(response); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			}
+		} else {
+			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		}
 	}))
 }
 
@@ -686,7 +698,13 @@ func TestFormWithNil(t *testing.T) {
 			"status": "received",
 			"body":   "empty or nil form",
 		}
-		json.NewEncoder(w).Encode(response)
+		if encoder := json.NewEncoder(w); encoder != nil {
+			if err := encoder.Encode(response); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			}
+		} else {
+			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
@@ -730,7 +748,13 @@ func startFormHandlingServer() *httptest.Server {
 			"fields": fields,
 			"files":  files,
 		}
-		json.NewEncoder(w).Encode(response)
+		if encoder := json.NewEncoder(w); encoder != nil {
+			if err := encoder.Encode(response); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			}
+		} else {
+			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		}
 	}))
 }
 

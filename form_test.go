@@ -52,7 +52,14 @@ func startFileUploadServer() *httptest.Server {
 
 		// Respond with details of the uploaded files in JSON format
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(uploads)
+
+		if encoder := json.NewEncoder(w); encoder != nil {
+			if err = encoder.Encode(uploads); err != nil {
+				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+			}
+		} else {
+			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		}
 	}))
 }
 

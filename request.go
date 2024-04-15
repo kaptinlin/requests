@@ -35,6 +35,8 @@ type RequestBuilder struct {
 	retryIf       RetryIfFunc
 	auth          AuthMethod
 	stream        StreamCallback
+	streamErr     StreamErrCallback
+	streamDone    StreamDoneCallback
 }
 
 // NewRequestBuilder creates a new RequestBuilder with default settings
@@ -478,6 +480,18 @@ func (b *RequestBuilder) Stream(callback StreamCallback) *RequestBuilder {
 	return b
 }
 
+// StreamErr sets the error callback for the request.
+func (b *RequestBuilder) StreamErr(callback StreamErrCallback) *RequestBuilder {
+	b.streamErr = callback
+	return b
+}
+
+// StreamDone sets the done callback for the request.
+func (b *RequestBuilder) StreamDone(callback StreamDoneCallback) *RequestBuilder {
+	b.streamDone = callback
+	return b
+}
+
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	var body io.Reader
@@ -593,8 +607,16 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		return nil, err
 	}
 
+	if resp == nil {
+		if b.client.Logger != nil {
+			b.client.Logger.Errorf("Response is nil")
+		}
+
+		return nil, fmt.Errorf("%w: %v", ErrResponseNil, err)
+	}
+
 	// Wrap and return the response.
-	return NewResponse(ctx, resp, b.client, b.stream)
+	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
 }
 
 func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
