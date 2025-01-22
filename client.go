@@ -396,6 +396,19 @@ func (c *Client) SetAuth(auth AuthMethod) {
 	}
 }
 
+// SetRedirectPolicy sets the redirect policy for the client
+func (c *Client) SetRedirectPolicy(policies ...RedirectPolicy) *Client {
+	c.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		for _, p := range policies {
+			if err := p.Apply(req, via); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c
+}
+
 // SetLogger sets logger instance in client.
 func (c *Client) SetLogger(logger Logger) *Client {
 	c.mu.Lock()
