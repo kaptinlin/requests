@@ -12,7 +12,7 @@ require (
 require (
 	github.com/bytedance/sonic v1.12.7
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/goccy/go-yaml v1.14.3
+	github.com/goccy/go-yaml v1.15.16
 	github.com/google/go-querystring v1.1.0
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
