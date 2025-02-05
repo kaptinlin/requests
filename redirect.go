@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// RedirectPolicy is an interface that defines the Apply method
 type RedirectPolicy interface {
 	Apply(req *http.Request, via []*http.Request) error
 }

@@ -24,6 +24,7 @@ func TestRedirectPolicies(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	// Test NoRedirectPolicy
 	t.Run("NoRedirectPolicy", func(t *testing.T) {
 		client := Create(nil)
 		client.SetRedirectPolicy(NewNoRedirectPolicy())
@@ -37,6 +38,7 @@ func TestRedirectPolicies(t *testing.T) {
 		}
 	})
 
+	// Test FlexibleRedirectPolicy
 	t.Run("FlexibleRedirectPolicy-OK", func(t *testing.T) {
 		client := Create(nil)
 		client.SetRedirectPolicy(NewFlexibleRedirectPolicy(3))
@@ -50,6 +52,7 @@ func TestRedirectPolicies(t *testing.T) {
 		}
 	})
 
+	// Test FlexibleRedirectPolicy-EXCEEDS LIMIT
 	t.Run("FlexibleRedirectPolicy-EXCEEDS LIMIT", func(t *testing.T) {
 		client := Create(nil)
 		client.SetRedirectPolicy(NewFlexibleRedirectPolicy(1))
@@ -60,6 +63,7 @@ func TestRedirectPolicies(t *testing.T) {
 		}
 	})
 
+	// Test DomainCheckRedirectPolicy
 	t.Run("DomainCheckRedirectPolicy", func(t *testing.T) {
 		client := Create(&Config{BaseURL: ts.URL})
 		host := "127.0.0.1"
@@ -74,6 +78,7 @@ func TestRedirectPolicies(t *testing.T) {
 		}
 	})
 
+	// Test DomainCheckRedirectPolicy-Prohibit Domain Names
 	t.Run("DomainCheckRedirectPolicy-Prohibit Domain Names", func(t *testing.T) {
 		client := Create(nil)
 		client.SetRedirectPolicy(NewDomainCheckRedirectPolicy("other.domain.com"))

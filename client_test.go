@@ -877,3 +877,102 @@ func TestSetRetryIf(t *testing.T) {
 		t.Errorf("Expected 2 retries, got %d", retryCount)
 	}
 }
+
+func TestClientCertificates(t *testing.T) {
+	serverCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+	require.NoError(t, err, "load server certificate failed")
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("certificate verification successful"))
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte("lack of client certificate"))
+		}
+	}))
+	clientCertPool := x509.NewCertPool()
+	clientCertData, err := os.ReadFile(".github/testdata/cert.pem")
+	require.NoError(t, err, "load client certificate failed")
+	clientCertPool.AppendCertsFromPEM(clientCertData)
+	clientCertPath := ".github/testdata/cert.pem"
+
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    clientCertPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL: server.URL,
+	})
+
+	t.Run("use client certificate", func(t *testing.T) {
+		clientCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+		require.NoError(t, err, "load client certificate failed")
+
+		client.SetTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+		client.SetCertificates(clientCert)
+		client.SetClientRootCertificate(clientCertPath)
+		resp, err := client.Get("/").Send(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode(), "status code not correct")
+		assert.Equal(t, "certificate verification successful", resp.String(), "response content not correct")
+	})
+
+	t.Run("do not use client certificate", func(t *testing.T) {
+		clientWithoutCert := Create(&Config{
+			BaseURL: server.URL,
+		})
+		clientWithoutCert.SetTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+		clientWithoutCert.SetClientRootCertificate(clientCertPath)
+
+		_, err := clientWithoutCert.Get("/").Send(context.Background())
+		assert.Error(t, err, "expect request failed")
+	})
+}
+
+func TestClientSetRootCertificate(t *testing.T) {
+	t.Run("root cert", func(t *testing.T) {
+		filePath := ".testdata/sample_root.pem"
+
+		client := Create(nil)
+		client.SetRootCertificate(filePath)
+
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		}
+	})
+
+	t.Run("root cert not exists", func(t *testing.T) {
+		filePath := "../.testdata/not-exists-sample-root.pem"
+
+		client := Create(nil)
+		client.SetRootCertificate(filePath)
+
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.Nil(t, transport.TLSClientConfig)
+		}
+	})
+
+	t.Run("root cert from string", func(t *testing.T) {
+		client := Create(nil)
+
+		cert := `-----BEGIN CERTIFICATE-----`
+
+		client.SetRootCertificateFromString(cert)
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		}
+	})
+}

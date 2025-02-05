@@ -2,8 +2,10 @@ package requests
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"sync"
 	"time"
 )
@@ -192,6 +194,64 @@ func (c *Client) InsecureSkipVerify() *Client {
 		}
 	}
 
+	return c
+}
+
+func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.TLSConfig == nil {
+		c.TLSConfig = &tls.Config{}
+	}
+	c.TLSConfig.Certificates = certs
+	return c
+}
+
+func (c *Client) SetRootCertificate(pemFilePath string) *Client {
+	rootPemData, err := os.ReadFile(pemFilePath)
+	if err != nil {
+		return c
+	}
+	c.handleCAs("root", rootPemData)
+	return c
+}
+
+func (c *Client) SetRootCertificateFromString(pemCerts string) *Client {
+	return c.handleCAs("root", []byte(pemCerts))
+}
+
+func (c *Client) SetClientRootCertificate(pemFilePath string) *Client {
+	rootPemData, err := os.ReadFile(pemFilePath)
+	if err != nil {
+		return c
+	}
+	return c.handleCAs("client", rootPemData)
+}
+
+func (c *Client) SetClientRootCertificateFromString(pemCerts string) *Client {
+	return c.handleCAs("client", []byte(pemCerts))
+}
+
+func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.TLSConfig == nil {
+		c.TLSConfig = &tls.Config{}
+	}
+	switch scope {
+	case "root":
+		if c.TLSConfig.RootCAs == nil {
+			c.TLSConfig.RootCAs = x509.NewCertPool()
+		}
+		c.TLSConfig.RootCAs.AppendCertsFromPEM(permCerts)
+	case "client":
+		if c.TLSConfig.ClientCAs == nil {
+			c.TLSConfig.ClientCAs = x509.NewCertPool()
+		}
+		c.TLSConfig.ClientCAs.AppendCertsFromPEM(permCerts)
+	}
 	return c
 }
 
