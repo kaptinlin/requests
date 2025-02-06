@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // Client represents an HTTP client
@@ -46,6 +48,7 @@ type Config struct {
 	RetryStrategy BackoffStrategy   // The backoff strategy function
 	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
 	Logger        Logger            // Logger instance for the client
+	HTTP2         bool              // Whether to use HTTP/2，The priority of http2 is lower than that of Transport
 }
 
 // URL creates a new HTTP client with the given base URL.
@@ -92,8 +95,18 @@ func Create(config *Config) *Client {
 		httpTransport := httpClient.Transport.(*http.Transport)
 		httpTransport.TLSClientConfig = client.TLSConfig
 	} else if client.TLSConfig != nil {
-		httpClient.Transport = &http.Transport{
-			TLSClientConfig: client.TLSConfig,
+		if config.HTTP2 {
+			client.HTTPClient.Transport = &http2.Transport{
+				TLSClientConfig: client.TLSConfig,
+			}
+		} else {
+			client.HTTPClient.Transport = &http.Transport{
+				TLSClientConfig: client.TLSConfig,
+			}
+		}
+	} else {
+		if config.HTTP2 {
+			client.HTTPClient.Transport = &http2.Transport{}
 		}
 	}
 

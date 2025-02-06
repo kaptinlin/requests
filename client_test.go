@@ -976,3 +976,73 @@ func TestClientSetRootCertificate(t *testing.T) {
 		}
 	})
 }
+
+func TestH2Scenarios(t *testing.T) {
+	tests := []struct {
+		name            string
+		config          *Config
+		url             string
+		expectedVersion string
+		expectedError   string
+	}{
+		{
+			name:            "Default HTTP version, request to use http2 version URL",
+			config:          &Config{},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "HTTP/2.0",
+			expectedError:   "",
+		},
+		{
+			name:            "Explicit HTTP/2, request to use http2 version URL",
+			config:          &Config{HTTP2: true},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "HTTP/2.0",
+			expectedError:   "",
+		},
+		{
+			name: "Set Transport, request to use http2 version URL,The priority of http2 is lower than that of Transport",
+			config: &Config{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "",
+			expectedError:   "Get \"https://tools.scrapfly.io/api/fp/anything\": EOF",
+		},
+		{
+			name: "Set Transport, request to use http1.1 version URL",
+			config: &Config{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}},
+			url:             "https://www.baidu.com",
+			expectedVersion: "HTTP/1.1",
+			expectedError:   "",
+		},
+		{
+			name:            "Explicit HTTP/2 with Baidu",
+			config:          &Config{HTTP2: true},
+			url:             "https://www.baidu.com",
+			expectedVersion: "",
+			expectedError:   "Get \"https://www.baidu.com\": http2: unexpected ALPN protocol \"\"; want \"h2\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := Create(tt.config)
+
+			resp, err := client.Get(tt.url).Send(context.Background())
+			if err != nil {
+				assert.Equal(t, tt.expectedError, err.Error(), "Protocol settings are incorrect")
+				return
+			} else {
+				defer resp.Close()
+
+				assert.Equal(t, tt.expectedVersion, resp.RawResponse.Proto, "Protocol version mismatch")
+			}
+		})
+	}
+}
