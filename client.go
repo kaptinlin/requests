@@ -14,41 +14,43 @@ import (
 
 // Client represents an HTTP client
 type Client struct {
-	mu            sync.RWMutex
-	BaseURL       string
-	Headers       *http.Header
-	Cookies       []*http.Cookie
-	Middlewares   []Middleware
-	TLSConfig     *tls.Config
-	MaxRetries    int             // Maximum number of retry attempts
-	RetryStrategy BackoffStrategy // The backoff strategy function
-	RetryIf       RetryIfFunc     // Custom function to determine retry based on request and response
-	HTTPClient    *http.Client
-	JSONEncoder   Encoder
-	JSONDecoder   Decoder
-	XMLEncoder    Encoder
-	XMLDecoder    Decoder
-	YAMLEncoder   Encoder
-	YAMLDecoder   Decoder
-	Logger        Logger
-	auth          AuthMethod
+	mu             sync.RWMutex
+	BaseURL        string
+	Headers        *http.Header
+	Cookies        []*http.Cookie
+	Middlewares    []Middleware
+	TLSConfig      *tls.Config
+	MaxRetries     int             // Maximum number of retry attempts
+	RetryStrategy  BackoffStrategy // The backoff strategy function
+	RetryIf        RetryIfFunc     // Custom function to determine retry based on request and response
+	HTTPClient     *http.Client
+	JSONEncoder    Encoder
+	JSONDecoder    Decoder
+	XMLEncoder     Encoder
+	XMLDecoder     Decoder
+	YAMLEncoder    Encoder
+	YAMLDecoder    Decoder
+	Logger         Logger
+	auth           AuthMethod
+	TLSFingerprint *TLSFingerprint // Add TLS fingerprint support
 }
 
 // Config sets up the initial configuration for the HTTP client.
 type Config struct {
-	BaseURL       string            // The base URL for all requests made by this client.
-	Headers       *http.Header      // Default headers to be sent with each request.
-	Cookies       map[string]string // Default Cookies to be sent with each request.
-	Timeout       time.Duration     // Timeout for requests.
-	CookieJar     *cookiejar.Jar    // Cookie jar for the client.
-	Middlewares   []Middleware      // Middleware stack for request/response manipulation.
-	TLSConfig     *tls.Config       // TLS configuration for the client.
-	Transport     http.RoundTripper // Custom transport for the client.
-	MaxRetries    int               // Maximum number of retry attempts
-	RetryStrategy BackoffStrategy   // The backoff strategy function
-	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
-	Logger        Logger            // Logger instance for the client
-	HTTP2         bool              // Whether to use HTTP/2，The priority of http2 is lower than that of Transport
+	BaseURL        string            // The base URL for all requests made by this client.
+	Headers        *http.Header      // Default headers to be sent with each request.
+	Cookies        map[string]string // Default Cookies to be sent with each request.
+	Timeout        time.Duration     // Timeout for requests.
+	CookieJar      *cookiejar.Jar    // Cookie jar for the client.
+	Middlewares    []Middleware      // Middleware stack for request/response manipulation.
+	TLSConfig      *tls.Config       // TLS configuration for the client.
+	Transport      http.RoundTripper // Custom transport for the client.
+	MaxRetries     int               // Maximum number of retry attempts
+	RetryStrategy  BackoffStrategy   // The backoff strategy function
+	RetryIf        RetryIfFunc       // Custom function to determine retry based on request and response
+	Logger         Logger            // Logger instance for the client
+	HTTP2          bool              // Whether to use HTTP/2，The priority of http2 is lower than that of Transport
+	TLSFingerprint *TLSFingerprint   // 添加 TLS 指纹支持
 }
 
 // URL creates a new HTTP client with the given base URL.
@@ -90,24 +92,35 @@ func Create(config *Config) *Client {
 		TLSConfig:   config.TLSConfig,
 	}
 
-	// If a TLS configuration is provided, apply it to the Transport.
-	if client.TLSConfig != nil && httpClient.Transport != nil {
-		httpTransport := httpClient.Transport.(*http.Transport)
-		httpTransport.TLSClientConfig = client.TLSConfig
-	} else if client.TLSConfig != nil {
+	// Configure Transport, handle both TLS and HTTP/2
+	if client.TLSConfig != nil {
 		if config.HTTP2 {
+			// Use HTTP/2
 			client.HTTPClient.Transport = &http2.Transport{
 				TLSClientConfig: client.TLSConfig,
 			}
 		} else {
-			client.HTTPClient.Transport = &http.Transport{
-				TLSClientConfig: client.TLSConfig,
+			// Use HTTP/1.1
+			if httpClient.Transport != nil {
+				if transport, ok := httpClient.Transport.(*http.Transport); ok {
+					transport.TLSClientConfig = client.TLSConfig
+				}
+			} else {
+				client.HTTPClient.Transport = &http.Transport{
+					TLSClientConfig: client.TLSConfig,
+				}
 			}
 		}
-	} else {
-		if config.HTTP2 {
-			client.HTTPClient.Transport = &http2.Transport{}
-		}
+	} else if config.HTTP2 {
+		client.HTTPClient.Transport = &http2.Transport{}
+	}
+
+	// Handle TLS fingerprint configuration
+	if client.TLSConfig == nil {
+		client.TLSConfig = &tls.Config{}
+	}
+	if config.TLSFingerprint != nil {
+		client.SetTLSFingerprint(config.TLSFingerprint)
 	}
 
 	if config.Middlewares != nil {
@@ -489,6 +502,73 @@ func (c *Client) SetLogger(logger Logger) *Client {
 
 	c.Logger = logger
 	return c
+}
+
+func (c *Client) SetTLSFingerprint(f *TLSFingerprint) *Client {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var config *tls.Config
+	var err error
+	// If JA3 is set, use JA3 configuration first
+	if f.JA3 != "" {
+		config, err = NewTLSConfigFromJA3(f.JA3)
+		if err != nil {
+			return c
+		}
+	} else if f.MinVersion != 0 && f.MaxVersion != 0 && len(f.CipherSuites) > 0 && len(f.CurvePreferences) > 0 {
+		// Use regular configuration
+		config = &tls.Config{
+			MinVersion:       f.MinVersion,
+			MaxVersion:       f.MaxVersion,
+			CipherSuites:     f.CipherSuites,
+			CurvePreferences: f.CurvePreferences,
+			NextProtos:       []string{"h2", "http/1.1"},
+		}
+	} else {
+		// Use default configuration
+		config = &tls.Config{
+			MinVersion:       tls.VersionTLS12,
+			MaxVersion:       tls.VersionTLS13,
+			CipherSuites:     DefaultCipherSuites,
+			CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+			NextProtos:       []string{"h2", "http/1.1"},
+		}
+	}
+
+	// Application General Configuration
+	if config != nil {
+		config.SessionTicketsDisabled = f.SessionTicketsDisabled
+		config.ClientSessionCache = f.SessionCache
+	}
+
+	if config.MinVersion != 0 {
+		c.TLSConfig.MinVersion = config.MinVersion
+	}
+	if config.MaxVersion != 0 {
+		c.TLSConfig.MaxVersion = config.MaxVersion
+	}
+	if len(config.CipherSuites) > 0 {
+		c.TLSConfig.CipherSuites = config.CipherSuites
+	}
+	if len(config.CurvePreferences) > 0 {
+		c.TLSConfig.CurvePreferences = config.CurvePreferences
+	}
+	c.TLSConfig.NextProtos = config.NextProtos
+	c.TLSConfig.SessionTicketsDisabled = config.SessionTicketsDisabled
+	c.TLSConfig.ClientSessionCache = config.ClientSessionCache
+
+	return c
+}
+
+// Default cipher suites
+var DefaultCipherSuites = []uint16{
+	tls.TLS_AES_128_GCM_SHA256,
+	tls.TLS_AES_256_GCM_SHA384,
+	tls.TLS_CHACHA20_POLY1305_SHA256,
+	tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 }
 
 // Get initiates a GET request
