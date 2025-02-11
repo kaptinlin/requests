@@ -13,15 +13,15 @@ import (
 
 type Duration int64
 
-// Cache
-type Cache interface {
+// Cacher is the interface for the cache
+type Cacher interface {
 	Get(key string) ([]byte, bool)
 	Set(key string, value []byte, ttl time.Duration)
 	Delete(key string)
 }
 
-// CacheMiddleware
-var CacheMiddleware = func(cache Cache, ttl time.Duration, logger requests.Logger) requests.Middleware {
+// CacheMiddleware is the middleware for the cache
+var CacheMiddleware = func(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
 	return func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			// If not GET request, skip cache

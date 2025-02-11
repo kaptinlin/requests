@@ -977,7 +977,7 @@ func TestClientSetRootCertificate(t *testing.T) {
 	})
 }
 
-func TestH2Scenarios(t *testing.T) {
+func TestHttp2Scenarios(t *testing.T) {
 	tests := []struct {
 		name            string
 		config          *Config

@@ -13,33 +13,33 @@ type RedirectPolicy interface {
 	Apply(req *http.Request, via []*http.Request) error
 }
 
-// NoRedirectPolicy is a redirect policy that does not allow any redirects
-type NoRedirectPolicy struct {
+// ProhibitRedirectPolicy is a redirect policy that does not allow any redirects
+type ProhibitRedirectPolicy struct {
 }
 
-func NewNoRedirectPolicy() *NoRedirectPolicy {
-	return &NoRedirectPolicy{}
+func NewProhibitRedirectPolicy() *ProhibitRedirectPolicy {
+	return &ProhibitRedirectPolicy{}
 }
 
 // Apply is a method that implements the RedirectPolicy interface
-func (n *NoRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
+func (p *ProhibitRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
 	return ErrAutoRedirectDisabled
 }
 
-// FlexibleRedirectPolicy is a redirect policy that allows a flexible number of redirects
-type FlexibleRedirectPolicy struct {
-	noOfRedirect int
+// AllowRedirectPolicy is a redirect policy that allows a flexible number of redirects
+type AllowRedirectPolicy struct {
+	numberRedirects int
 }
 
-// New is a method that creates a new FlexibleRedirectPolicy
-func NewFlexibleRedirectPolicy(noOfRedirect int) *FlexibleRedirectPolicy {
-	return &FlexibleRedirectPolicy{noOfRedirect: noOfRedirect}
+// New is a method that creates a new AllowRedirectPolicy
+func NewAllowRedirectPolicy(numberRedirects int) *AllowRedirectPolicy {
+	return &AllowRedirectPolicy{numberRedirects: numberRedirects}
 }
 
 // Apply is a method that implements the RedirectPolicy interface
-func (f *FlexibleRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
-	if len(via) >= f.noOfRedirect {
-		return fmt.Errorf("stopped after %d redirects", f.noOfRedirect)
+func (a *AllowRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
+	if len(via) >= a.numberRedirects {
+		return fmt.Errorf("stopped after %d redirects", a.numberRedirects)
 	}
 	checkHostAndAddHeaders(req, via[0])
 	return nil
@@ -54,24 +54,24 @@ func getHostname(host string) (hostname string) {
 	return
 }
 
-// DomainCheckRedirectPolicy is a redirect policy that checks if the redirect is allowed based on the hostnames
-type DomainCheckRedirectPolicy struct {
-	hostnames []string
+// RedirectSpecifiedDomainPolicy is a redirect policy that checks if the redirect is allowed based on the hostnames
+type RedirectSpecifiedDomainPolicy struct {
+	domains []string
 }
 
-// New is a method that creates a new DomainCheckRedirectPolicy
-func NewDomainCheckRedirectPolicy(hostnames ...string) *DomainCheckRedirectPolicy {
-	return &DomainCheckRedirectPolicy{hostnames: hostnames}
+// New is a method that creates a new RedirectSpecifiedDomainPolicy
+func NewRedirectSpecifiedDomainPolicy(domains ...string) *RedirectSpecifiedDomainPolicy {
+	return &RedirectSpecifiedDomainPolicy{domains: domains}
 }
 
 // Apply is a method that implements the RedirectPolicy interface
-func (d *DomainCheckRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
+func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, via []*http.Request) error {
 	hosts := make(map[string]bool)
-	for _, h := range d.hostnames {
+	for _, h := range s.domains {
 		hosts[strings.ToLower(h)] = true
 	}
 	if ok := hosts[getHostname(req.URL.Host)]; !ok {
-		return errors.New("redirect is not allowed as per DomainCheckRedirectPolicy")
+		return errors.New("redirect is not allowed as per RedirectSpecifiedDomainPolicy")
 	}
 
 	return nil
