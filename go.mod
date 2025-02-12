@@ -2,11 +2,16 @@ module github.com/kaptinlin/requests
 
 go 1.22.1
 
-require github.com/stretchr/testify v1.10.0
+require (
+	github.com/stretchr/testify v1.10.0
+	golang.org/x/net v0.35.0
+)
 
 require (
 	github.com/bytedance/sonic/loader v0.2.2 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 )
 
 require (
