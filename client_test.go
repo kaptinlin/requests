@@ -27,42 +27,42 @@ import (
 func startTestHTTPServer() *httptest.Server {
 	handler := http.NewServeMux()
 	handler.HandleFunc("/test-get", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "GET response")
+		_, _ = fmt.Fprintln(w, "GET response")
 	})
 
 	handler.HandleFunc("/test-post", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "POST response")
+		_, _ = fmt.Fprintln(w, "POST response")
 	})
 
 	handler.HandleFunc("/test-put", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "PUT response")
+		_, _ = fmt.Fprintln(w, "PUT response")
 	})
 
 	handler.HandleFunc("/test-delete", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "DELETE response")
+		_, _ = fmt.Fprintln(w, "DELETE response")
 	})
 
 	handler.HandleFunc("/test-patch", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "PATCH response")
+		_, _ = fmt.Fprintln(w, "PATCH response")
 	})
 
 	handler.HandleFunc("/test-status-code", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated) // 201
-		fmt.Fprintln(w, `Created`)
+		_, _ = fmt.Fprintln(w, `Created`)
 	})
 
 	handler.HandleFunc("/test-headers", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Custom-Header", "TestValue")
-		fmt.Fprintln(w, `Headers test`)
+		_, _ = fmt.Fprintln(w, `Headers test`)
 	})
 
 	handler.HandleFunc("/test-cookies", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "test-cookie", Value: "cookie-value"})
-		fmt.Fprintln(w, `Cookies test`)
+		_, _ = fmt.Fprintln(w, `Cookies test`)
 	})
 
 	handler.HandleFunc("/test-body", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "This is the response body.")
+		_, _ = fmt.Fprintln(w, "This is the response body.")
 	})
 
 	handler.HandleFunc("/test-empty", func(w http.ResponseWriter, r *http.Request) {
@@ -72,22 +72,22 @@ func startTestHTTPServer() *httptest.Server {
 
 	handler.HandleFunc("/test-json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"message": "This is a JSON response", "status": true}`)
+		_, _ = fmt.Fprintln(w, `{"message": "This is a JSON response", "status": true}`)
 	})
 
 	handler.HandleFunc("/test-xml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		fmt.Fprintln(w, `<Response><Message>This is an XML response</Message><Status>true</Status></Response>`)
+		_, _ = fmt.Fprintln(w, `<Response><Message>This is an XML response</Message><Status>true</Status></Response>`)
 	})
 
 	handler.HandleFunc("/test-text", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprintln(w, `This is a text response`)
+		_, _ = fmt.Fprintln(w, `This is a text response`)
 	})
 
 	handler.HandleFunc("/test-pdf", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/pdf")
-		fmt.Fprintln(w, `This is a PDF response`)
+		_, _ = fmt.Fprintln(w, `This is a PDF response`)
 	})
 
 	handler.HandleFunc("/test-redirect", func(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +95,7 @@ func startTestHTTPServer() *httptest.Server {
 	})
 
 	handler.HandleFunc("/test-redirected", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, "Redirected")
+		_, _ = fmt.Fprintln(w, "Redirected")
 	})
 
 	handler.HandleFunc("/test-failure", func(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +309,7 @@ func TestSetJSONUnmarshal(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, mockResponse)
+		_, _ = fmt.Fprintln(w, mockResponse)
 	}))
 	defer server.Close()
 
@@ -366,7 +366,7 @@ func TestSetXMLUnmarshal(t *testing.T) {
 	// Mock server to send XML data
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		fmt.Fprintln(w, `<Test><Message>Response message</Message><Status>true</Status></Test>`)
+		_, _ = fmt.Fprintln(w, `<Test><Message>Response message</Message><Status>true</Status></Test>`)
 	}))
 	defer server.Close()
 
@@ -428,7 +428,7 @@ func TestSetYAMLUnmarshal(t *testing.T) {
 	// Mock server to send YAML data
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
-		fmt.Fprintln(w, "message: Response message\nstatus: true")
+		_, _ = fmt.Fprintln(w, "message: Response message\nstatus: true")
 	}))
 	defer server.Close()
 
@@ -875,5 +875,172 @@ func TestSetRetryIf(t *testing.T) {
 
 	if retryCount != 2 {
 		t.Errorf("Expected 2 retries, got %d", retryCount)
+	}
+}
+
+func TestClientCertificates(t *testing.T) {
+	serverCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+	require.NoError(t, err, "load server certificate failed")
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("certificate verification successful"))
+		} else {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("lack of client certificate"))
+		}
+	}))
+	clientCertPool := x509.NewCertPool()
+	clientCertData, err := os.ReadFile(".github/testdata/cert.pem")
+	require.NoError(t, err, "load client certificate failed")
+	clientCertPool.AppendCertsFromPEM(clientCertData)
+	clientCertPath := ".github/testdata/cert.pem"
+
+	server.TLS = &tls.Config{
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    clientCertPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+	}
+	server.StartTLS()
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL: server.URL,
+	})
+
+	t.Run("use client certificate", func(t *testing.T) {
+		clientCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+		require.NoError(t, err, "load client certificate failed")
+
+		client.SetTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+		client.SetCertificates(clientCert)
+		client.SetClientRootCertificate(clientCertPath)
+		resp, err := client.Get("/").Send(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to send request: %v", err)
+		}
+		defer resp.Close() //nolint:errcheck
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode(), "status code not correct")
+		assert.Equal(t, "certificate verification successful", resp.String(), "response content not correct")
+	})
+
+	t.Run("do not use client certificate", func(t *testing.T) {
+		clientWithoutCert := Create(&Config{
+			BaseURL: server.URL,
+		})
+		clientWithoutCert.SetTLSConfig(&tls.Config{
+			InsecureSkipVerify: true,
+		})
+		clientWithoutCert.SetClientRootCertificate(clientCertPath)
+
+		_, err := clientWithoutCert.Get("/").Send(context.Background())
+		assert.Error(t, err, "expect request failed")
+	})
+}
+
+func TestClientSetRootCertificate(t *testing.T) {
+	t.Run("root cert", func(t *testing.T) {
+		filePath := ".testdata/sample_root.pem"
+
+		client := Create(nil)
+		client.SetRootCertificate(filePath)
+
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		}
+	})
+
+	t.Run("root cert not exists", func(t *testing.T) {
+		filePath := "../.testdata/not-exists-sample-root.pem"
+
+		client := Create(nil)
+		client.SetRootCertificate(filePath)
+
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.Nil(t, transport.TLSClientConfig)
+		}
+	})
+
+	t.Run("root cert from string", func(t *testing.T) {
+		client := Create(nil)
+
+		cert := `-----BEGIN CERTIFICATE-----`
+
+		client.SetRootCertificateFromString(cert)
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		}
+	})
+}
+
+func TestHttp2Scenarios(t *testing.T) {
+	tests := []struct {
+		name            string
+		config          *Config
+		url             string
+		expectedVersion string
+		expectedError   string
+	}{
+		{
+			name:            "Default HTTP version, request to use http2 version URL",
+			config:          &Config{},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "HTTP/2.0",
+			expectedError:   "",
+		},
+		{
+			name:            "Explicit HTTP/2, request to use http2 version URL",
+			config:          &Config{HTTP2: true},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "HTTP/2.0",
+			expectedError:   "",
+		},
+		{
+			name: "Set Transport, request to use http2 version URL,The priority of http2 is lower than that of Transport",
+			config: &Config{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}},
+			url:             "https://tools.scrapfly.io/api/fp/anything",
+			expectedVersion: "",
+			expectedError:   "Get \"https://tools.scrapfly.io/api/fp/anything\": EOF",
+		},
+		{
+			name: "Set Transport, request to use http1.1 version URL",
+			config: &Config{Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}},
+			url:             "https://www.baidu.com",
+			expectedVersion: "HTTP/1.1",
+			expectedError:   "",
+		},
+		{
+			name:            "Explicit HTTP/2 with Baidu",
+			config:          &Config{HTTP2: true},
+			url:             "https://www.baidu.com",
+			expectedVersion: "",
+			expectedError:   "Get \"https://www.baidu.com\": http2: unexpected ALPN protocol \"\"; want \"h2\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := Create(tt.config)
+
+			resp, err := client.Get(tt.url).Send(context.Background())
+			if err != nil {
+				assert.Equal(t, tt.expectedError, err.Error(), "Protocol settings are incorrect")
+				return
+			}
+			defer resp.Close() //nolint:errcheck
+			assert.Equal(t, tt.expectedVersion, resp.RawResponse.Proto, "Protocol version mismatch")
+		})
 	}
 }

@@ -22,7 +22,7 @@ import (
 func TestRequestCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(2 * time.Second) // Simulate a long-running operation
-		fmt.Fprintln(w, "This response may never be sent")
+		_, _ = fmt.Fprintln(w, "This response may never be sent")
 	}))
 	defer server.Close()
 
@@ -54,7 +54,7 @@ func TestSendMethodQuery(t *testing.T) {
 	// Start a test HTTP server.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Respond with the full URL received, including query parameters.
-		fmt.Fprintln(w, r.URL.String())
+		_, _ = fmt.Fprintln(w, r.URL.String())
 	}))
 	defer server.Close()
 
@@ -198,7 +198,7 @@ func TestHeaderManipulationMethods(t *testing.T) {
 		assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
 		assert.Empty(t, r.Header.Get("X-Deprecated-Header"))
 
-		fmt.Fprintln(w, "Headers received")
+		_, _ = fmt.Fprintln(w, "Headers received")
 	}))
 	defer server.Close()
 
@@ -226,7 +226,7 @@ func TestUserAgentMethod(t *testing.T) {
 		// Check User-Agent header
 		assert.Equal(t, "MyCustomUserAgent", r.Header.Get("User-Agent"))
 
-		fmt.Fprintln(w, "User-Agent received")
+		_, _ = fmt.Fprintln(w, "User-Agent received")
 	}))
 	defer server.Close()
 
@@ -253,7 +253,7 @@ func TestContentTypeMethod(t *testing.T) {
 		// Check Content-Type header
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-		fmt.Fprintln(w, "Content-Type received")
+		_, _ = fmt.Fprintln(w, "Content-Type received")
 	}))
 	defer server.Close()
 
@@ -280,7 +280,7 @@ func TestAcceptMethod(t *testing.T) {
 		// Check Accept header
 		assert.Equal(t, "application/xml", r.Header.Get("Accept"))
 
-		fmt.Fprintln(w, "Accept received")
+		_, _ = fmt.Fprintln(w, "Accept received")
 	}))
 	defer server.Close()
 
@@ -307,7 +307,7 @@ func TestRefererMethod(t *testing.T) {
 		// Check Referer header
 		assert.Equal(t, "https://example.com", r.Header.Get("Referer"))
 
-		fmt.Fprintln(w, "Referer received")
+		_, _ = fmt.Fprintln(w, "Referer received")
 	}))
 	defer server.Close()
 
@@ -344,7 +344,7 @@ func TestCookieManipulationMethods(t *testing.T) {
 		_, err3 := r.Cookie("DeletedCookie")
 		assert.Error(t, err3) // We expect an error because the cookie should not be present
 
-		fmt.Fprintln(w, "Cookies received")
+		_, _ = fmt.Fprintln(w, "Cookies received")
 	}))
 	defer server.Close()
 
@@ -379,7 +379,7 @@ func TestPathParameterMethods(t *testing.T) {
 		if r.URL.Path != expectedPath {
 			t.Errorf("expected path %s, got %s", expectedPath, r.URL.Path)
 		}
-		fmt.Fprintln(w, "Path parameters received correctly")
+		_, _ = fmt.Fprintln(w, "Path parameters received correctly")
 	}))
 	defer server.Close()
 
@@ -661,7 +661,7 @@ func TestRequestLevelRetries(t *testing.T) {
 		} else {
 			// Succeed on subsequent attempts
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, "Success")
+			_, _ = fmt.Fprintln(w, "Success")
 		}
 	}))
 

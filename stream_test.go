@@ -15,7 +15,7 @@ func TestStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		for i := 0; i < 3; i++ {
-			fmt.Fprintf(w, "data: Message %d\n", i)
+			_, _ = fmt.Fprintf(w, "data: Message %d\n", i)
 			w.(http.Flusher).Flush()
 			time.Sleep(100 * time.Millisecond)
 		}
