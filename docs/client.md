@@ -14,12 +14,14 @@ The Requests library in Go provides a simplified yet powerful interface for maki
    - [Managing Cookies](#managing-cookies)
    - [Configuring Timeouts](#configuring-timeouts)
    - [TLS Configuration](#tls-configuration)
+   - [HTTP2 Configuration](#http2-configuration)
 4. [Advanced Features](#advanced-features)
    - [Retry Mechanism](#retry-mechanism)
    - [Proxy Configuration](#proxy-configuration)
    - [Authentication](#authentication)
    - [Using Middleware](#using-middleware)
    - [HTTP Client Customization](#http-client-customization)
+   - [Redirection Configuration](#redirection-configuration)
 
 ## Introduction
 
@@ -155,6 +157,74 @@ tlsConfig := &tls.Config{InsecureSkipVerify: true}
 client.SetTLSConfig(tlsConfig)
 ```
 
+Load and set client certificates:
+
+```go
+client := requests.Create(&requests.Config{
+    BaseURL: "https://api.example.com",
+    TLSConfig: &tls.Config{
+        InsecureSkipVerify: false,
+    },
+})
+// Load client certificate
+clientCert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Set certificates
+client.SetCertificates(clientCert)
+```
+
+Configure root certificates:
+
+```go
+// From file
+client.SetRootCertificate("root-cert.pem")
+
+// From string
+client.SetRootCertificateFromString
+(`-----BEGIN CERTIFICATE-----
+... certificate content ...
+-----END CERTIFICATE-----`)
+
+// Set client root certificate
+client.SetClientRootCertificate("client-root-cert.pem")
+```
+
+Complete example with all TLS options:
+
+```go
+client := requests.Create(&requests.Config{
+    BaseURL: "https://api.example.com",
+    TLSConfig: &tls.Config{
+        InsecureSkipVerify: false,
+    },
+})
+
+// Load and set certificates
+cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
+if err != nil {
+    log.Fatal(err)
+}
+client.SetCertificates(cert)
+
+// Set root certificates
+client.SetRootCertificate("root-cert.pem")
+client.SetClientRootCertificate("client-root-cert.pem")
+```
+
+### HTTP/2 Configuration
+
+Configure HTTP/2 support for the client:
+
+```go
+// Enable HTTP/2 support explicitly
+client := requests.Create(&requests.Config{
+    HTTP2: true,
+})
+```
+
 ## Advanced Features
 
 ### Retry Mechanism
@@ -226,4 +296,27 @@ Directly customize the underlying `http.Client`:
 ```go
 customHTTPClient := &http.Client{Timeout: 20 * time.Second}
 client.SetHTTPClient(customHTTPClient)
+```
+
+### Redirection Configuration
+
+Configure the redirect behavior of requests using various redirect policies:
+
+```go
+// Create a new client
+client := requests.Create(&requests.Config{
+    BaseURL: "https://api.example.com",
+})
+
+// Prohibit all redirects
+client.SetRedirectPolicy(requests.NewProhibitRedirectPolicy())
+
+// Allow up to 3 redirects
+client.SetRedirectPolicy(requests.NewAllowRedirectPolicy(3))
+
+// Allow redirects only to specified domains
+client.SetRedirectPolicy(requests.NewRedirectSpecifiedDomainPolicy(
+    "example.com",
+    "api.example.com",
+))
 ```

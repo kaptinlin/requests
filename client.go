@@ -2,10 +2,16 @@ package requests
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // Client represents an HTTP client
@@ -44,6 +50,7 @@ type Config struct {
 	RetryStrategy BackoffStrategy   // The backoff strategy function
 	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
 	Logger        Logger            // Logger instance for the client
+	HTTP2         bool              // Whether to use HTTP/2，The priority of http2 is lower than that of Transport
 }
 
 // URL creates a new HTTP client with the given base URL.
@@ -85,14 +92,26 @@ func Create(config *Config) *Client {
 		TLSConfig:   config.TLSConfig,
 	}
 
-	// If a TLS configuration is provided, apply it to the Transport.
-	if client.TLSConfig != nil && httpClient.Transport != nil {
-		httpTransport := httpClient.Transport.(*http.Transport)
-		httpTransport.TLSClientConfig = client.TLSConfig
-	} else if client.TLSConfig != nil {
-		httpClient.Transport = &http.Transport{
+	// Configure Transport, handle both TLS and HTTP/2
+	if client.TLSConfig != nil && config.HTTP2 {
+		// Use HTTP/2
+		client.HTTPClient.Transport = &http2.Transport{
 			TLSClientConfig: client.TLSConfig,
 		}
+	}
+	if client.TLSConfig != nil && !config.HTTP2 {
+		if httpClient.Transport != nil {
+			if transport, ok := httpClient.Transport.(*http.Transport); ok {
+				transport.TLSClientConfig = client.TLSConfig
+			}
+		} else {
+			client.HTTPClient.Transport = &http.Transport{
+				TLSClientConfig: client.TLSConfig,
+			}
+		}
+	}
+	if client.TLSConfig == nil && config.HTTP2 {
+		client.HTTPClient.Transport = &http2.Transport{}
 	}
 
 	if config.Middlewares != nil {
@@ -192,6 +211,82 @@ func (c *Client) InsecureSkipVerify() *Client {
 		}
 	}
 
+	return c
+}
+
+// SetCertificates sets the TLS certificates for the client.
+func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.TLSConfig == nil {
+		c.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	c.TLSConfig.Certificates = certs
+	return c
+}
+
+// SetRootCertificate sets the root certificate for the client.
+func (c *Client) SetRootCertificate(pemFilePath string) *Client {
+	cleanPath := filepath.Clean(pemFilePath)
+	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
+		return c
+	}
+	rootPemData, err := os.ReadFile(pemFilePath)
+	if err != nil {
+		return c
+	}
+	c.handleCAs("root", rootPemData)
+	return c
+}
+
+// SetRootCertificateFromString sets the root certificate for the client from a string.
+func (c *Client) SetRootCertificateFromString(pemCerts string) *Client {
+	return c.handleCAs("root", []byte(pemCerts))
+}
+
+// SetClientRootCertificate sets the client root certificate for the client.
+func (c *Client) SetClientRootCertificate(pemFilePath string) *Client {
+	cleanPath := filepath.Clean(pemFilePath)
+	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
+		return c
+	}
+	rootPemData, err := os.ReadFile(pemFilePath)
+	if err != nil {
+		return c
+	}
+	return c.handleCAs("client", rootPemData)
+}
+
+// SetClientRootCertificateFromString sets the client root certificate for the client from a string.
+func (c *Client) SetClientRootCertificateFromString(pemCerts string) *Client {
+	return c.handleCAs("client", []byte(pemCerts))
+}
+
+// handleCAs sets the TLS certificates for the client.
+func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.TLSConfig == nil {
+		c.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+	switch scope {
+	case "root":
+		if c.TLSConfig.RootCAs == nil {
+			c.TLSConfig.RootCAs = x509.NewCertPool()
+		}
+		c.TLSConfig.RootCAs.AppendCertsFromPEM(permCerts)
+	case "client":
+		if c.TLSConfig.ClientCAs == nil {
+			c.TLSConfig.ClientCAs = x509.NewCertPool()
+		}
+		c.TLSConfig.ClientCAs.AppendCertsFromPEM(permCerts)
+	}
 	return c
 }
 
@@ -322,6 +417,9 @@ func (c *Client) DelDefaultCookie(name string) {
 
 // SetJSONMarshal sets the JSON marshal function for the client's JSONEncoder
 func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.JSONEncoder = &JSONEncoder{
 		MarshalFunc: marshalFunc,
 	}
@@ -329,6 +427,9 @@ func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
 
 // SetJSONUnmarshal sets the JSON unmarshal function for the client's JSONDecoder
 func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.JSONDecoder = &JSONDecoder{
 		UnmarshalFunc: unmarshalFunc,
 	}
@@ -336,6 +437,9 @@ func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) 
 
 // SetXMLMarshal sets the XML marshal function for the client's XMLEncoder
 func (c *Client) SetXMLMarshal(marshalFunc func(v any) ([]byte, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.XMLEncoder = &XMLEncoder{
 		MarshalFunc: marshalFunc,
 	}
@@ -343,6 +447,9 @@ func (c *Client) SetXMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 
 // SetXMLUnmarshal sets the XML unmarshal function for the client's XMLDecoder
 func (c *Client) SetXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.XMLDecoder = &XMLDecoder{
 		UnmarshalFunc: unmarshalFunc,
 	}
@@ -350,6 +457,9 @@ func (c *Client) SetXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
 
 // SetYAMLMarshal sets the YAML marshal function for the client's YAMLEncoder
 func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.YAMLEncoder = &YAMLEncoder{
 		MarshalFunc: marshalFunc,
 	}
@@ -357,6 +467,9 @@ func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 
 // SetYAMLUnmarshal sets the YAML unmarshal function for the client's YAMLDecoder
 func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	c.YAMLDecoder = &YAMLDecoder{
 		UnmarshalFunc: unmarshalFunc,
 	}
@@ -391,9 +504,27 @@ func (c *Client) SetRetryIf(retryIf RetryIfFunc) *Client {
 
 // SetAuth configures an authentication method for the client.
 func (c *Client) SetAuth(auth AuthMethod) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if auth.Valid() {
 		c.auth = auth
 	}
+}
+
+// SetRedirectPolicy sets the redirect policy for the client
+func (c *Client) SetRedirectPolicy(policies ...RedirectPolicy) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		for _, p := range policies {
+			if err := p.Apply(req, via); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return c
 }
 
 // SetLogger sets logger instance in client.

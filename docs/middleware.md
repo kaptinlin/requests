@@ -8,6 +8,10 @@ Middleware allows for the preprocessing and postprocessing of HTTP requests and 
 3. [Request-Level Middleware](#request-level-middleware)
 4. [Implementing Custom Middleware](#implementing-custom-middleware)
 5. [Integrating OpenTelemetry Middleware](#integrating-opentelemetry-middleware)
+6. [Built Middleware](#built-middleware)
+    - [Header Middleware](#header-middleware)
+    - [Cookie Middleware](#cookie-middleware)
+    - [Cache Middleware](#cache-middleware)
 
 ### Understanding Middleware
 
@@ -107,3 +111,63 @@ func openTelemetryMiddleware(next requests.MiddlewareHandlerFunc) requests.Middl
 ```
 
 By utilizing middleware, you can enhance the functionality and observability of your HTTP requests within the Requests library. Whether you're logging requests, collecting metrics with OpenTelemetry, or adding custom request headers, middleware offers a flexible solution to enrich your HTTP client's capabilities.
+
+
+### Built Middleware
+
+The Requests library provides several built-in middleware functions that can be used to enhance the functionality of your HTTP requests. Below are some examples of how to use these built-in middleware functions:
+
+### Header Middleware
+
+Add header middleware to modify request headers:
+
+```go
+// Create middleware with specific headers
+headerMiddleware := middlewares.HeaderMiddleware(http.Header{
+    "User-Agent": []string{"Custom-Agent"},
+    "Accept":     []string{"application/json"},
+})
+
+// Apply middleware to client
+client := requests.Create(&requests.Config{
+    BaseURL:     "https://api.example.com",
+    Middlewares: []requests.Middleware{headerMiddleware},
+})
+```
+
+### Cookie Middleware
+
+Add cookie middleware to manage cookies:
+
+```go
+// Create middleware with specific cookies
+cookieMiddleware := middlewares.CookieMiddleware(http.Cookie{
+    Name:  "session",
+    Value: "12345",
+})
+
+// Apply middleware to client
+client := requests.Create(&requests.Config{
+    BaseURL:     "https://api.example.com",
+    Middlewares: []requests.Middleware{cookieMiddleware},
+})
+```
+
+### Cache Middleware
+
+Add cache middleware to cache responses:
+
+```go
+// Create memory cache and logger
+cache := middlewares.NewMemoryCache()
+logger := middlewares.NewDefaultLogger(os.Stdout, LevelDebug)
+
+// Create cache middleware
+cacheMiddleware := middlewares.CacheMiddleware(cache, 5*time.Second, logger)
+
+// Create client with cache middleware
+client := requests.Create(&requests.Config{
+    BaseURL:     "https://api.example.com",
+    Middlewares: []requests.Middleware{cacheMiddleware},
+})
+```

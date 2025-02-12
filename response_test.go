@@ -151,7 +151,7 @@ func TestResponseScanJSON(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"message": "This is a JSON response", "status": true}`)
+		_, _ = fmt.Fprintln(w, `{"message": "This is a JSON response", "status": true}`)
 	}))
 	defer server.Close()
 
@@ -175,7 +175,7 @@ func TestResponseScanXML(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		fmt.Fprintln(w, `<Response><Message>This is an XML response</Message><Status>true</Status></Response>`)
+		_, _ = fmt.Fprintln(w, `<Response><Message>This is an XML response</Message><Status>true</Status></Response>`)
 	}))
 	defer server.Close()
 
@@ -202,7 +202,7 @@ message: This is a YAML response
 status: true
 `
 		w.Header().Set("Content-Type", "application/yaml")
-		fmt.Fprint(w, yml)
+		_, _ = fmt.Fprint(w, yml)
 	}))
 	defer server.Close()
 
@@ -295,7 +295,7 @@ func TestResponseURL(t *testing.T) {
 func TestResponseSaveToFile(t *testing.T) {
 	// Setup a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "Sample response body")
+		_, _ = fmt.Fprint(w, "Sample response body")
 	}))
 	defer server.Close()
 
@@ -335,7 +335,7 @@ func TestResponseSaveToFile(t *testing.T) {
 func TestResponseSaveToWriter(t *testing.T) {
 	// Setup a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "Sample response body")
+		_, _ = fmt.Fprint(w, "Sample response body")
 	}))
 	defer server.Close()
 
