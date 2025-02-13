@@ -9,13 +9,13 @@ require (
 
 require (
 	github.com/bytedance/sonic/loader v0.2.2 // indirect
-	github.com/cloudwego/base64x v0.1.4 // indirect
+	github.com/cloudwego/base64x v0.1.5 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )
 
 require (
-	github.com/bytedance/sonic v1.12.7
+	github.com/bytedance/sonic v1.12.8
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/goccy/go-yaml v1.15.22
 	github.com/google/go-querystring v1.1.0
