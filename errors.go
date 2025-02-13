@@ -33,3 +33,12 @@ var ErrInvalidTransportType = errors.New("invalid transport type")
 
 // ErrResponseNil is returned when the response is nil.
 var ErrResponseNil = errors.New("response is nil")
+
+// ErrAutoRedirectDisabled is returned when the auto redirect is disabled.
+var ErrAutoRedirectDisabled = errors.New("auto redirect disabled")
+
+// ErrTooManyRedirects is returned when the number of redirects is too many.
+var ErrTooManyRedirects = errors.New("too many redirects")
+
+// ErrRedirectNotAllowed is returned when the redirect is not allowed.
+var ErrRedirectNotAllowed = errors.New("redirect is not allowed as per RedirectSpecifiedDomainPolicy")
