@@ -150,6 +150,29 @@ For saving the response body to a file or streaming it to an `io.Writer`:
     }
     ```
 
+### Line-by-Line Iteration (Go 1.23+)
+
+For processing responses line by line, such as SSE streams or JSONL data:
+
+- **Lines**: Returns an iterator that yields each line as `[]byte`.
+
+    ```go
+    // Process Server-Sent Events
+    for line := range response.Lines() {
+        if bytes.HasPrefix(line, []byte("data: ")) {
+            fmt.Printf("SSE Data: %s\n", bytes.TrimPrefix(line, []byte("data: ")))
+        }
+    }
+    
+    // Process JSONL data
+    for line := range response.Lines() {
+        var record map[string]interface{}
+        if err := json.Unmarshal(line, &record); err == nil {
+            fmt.Printf("Record: %+v\n", record)
+        }
+    }
+    ```
+
 ### Evaluating Response Success
 
 To assess whether the HTTP request was successful:

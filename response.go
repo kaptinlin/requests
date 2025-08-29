@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"os"
@@ -268,6 +269,27 @@ func (r *Response) Save(v any) error {
 	default:
 		// Return an error if the provided type is not supported
 		return ErrNotSupportSaveMethod
+	}
+}
+
+// Lines returns an iterator that yields each line of the response body as []byte.
+// This method is available in Go 1.23+ and provides a convenient way to iterate
+// over response lines without loading the entire body into memory.
+// The iterator will automatically handle the scanning and yield each line.
+// Note: This method is designed for non-streaming responses and will return
+// an empty iterator for streaming responses.
+func (r *Response) Lines() iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		if r.BodyBytes == nil {
+			return
+		}
+
+		scanner := bufio.NewScanner(bytes.NewReader(r.BodyBytes))
+		for scanner.Scan() {
+			if !yield(scanner.Bytes()) {
+				break
+			}
+		}
 	}
 }
 

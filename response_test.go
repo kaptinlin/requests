@@ -332,6 +332,69 @@ func TestResponseSaveToFile(t *testing.T) {
 	}
 }
 
+func TestResponseLines(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "Line 1\nLine 2\nLine 3\n")
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Get("/").Send(context.Background())
+	assert.NoError(t, err)
+
+	lines := make([]string, 0)
+	for line := range resp.Lines() {
+		lines = append(lines, string(line))
+	}
+
+	expected := []string{"Line 1", "Line 2", "Line 3"}
+	assert.Equal(t, expected, lines)
+}
+
+func TestResponseLinesEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		// Empty response
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Get("/").Send(context.Background())
+	assert.NoError(t, err)
+
+	lines := make([]string, 0)
+	for line := range resp.Lines() {
+		lines = append(lines, string(line))
+	}
+
+	assert.Empty(t, lines)
+}
+
+func TestResponseLinesEarlyBreak(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n")
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Get("/").Send(context.Background())
+	assert.NoError(t, err)
+
+	lines := make([]string, 0)
+	for line := range resp.Lines() {
+		lines = append(lines, string(line))
+		// Break after collecting 3 lines
+		if len(lines) >= 3 {
+			break
+		}
+	}
+
+	expected := []string{"Line 1", "Line 2", "Line 3"}
+	assert.Equal(t, expected, lines)
+}
+
 func TestResponseSaveToWriter(t *testing.T) {
 	// Setup a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
