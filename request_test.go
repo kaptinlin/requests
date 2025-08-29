@@ -863,3 +863,184 @@ func TestAuthRequest(t *testing.T) {
 		t.Errorf("Expected status code 200, got %d. Indicates Authorization header was not set correctly.", resp.StatusCode())
 	}
 }
+
+// TestDelCookie_SingleCookie tests deleting a single cookie
+func TestDelCookie_SingleCookie(t *testing.T) {
+	builder := &RequestBuilder{
+		cookies: []*http.Cookie{
+			{Name: "sessionid", Value: "abc123"},
+			{Name: "userid", Value: "user456"},
+			{Name: "theme", Value: "dark"},
+		},
+	}
+
+	builder.DelCookie("userid")
+
+	// Should have 2 cookies remaining
+	assert.Len(t, builder.cookies, 2)
+
+	// Verify the correct cookies remain
+	cookieNames := make([]string, len(builder.cookies))
+	for i, cookie := range builder.cookies {
+		cookieNames[i] = cookie.Name
+	}
+
+	assert.Contains(t, cookieNames, "sessionid")
+	assert.Contains(t, cookieNames, "theme")
+	assert.NotContains(t, cookieNames, "userid")
+}
+
+// TestDelCookie_MultipleCookies tests deleting multiple cookies at once
+func TestDelCookie_MultipleCookies(t *testing.T) {
+	builder := &RequestBuilder{
+		cookies: []*http.Cookie{
+			{Name: "A", Value: "1"},
+			{Name: "B", Value: "2"},
+			{Name: "C", Value: "3"},
+			{Name: "D", Value: "4"},
+			{Name: "E", Value: "5"},
+		},
+	}
+
+	// Delete multiple cookies including consecutive ones
+	builder.DelCookie("B", "C", "E")
+
+	// Should have 2 cookies remaining
+	assert.Len(t, builder.cookies, 2)
+
+	// Verify the correct cookies remain
+	assert.Equal(t, "A", builder.cookies[0].Name)
+	assert.Equal(t, "D", builder.cookies[1].Name)
+}
+
+// TestDelCookie_ConsecutiveCookies specifically tests the bug case
+func TestDelCookie_ConsecutiveCookies(t *testing.T) {
+	builder := &RequestBuilder{
+		cookies: []*http.Cookie{
+			{Name: "keep1", Value: "1"},
+			{Name: "delete1", Value: "2"},
+			{Name: "delete2", Value: "3"},
+			{Name: "delete3", Value: "4"},
+			{Name: "keep2", Value: "5"},
+		},
+	}
+
+	// This would fail with the old buggy implementation
+	builder.DelCookie("delete1", "delete2", "delete3")
+
+	// Should have 2 cookies remaining
+	assert.Len(t, builder.cookies, 2)
+
+	// Verify the correct cookies remain
+	assert.Equal(t, "keep1", builder.cookies[0].Name)
+	assert.Equal(t, "keep2", builder.cookies[1].Name)
+}
+
+// TestDelCookie_NonExistentCookie tests deleting non-existent cookies
+func TestDelCookie_NonExistentCookie(t *testing.T) {
+	builder := &RequestBuilder{
+		cookies: []*http.Cookie{
+			{Name: "existing", Value: "value"},
+		},
+	}
+
+	builder.DelCookie("nonexistent")
+
+	// Should still have the original cookie
+	assert.Len(t, builder.cookies, 1)
+	assert.Equal(t, "existing", builder.cookies[0].Name)
+}
+
+// TestDelCookie_EmptyCookies tests deleting from empty cookie slice
+func TestDelCookie_EmptyCookies(t *testing.T) {
+	builder := &RequestBuilder{}
+
+	// Should not panic
+	builder.DelCookie("any")
+
+	// Should remain nil
+	assert.Nil(t, builder.cookies)
+}
+
+// TestDelFile_SingleFile tests deleting a single file
+func TestDelFile_SingleFile(t *testing.T) {
+	builder := &RequestBuilder{
+		formFiles: []*File{
+			{Name: "avatar", FileName: "avatar.jpg"},
+			{Name: "document", FileName: "doc.pdf"},
+			{Name: "image", FileName: "pic.png"},
+		},
+	}
+
+	builder.DelFile("document")
+
+	// Should have 2 files remaining
+	assert.Len(t, builder.formFiles, 2)
+
+	// Verify the correct files remain
+	fileNames := make([]string, len(builder.formFiles))
+	for i, file := range builder.formFiles {
+		fileNames[i] = file.Name
+	}
+
+	assert.Contains(t, fileNames, "avatar")
+	assert.Contains(t, fileNames, "image")
+	assert.NotContains(t, fileNames, "document")
+}
+
+// TestDelFile_MultipleFiles tests deleting multiple files at once
+func TestDelFile_MultipleFiles(t *testing.T) {
+	builder := &RequestBuilder{
+		formFiles: []*File{
+			{Name: "file1", FileName: "f1.txt"},
+			{Name: "file2", FileName: "f2.txt"},
+			{Name: "file3", FileName: "f3.txt"},
+			{Name: "file4", FileName: "f4.txt"},
+			{Name: "file5", FileName: "f5.txt"},
+		},
+	}
+
+	// Delete multiple files including consecutive ones
+	builder.DelFile("file2", "file3", "file5")
+
+	// Should have 2 files remaining
+	assert.Len(t, builder.formFiles, 2)
+
+	// Verify the correct files remain
+	assert.Equal(t, "file1", builder.formFiles[0].Name)
+	assert.Equal(t, "file4", builder.formFiles[1].Name)
+}
+
+// TestDelFile_ConsecutiveFiles specifically tests the bug case
+func TestDelFile_ConsecutiveFiles(t *testing.T) {
+	builder := &RequestBuilder{
+		formFiles: []*File{
+			{Name: "keep1", FileName: "k1.txt"},
+			{Name: "delete1", FileName: "d1.txt"},
+			{Name: "delete2", FileName: "d2.txt"},
+			{Name: "delete3", FileName: "d3.txt"},
+			{Name: "keep2", FileName: "k2.txt"},
+		},
+	}
+
+	// This would fail with the old buggy implementation
+	builder.DelFile("delete1", "delete2", "delete3")
+
+	// Should have 2 files remaining
+	assert.Len(t, builder.formFiles, 2)
+
+	// Verify the correct files remain
+	assert.Equal(t, "keep1", builder.formFiles[0].Name)
+	assert.Equal(t, "keep2", builder.formFiles[1].Name)
+}
+
+// TestDelFile_EmptyFiles tests deleting from empty file slice
+func TestDelFile_EmptyFiles(t *testing.T) {
+	builder := &RequestBuilder{}
+
+	// Should not panic
+	builder.DelFile("any")
+
+	// Should remain nil
+	assert.Nil(t, builder.formFiles)
+}

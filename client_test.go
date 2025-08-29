@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bytedance/sonic"
+	json2 "github.com/go-json-experiment/json"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
@@ -183,7 +183,7 @@ func TestClientPostRequest(t *testing.T) {
 	defer server.Close()
 
 	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Post("/test-post").Body(map[string]interface{}{"key": "value"}).Send(context.Background())
+	resp, err := client.Post("/test-post").Body(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "POST response\n", resp.String())
@@ -194,7 +194,7 @@ func TestClientPutRequest(t *testing.T) {
 	defer server.Close()
 
 	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Put("/test-put").Body(map[string]interface{}{"key": "value"}).Send(context.Background())
+	resp, err := client.Put("/test-put").Body(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "PUT response\n", resp.String())
@@ -216,7 +216,7 @@ func TestClientPatchRequest(t *testing.T) {
 	defer server.Close()
 
 	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Patch("/test-patch").Body(map[string]interface{}{"key": "value"}).Send(context.Background())
+	resp, err := client.Patch("/test-patch").Body(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "PATCH response\n", resp.String())
@@ -287,8 +287,10 @@ func TestSetJSONMarshal(t *testing.T) {
 
 	client := Create(&Config{BaseURL: server.URL})
 
-	// Set the custom JSON marshal function.
-	client.SetJSONMarshal(sonic.Marshal)
+	// Set the custom JSON marshal function using JSON v2
+	client.SetJSONMarshal(func(v any) ([]byte, error) {
+		return json2.Marshal(v)
+	})
 
 	// Create a test data instance.
 	data := testSchema{
@@ -315,8 +317,10 @@ func TestSetJSONUnmarshal(t *testing.T) {
 
 	client := Create(&Config{BaseURL: server.URL})
 
-	// Set the custom JSON unmarshal function.
-	client.SetJSONUnmarshal(sonic.Unmarshal)
+	// Set the custom JSON unmarshal function using JSON v2
+	client.SetJSONUnmarshal(func(data []byte, v any) error {
+		return json2.Unmarshal(data, v)
+	})
 
 	// Fetch and unmarshal the response.
 	resp, err := client.Get("/").Send(context.Background())

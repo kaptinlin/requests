@@ -198,13 +198,14 @@ func (b *RequestBuilder) Cookie(key, value string) *RequestBuilder {
 
 // DelCookie removes one or more cookies from the request.
 func (b *RequestBuilder) DelCookie(key ...string) *RequestBuilder {
-	if b.cookies != nil {
-		for i, cookie := range b.cookies {
-			if slices.Contains(key, cookie.Name) {
-				b.cookies = append(b.cookies[:i], b.cookies[i+1:]...)
-			}
-		}
+	if b.cookies == nil {
+		return b
 	}
+
+	b.cookies = slices.DeleteFunc(b.cookies, func(cookie *http.Cookie) bool {
+		return slices.Contains(key, cookie.Name)
+	})
+
 	return b
 }
 
@@ -329,13 +330,14 @@ func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *Requ
 
 // DelFile removes one or more files from the request
 func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
-	if b.formFiles != nil {
-		for i, file := range b.formFiles {
-			if slices.Contains(key, file.Name) {
-				b.formFiles = append(b.formFiles[:i], b.formFiles[i+1:]...)
-			}
-		}
+	if b.formFiles == nil {
+		return b
 	}
+
+	b.formFiles = slices.DeleteFunc(b.formFiles, func(file *File) bool {
+		return slices.Contains(key, file.Name)
+	})
+
 	return b
 }
 
