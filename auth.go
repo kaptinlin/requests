@@ -1,3 +1,4 @@
+// Package requests provides a fluent HTTP client library for Go.
 package requests
 
 import "net/http"
