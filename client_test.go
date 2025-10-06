@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	json2 "github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json"
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
@@ -278,7 +277,7 @@ func TestSetJSONMarshal(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read body from the request
 		var received testSchema
-		err := json.NewDecoder(r.Body).Decode(&received)
+		err := json.UnmarshalRead(r.Body, &received)
 		assert.NoError(t, err)
 		assert.Equal(t, "John Doe", received.Name)
 		assert.Equal(t, 30, received.Age)
@@ -289,7 +288,7 @@ func TestSetJSONMarshal(t *testing.T) {
 
 	// Set the custom JSON marshal function using JSON v2
 	client.SetJSONMarshal(func(v any) ([]byte, error) {
-		return json2.Marshal(v)
+		return json.Marshal(v)
 	})
 
 	// Create a test data instance.
@@ -319,7 +318,7 @@ func TestSetJSONUnmarshal(t *testing.T) {
 
 	// Set the custom JSON unmarshal function using JSON v2
 	client.SetJSONUnmarshal(func(data []byte, v any) error {
-		return json2.Unmarshal(data, v)
+		return json.Unmarshal(data, v)
 	})
 
 	// Fetch and unmarshal the response.

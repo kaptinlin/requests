@@ -3,10 +3,10 @@ package requests
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -139,12 +139,8 @@ func TestQueryStructWithClient(t *testing.T) {
 		queryParams := r.URL.Query()
 		w.Header().Set("Content-Type", "application/json")
 
-		if encoder := json.NewEncoder(w); encoder != nil {
-			if err := encoder.Encode(queryParams); err != nil {
-				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-		} else {
-			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		if err := json.MarshalWrite(w, queryParams); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()
@@ -414,12 +410,8 @@ func startEchoServer() *httptest.Server {
 			"body":        string(bodyBytes),
 			"contentType": r.Header.Get("Content-Type"),
 		}
-		if encoder := json.NewEncoder(w); encoder != nil {
-			if err := encoder.Encode(response); err != nil {
-				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-		} else {
-			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		if err := json.MarshalWrite(w, response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	}))
 }
@@ -698,12 +690,8 @@ func TestFormWithNil(t *testing.T) {
 			"status": "received",
 			"body":   "empty or nil form",
 		}
-		if encoder := json.NewEncoder(w); encoder != nil {
-			if err := encoder.Encode(response); err != nil {
-				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-		} else {
-			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		if err := json.MarshalWrite(w, response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	}))
 	defer server.Close()
@@ -748,12 +736,8 @@ func startFormHandlingServer() *httptest.Server {
 			"fields": fields,
 			"files":  files,
 		}
-		if encoder := json.NewEncoder(w); encoder != nil {
-			if err := encoder.Encode(response); err != nil {
-				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-		} else {
-			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		if err := json.MarshalWrite(w, response); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	}))
 }

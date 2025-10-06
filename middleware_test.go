@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestMiddleware ensures that the Middleware correctly applies
@@ -14,11 +17,7 @@ func TestMiddleware(t *testing.T) {
 	// Set up a mock server to inspect incoming requests
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check for the custom header added by our middleware
-		if r.Header.Get("X-Custom-Header") != "true" {
-			t.Errorf("Expected custom header 'X-Custom-Header' to be 'true', got '%s'", r.Header.Get("X-Custom-Header"))
-			w.WriteHeader(http.StatusBadRequest) // Indicate a bad request if header is missing
-			return
-		}
+		assert.Equal(t, "true", r.Header.Get("X-Custom-Header"), "Expected custom header 'X-Custom-Header' to be 'true'")
 		w.WriteHeader(http.StatusOK) // All good if the header is present
 	}))
 	defer mockServer.Close()
@@ -42,15 +41,11 @@ func TestMiddleware(t *testing.T) {
 
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
-	}
+	require.NoError(t, err, "Failed to send request")
 	defer resp.Close() //nolint: errcheck
 
 	// Check if the server responded with a 200 OK, indicating the middleware applied the header successfully
-	if resp.StatusCode() != http.StatusOK {
-		t.Errorf("Expected status code 200, got %d", resp.StatusCode())
-	}
+	assert.Equal(t, http.StatusOK, resp.StatusCode(), "Expected status code 200")
 }
 
 func TestNestedMiddleware(t *testing.T) {
@@ -96,15 +91,11 @@ func TestNestedMiddleware(t *testing.T) {
 
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
-	}
+	require.NoError(t, err, "Failed to send request")
 	defer resp.Close() //nolint: errcheck
 
 	expected := "0>>1>>2>>(served)>>2>>1>>0"
-	if buf.String() != expected {
-		t.Errorf("Expected sequence %s, got %s", expected, buf.String())
-	}
+	assert.Equal(t, expected, buf.String(), "Middleware execution order incorrect")
 }
 
 // TestDynamicMiddlewareAddition tests the dynamic addition of middleware to the client
@@ -145,15 +136,11 @@ func TestDynamicMiddlewareAddition(t *testing.T) {
 
 	// Make a request to the mock server
 	_, err := client.Get("/").Send(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
-	}
+	require.NoError(t, err, "Failed to send request")
 
 	// Check the order of middleware execution
 	expectedOrder := "Logging>Auth>Handler"
-	if executionOrder.String() != expectedOrder {
-		t.Errorf("Middleware executed in incorrect order. Expected %s, got %s", expectedOrder, executionOrder.String())
-	}
+	assert.Equal(t, expectedOrder, executionOrder.String(), "Middleware executed in incorrect order")
 }
 
 // TestRequestMiddlewareAddition tests the addition of middleware at the request level,
@@ -197,13 +184,9 @@ func TestRequestMiddlewareAddition(t *testing.T) {
 
 	// Make a request to the mock server
 	_, err := reqBuilder.Send(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
-	}
+	require.NoError(t, err, "Failed to send request")
 
 	// Check the order of middleware execution
 	expectedOrder := "ClientLogging>RequestAuth>Handler"
-	if executionOrder.String() != expectedOrder {
-		t.Errorf("Middleware executed in incorrect order. Expected %s, got %s", expectedOrder, executionOrder.String())
-	}
+	assert.Equal(t, expectedOrder, executionOrder.String(), "Middleware executed in incorrect order")
 }

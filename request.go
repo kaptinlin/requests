@@ -456,13 +456,16 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 			}
 
 			// Logging context cancellation as an error condition
+			timer := time.NewTimer(retryStrategy(attempt))
+			defer timer.Stop()
+
 			select {
 			case <-ctx.Done():
 				if b.client.Logger != nil {
 					b.client.Logger.Errorf("Request canceled or timed out: %v", ctx.Err())
 				}
 				return nil, ctx.Err()
-			case <-time.After(retryStrategy(attempt)):
+			case <-timer.C:
 				// Backoff before retrying
 			}
 		}

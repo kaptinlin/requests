@@ -2,10 +2,9 @@ package requests
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 
-	json2 "github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json"
 )
 
 // JSONEncoder handles encoding of JSON data.
@@ -46,14 +45,14 @@ func (e *JSONEncoder) ContentType() string {
 	return "application/json;charset=utf-8"
 }
 
-// json2Marshal wraps JSON v2 marshal to match the expected signature
-func json2Marshal(v any) ([]byte, error) {
-	return json2.Marshal(v)
+// jsonMarshal wraps JSON v2 marshal to match the expected signature
+func jsonMarshal(v any) ([]byte, error) {
+	return json.Marshal(v)
 }
 
 // DefaultJSONEncoder instance using the JSON v2 marshal function
 var DefaultJSONEncoder = &JSONEncoder{
-	MarshalFunc: json2Marshal,
+	MarshalFunc: jsonMarshal,
 }
 
 // JSONDecoder handles decoding of JSON data.
@@ -75,12 +74,12 @@ func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 	return json.Unmarshal(data, v) // Fallback to standard JSON unmarshal
 }
 
-// json2Unmarshal wraps JSON v2 unmarshal to match the expected signature
-func json2Unmarshal(data []byte, v any) error {
-	return json2.Unmarshal(data, v)
+// jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature
+func jsonUnmarshal(data []byte, v any) error {
+	return json.Unmarshal(data, v)
 }
 
 // DefaultJSONDecoder instance using the JSON v2 unmarshal function
 var DefaultJSONDecoder = &JSONDecoder{
-	UnmarshalFunc: json2Unmarshal,
+	UnmarshalFunc: jsonUnmarshal,
 }

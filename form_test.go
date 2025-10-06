@@ -2,8 +2,8 @@ package requests
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -53,12 +53,8 @@ func startFileUploadServer() *httptest.Server {
 		// Respond with details of the uploaded files in JSON format
 		w.Header().Set("Content-Type", "application/json")
 
-		if encoder := json.NewEncoder(w); encoder != nil {
-			if err = encoder.Encode(uploads); err != nil {
-				http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-		} else {
-			http.Error(w, "Failed to create JSON encoder", http.StatusInternalServerError)
+		if err = json.MarshalWrite(w, uploads); err != nil {
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		}
 	}))
 }
