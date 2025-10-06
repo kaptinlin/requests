@@ -150,7 +150,7 @@ For saving the response body to a file or streaming it to an `io.Writer`:
     }
     ```
 
-### Line-by-Line Iteration (Go 1.23+)
+### Line-by-Line Iteration (Go 1.25)
 
 For processing responses line by line, such as SSE streams or JSONL data:
 

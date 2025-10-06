@@ -2,7 +2,7 @@ package middlewares
 
 import (
 	"bytes"
-	"encoding/json"
+	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"sync"

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/kaptinlin/requests"
-	"github.com/test-go/testify/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 // TestCacheMiddleware tests the basic functionality of cache middleware
