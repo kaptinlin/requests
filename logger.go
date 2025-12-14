@@ -3,8 +3,7 @@ package requests
 import (
 	"fmt"
 	"io"
-
-	"golang.org/x/exp/slog"
+	"log/slog"
 )
 
 // Level is a type that represents the log level.

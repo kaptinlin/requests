@@ -3,6 +3,7 @@ package requests
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -73,7 +74,8 @@ func (b *RequestBuilder) Path(path string) *RequestBuilder {
 // PathParams sets multiple path params fields and their values at one go in the RequestBuilder instance.
 func (b *RequestBuilder) PathParams(params map[string]string) *RequestBuilder {
 	if b.pathParams == nil {
-		b.pathParams = map[string]string{}
+		// Pre-allocate with expected size for better performance (Go 1.24+ Swiss Tables)
+		b.pathParams = make(map[string]string, len(params))
 	}
 	for key, value := range params {
 		b.pathParams[key] = value
@@ -426,26 +428,37 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 			return b.client.HTTPClient.Do(req) // Single request, no retries
 		}
 
-		var lastErr error
+		var errs []error
 		var resp *http.Response
 		for attempt := 0; attempt <= maxRetries; attempt++ {
-			resp, lastErr = b.client.HTTPClient.Do(req)
+			var err error
+			resp, err = b.client.HTTPClient.Do(req)
+
+			if err != nil {
+				// Preserve error with attempt context for better debugging
+				errs = append(errs, fmt.Errorf("attempt %d/%d: %w", attempt+1, maxRetries+1, err))
+			}
 
 			// Determine if a retry is needed
-			shouldRetry := lastErr != nil || (resp != nil && retryIf != nil && retryIf(req, resp, lastErr))
+			shouldRetry := err != nil || (resp != nil && retryIf != nil && retryIf(req, resp, err))
 			if !shouldRetry || attempt == maxRetries {
-				if lastErr != nil {
+				if err != nil {
 					if b.client.Logger != nil {
-						b.client.Logger.Errorf("Error after %d attempts: %v", attempt+1, lastErr)
+						b.client.Logger.Errorf("Error after %d attempts: %v", attempt+1, err)
 					}
+					// Return joined errors for better debugging when multiple attempts failed
+					if len(errs) > 1 {
+						return resp, errors.Join(errs...)
+					}
+					return resp, err
 				}
 				break
 			}
 
 			if resp != nil {
-				if err := resp.Body.Close(); err != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
 					if b.client.Logger != nil {
-						b.client.Logger.Errorf("Error closing response body: %v", err)
+						b.client.Logger.Errorf("Error closing response body: %v", closeErr)
 					}
 				}
 			}
@@ -470,7 +483,7 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 			}
 		}
 
-		return resp, lastErr
+		return resp, nil
 	})
 
 	if b.middlewares != nil {

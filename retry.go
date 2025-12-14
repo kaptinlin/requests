@@ -28,10 +28,7 @@ func LinearBackoffStrategy(initialInterval time.Duration) func(int) time.Duratio
 func ExponentialBackoffStrategy(initialInterval time.Duration, multiplier float64, maxBackoffTime time.Duration) func(int) time.Duration {
 	return func(attempt int) time.Duration {
 		delay := initialInterval * time.Duration(math.Pow(multiplier, float64(attempt)))
-		if delay > maxBackoffTime {
-			return maxBackoffTime
-		}
-		return delay
+		return min(delay, maxBackoffTime)
 	}
 }
 
