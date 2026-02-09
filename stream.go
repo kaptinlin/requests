@@ -1,6 +1,6 @@
 package requests
 
-// StreamBufferSize is the size of the buffer used for streaming.
+// maxStreamBufferSize is the maximum size of the buffer used for streaming.
 const maxStreamBufferSize = 512 * 1024
 
 // StreamCallback is a callback function that is called when data is received.

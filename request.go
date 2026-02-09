@@ -16,7 +16,7 @@ import (
 	"github.com/google/go-querystring/query"
 )
 
-// RequestBuilder facilitates building and executing HTTP requests
+// RequestBuilder facilitates building and executing HTTP requests.
 type RequestBuilder struct {
 	client        *Client
 	method        string
@@ -28,7 +28,7 @@ type RequestBuilder struct {
 	formFields    url.Values
 	formFiles     []*File
 	boundary      string
-	bodyData      interface{}
+	bodyData      any
 	timeout       time.Duration
 	middlewares   []Middleware
 	maxRetries    int
@@ -40,7 +40,7 @@ type RequestBuilder struct {
 	streamDone    StreamDoneCallback
 }
 
-// NewRequestBuilder creates a new RequestBuilder with default settings
+// NewRequestBuilder creates a new RequestBuilder with default settings.
 func (c *Client) NewRequestBuilder(method, path string) *RequestBuilder {
 	return &RequestBuilder{
 		client:  c,
@@ -116,7 +116,7 @@ func (b *RequestBuilder) preparePath() string {
 	return preparedPath
 }
 
-// Queries adds query parameters to the request
+// Queries adds query parameters to the request.
 func (b *RequestBuilder) Queries(params url.Values) *RequestBuilder {
 	for key, values := range params {
 		for _, value := range values {
@@ -126,7 +126,7 @@ func (b *RequestBuilder) Queries(params url.Values) *RequestBuilder {
 	return b
 }
 
-// Query adds a single query parameter to the request
+// Query adds a single query parameter to the request.
 func (b *RequestBuilder) Query(key, value string) *RequestBuilder {
 	b.queries.Add(key, value)
 	return b
@@ -141,8 +141,14 @@ func (b *RequestBuilder) DelQuery(key ...string) *RequestBuilder {
 }
 
 // QueriesStruct adds query parameters to the request based on a struct tagged with url tags.
-func (b *RequestBuilder) QueriesStruct(queryStruct interface{}) *RequestBuilder {
-	values, _ := query.Values(queryStruct) // Safely ignore error for simplicity
+func (b *RequestBuilder) QueriesStruct(queryStruct any) *RequestBuilder {
+	values, err := query.Values(queryStruct)
+	if err != nil {
+		if b.client.Logger != nil {
+			b.client.Logger.Errorf("Error encoding query struct: %v", err)
+		}
+		return b
+	}
 	for key, value := range values {
 		for _, v := range value {
 			b.queries.Add(key, v)
@@ -151,7 +157,7 @@ func (b *RequestBuilder) QueriesStruct(queryStruct interface{}) *RequestBuilder 
 	return b
 }
 
-// Headers set headers to the request
+// Headers set headers to the request.
 func (b *RequestBuilder) Headers(headers http.Header) *RequestBuilder {
 	for key, values := range headers {
 		for _, value := range values {
@@ -181,7 +187,7 @@ func (b *RequestBuilder) DelHeader(key ...string) *RequestBuilder {
 	return b
 }
 
-// Cookies method for map
+// Cookies method for map.
 func (b *RequestBuilder) Cookies(cookies map[string]string) *RequestBuilder {
 	for key, value := range cookies {
 		b.Cookie(key, value)
@@ -243,7 +249,7 @@ func (b *RequestBuilder) Auth(auth AuthMethod) *RequestBuilder {
 	return b
 }
 
-// Form sets form fields and files for the request
+// Form sets form fields and files for the request.
 func (b *RequestBuilder) Form(v any) *RequestBuilder {
 	formFields, formFiles, err := parseForm(v)
 
@@ -265,7 +271,7 @@ func (b *RequestBuilder) Form(v any) *RequestBuilder {
 	return b
 }
 
-// FormFields sets multiple form fields at once
+// FormFields sets multiple form fields at once.
 func (b *RequestBuilder) FormFields(fields any) *RequestBuilder {
 	if b.formFields == nil {
 		b.formFields = url.Values{}
@@ -287,7 +293,7 @@ func (b *RequestBuilder) FormFields(fields any) *RequestBuilder {
 	return b
 }
 
-// FormField adds or updates a form field
+// FormField adds or updates a form field.
 func (b *RequestBuilder) FormField(key, val string) *RequestBuilder {
 	if b.formFields == nil {
 		b.formFields = url.Values{}
@@ -296,7 +302,7 @@ func (b *RequestBuilder) FormField(key, val string) *RequestBuilder {
 	return b
 }
 
-// DelFormField removes one or more form fields
+// DelFormField removes one or more form fields.
 func (b *RequestBuilder) DelFormField(key ...string) *RequestBuilder {
 	if b.formFields != nil {
 		for _, k := range key {
@@ -306,7 +312,7 @@ func (b *RequestBuilder) DelFormField(key ...string) *RequestBuilder {
 	return b
 }
 
-// Files sets multiple files at once
+// Files sets multiple files at once.
 func (b *RequestBuilder) Files(files ...*File) *RequestBuilder {
 	if b.formFiles == nil {
 		b.formFiles = []*File{}
@@ -316,7 +322,7 @@ func (b *RequestBuilder) Files(files ...*File) *RequestBuilder {
 	return b
 }
 
-// File adds a file to the request
+// File adds a file to the request.
 func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *RequestBuilder {
 	if b.formFiles == nil {
 		b.formFiles = []*File{}
@@ -330,7 +336,7 @@ func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *Requ
 	return b
 }
 
-// DelFile removes one or more files from the request
+// DelFile removes one or more files from the request.
 func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 	if b.formFiles == nil {
 		return b
@@ -343,65 +349,65 @@ func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 	return b
 }
 
-// Body sets the request body
-func (b *RequestBuilder) Body(body interface{}) *RequestBuilder {
+// Body sets the request body.
+func (b *RequestBuilder) Body(body any) *RequestBuilder {
 	b.bodyData = body
 	return b
 }
 
-// JSONBody sets the request body as JSON
-func (b *RequestBuilder) JSONBody(v interface{}) *RequestBuilder {
+// JSONBody sets the request body as JSON.
+func (b *RequestBuilder) JSONBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/json")
 	return b
 }
 
-// XMLBody sets the request body as XML
-func (b *RequestBuilder) XMLBody(v interface{}) *RequestBuilder {
+// XMLBody sets the request body as XML.
+func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/xml")
 	return b
 }
 
-// YAMLBody sets the request body as YAML
-func (b *RequestBuilder) YAMLBody(v interface{}) *RequestBuilder {
+// YAMLBody sets the request body as YAML.
+func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "application/yaml")
 	return b
 }
 
-// TextBody sets the request body as plain text
+// TextBody sets the request body as plain text.
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 	b.bodyData = v
 	b.headers.Set("Content-Type", "text/plain")
 	return b
 }
 
-// RawBody sets the request body as raw bytes
+// RawBody sets the request body as raw bytes.
 func (b *RequestBuilder) RawBody(v []byte) *RequestBuilder {
 	b.bodyData = v
 	return b
 }
 
-// Timeout sets the request timeout
+// Timeout sets the request timeout.
 func (b *RequestBuilder) Timeout(timeout time.Duration) *RequestBuilder {
 	b.timeout = timeout
 	return b
 }
 
-// MaxRetries sets the maximum number of retry attempts
+// MaxRetries sets the maximum number of retry attempts.
 func (b *RequestBuilder) MaxRetries(maxRetries int) *RequestBuilder {
 	b.maxRetries = maxRetries
 	return b
 }
 
-// RetryStrategy sets the backoff strategy for retries
+// RetryStrategy sets the backoff strategy for retries.
 func (b *RequestBuilder) RetryStrategy(strategy BackoffStrategy) *RequestBuilder {
 	b.retryStrategy = strategy
 	return b
 }
 
-// RetryIf sets the custom retry condition function
+// RetryIf sets the custom retry condition function.
 func (b *RequestBuilder) RetryIf(retryIf RetryIfFunc) *RequestBuilder {
 	b.retryIf = retryIf
 	return b
@@ -409,17 +415,17 @@ func (b *RequestBuilder) RetryIf(retryIf RetryIfFunc) *RequestBuilder {
 
 func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Response, error) {
 	finalHandler := MiddlewareHandlerFunc(func(req *http.Request) (*http.Response, error) {
-		var maxRetries = b.client.MaxRetries
+		maxRetries := b.client.MaxRetries
 		if b.maxRetries > 0 {
 			maxRetries = b.maxRetries
 		}
 
-		var retryStrategy = b.client.RetryStrategy
+		retryStrategy := b.client.RetryStrategy
 		if b.retryStrategy != nil {
 			retryStrategy = b.retryStrategy
 		}
 
-		var retryIf = b.client.RetryIf
+		retryIf := b.client.RetryIf
 		if b.retryIf != nil {
 			retryIf = b.retryIf
 		}
@@ -468,18 +474,17 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 				b.client.Logger.Infof("Retrying request (attempt %d) after backoff", attempt+1)
 			}
 
-			// Logging context cancellation as an error condition
+			// Wait for backoff or context cancellation
 			timer := time.NewTimer(retryStrategy(attempt))
-			defer timer.Stop()
-
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				if b.client.Logger != nil {
 					b.client.Logger.Errorf("Request canceled or timed out: %v", ctx.Err())
 				}
 				return nil, ctx.Err()
 			case <-timer.C:
-				// Backoff before retrying
+				// Timer fired, proceed with retry
 			}
 		}
 
@@ -501,7 +506,7 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 	return finalHandler(req)
 }
 
-// Stream sets the stream callback for the request
+// Stream sets the stream callback for the request.
 func (b *RequestBuilder) Stream(callback StreamCallback) *RequestBuilder {
 	b.stream = callback
 	return b
@@ -584,7 +589,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		if b.client.Logger != nil {
 			b.client.Logger.Errorf("Error creating request: %v", err)
 		}
-		return nil, fmt.Errorf("%w: %v", ErrRequestCreationFailed, err) //nolint:errorlint
+		return nil, fmt.Errorf("%w: %w", ErrRequestCreationFailed, err)
 	}
 
 	if b.auth != nil {
@@ -642,7 +647,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 			b.client.Logger.Errorf("Response is nil")
 		}
 
-		return nil, fmt.Errorf("%w: %v", ErrResponseNil, err) //nolint:errorlint
+		return nil, fmt.Errorf("%w: %w", ErrResponseNil, err)
 	}
 
 	// Wrap and return the response.
@@ -711,7 +716,7 @@ func (b *RequestBuilder) prepareBodyBasedOnContentType() (io.Reader, string, err
 		switch b.bodyData.(type) {
 		case url.Values, map[string][]string, map[string]string:
 			contentType = "application/x-www-form-urlencoded"
-		case map[string]interface{}, []interface{}, struct{}:
+		case map[string]any, []any, struct{}:
 			contentType = "application/json"
 		case string, []byte:
 			contentType = "text/plain"

@@ -87,7 +87,7 @@ To submit data to be processed to a specific resource:
 ```go
 resp, err := client.Post("/path").
     Header("Content-Type", "application/json").
-    JSONBody(map[string]interface{}{"key": "value"}).
+    JSONBody(map[string]any{"key": "value"}).
     Send(context.Background())
 ```
 
@@ -98,7 +98,7 @@ To replace all current representations of the target resource with the request p
 ```go
 resp, err := client.Put("/articles/{article_id}").
     PathParam("article_id", "123456").
-    JSONBody(map[string]interface{}{"updatedKey": "newValue"}).
+    JSONBody(map[string]any{"updatedKey": "newValue"}).
     Send(context.Background())
 ```
 

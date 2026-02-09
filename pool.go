@@ -8,12 +8,12 @@ import (
 
 var bufferPool bytebufferpool.Pool
 
-// GetBuffer retrieves a buffer from the pool
+// GetBuffer retrieves a buffer from the pool.
 func GetBuffer() *bytebufferpool.ByteBuffer {
 	return bufferPool.Get()
 }
 
-// PutBuffer returns a buffer to the pool
+// PutBuffer returns a buffer to the pool.
 func PutBuffer(b *bytebufferpool.ByteBuffer) {
 	bufferPool.Put(b)
 }

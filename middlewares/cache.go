@@ -1,27 +1,29 @@
+// Package middlewares provides reusable middleware components for the requests HTTP client,
+// including caching, cookie management, and header injection.
 package middlewares
 
 import (
 	"bytes"
-	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/go-json-experiment/json"
 	"github.com/kaptinlin/requests"
 )
 
 type Duration int64
 
-// Cacher is the interface for the cache
+// Cacher is the interface for the cache.
 type Cacher interface {
 	Get(key string) ([]byte, bool)
 	Set(key string, value []byte, ttl time.Duration)
 	Delete(key string)
 }
 
-// CacheMiddleware is the middleware for the cache
-var CacheMiddleware = func(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
+// CacheMiddleware creates a middleware that caches GET responses.
+func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
 	return func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			// If not GET request, skip cache
@@ -33,7 +35,7 @@ var CacheMiddleware = func(cache Cacher, ttl time.Duration, logger requests.Logg
 			// Get cached data
 			cachedData, ok := cache.Get(cacheKey)
 			if ok {
-				logger.Debugf("Cache hit", map[string]interface{}{
+				logger.Debugf("Cache hit", map[string]any{
 					"url": req.URL.String(),
 					"key": cacheKey,
 				})
@@ -51,7 +53,7 @@ var CacheMiddleware = func(cache Cacher, ttl time.Duration, logger requests.Logg
 				if data, err := cacheResponse(resp); err == nil {
 					// Cache response
 					cache.Set(cacheKey, data, ttl)
-					logger.Debugf("Cached response", map[string]interface{}{
+					logger.Debugf("Cached response", map[string]any{
 						"url": req.URL.String(),
 						"key": cacheKey,
 					})
@@ -82,9 +84,8 @@ func cacheResponse(resp *http.Response) ([]byte, error) {
 	return json.Marshal(cacheData)
 }
 
-// Generate cache key
+// generateCacheKey creates a cache key from the request URL path and query string.
 func generateCacheKey(req *http.Request) string {
-	// Generate cache key from request
 	key := req.URL.Path
 	if req.URL.RawQuery != "" {
 		key += "?" + req.URL.RawQuery
@@ -92,7 +93,7 @@ func generateCacheKey(req *http.Request) string {
 	return key
 }
 
-// Build response from cache
+// buildResponseFromCache reconstructs an HTTP response from cached data.
 func buildResponseFromCache(data []byte) (*http.Response, error) {
 	var cached CachedResponse
 	if err := json.Unmarshal(data, &cached); err != nil {
@@ -107,7 +108,7 @@ func buildResponseFromCache(data []byte) (*http.Response, error) {
 	}, nil
 }
 
-// CachedResponse
+// CachedResponse represents a serializable HTTP response stored in the cache.
 type CachedResponse struct {
 	Status     string
 	StatusCode int
@@ -115,10 +116,11 @@ type CachedResponse struct {
 	Body       []byte
 }
 
-// MemoryCache
+// MemoryCache is an in-memory cache implementation with TTL-based expiration.
 type MemoryCache struct {
 	data  map[string]*cacheItem
 	mutex sync.RWMutex
+	done  chan struct{}
 }
 
 type cacheItem struct {
@@ -126,17 +128,22 @@ type cacheItem struct {
 	expiration time.Time
 }
 
-// NewMemoryCache
+// NewMemoryCache creates a new MemoryCache and starts a background goroutine to clean expired items.
 func NewMemoryCache() *MemoryCache {
 	cache := &MemoryCache{
 		data: make(map[string]*cacheItem),
+		done: make(chan struct{}),
 	}
-	// Clean expired items
 	go cache.cleanExpired()
 	return cache
 }
 
-// Get cache item
+// Close stops the background cleanup goroutine.
+func (c *MemoryCache) Close() {
+	close(c.done)
+}
+
+// Get retrieves a cache item by key, returning the value and whether it was found.
 func (c *MemoryCache) Get(key string) ([]byte, bool) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
@@ -145,13 +152,12 @@ func (c *MemoryCache) Get(key string) ([]byte, bool) {
 		if time.Now().Before(item.expiration) {
 			return item.value, true
 		}
-		// Expired, delete
-		delete(c.data, key)
+		// Item is expired; let the cleanup goroutine handle deletion.
 	}
 	return nil, false
 }
 
-// Set cache item
+// Set stores a value in the cache with the specified TTL.
 func (c *MemoryCache) Set(key string, value []byte, ttl time.Duration) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -162,24 +168,30 @@ func (c *MemoryCache) Set(key string, value []byte, ttl time.Duration) {
 	}
 }
 
-// Delete cache item
+// Delete removes a cache item by key.
 func (c *MemoryCache) Delete(key string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	delete(c.data, key)
 }
 
-// Clean expired items
+// cleanExpired periodically removes expired items from the cache.
 func (c *MemoryCache) cleanExpired() {
 	ticker := time.NewTicker(time.Minute)
-	for range ticker.C {
-		c.mutex.Lock()
-		now := time.Now()
-		for key, item := range c.data {
-			if now.After(item.expiration) {
-				delete(c.data, key)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.mutex.Lock()
+			now := time.Now()
+			for key, item := range c.data {
+				if now.After(item.expiration) {
+					delete(c.data, key)
+				}
 			}
+			c.mutex.Unlock()
+		case <-c.done:
+			return
 		}
-		c.mutex.Unlock()
 	}
 }

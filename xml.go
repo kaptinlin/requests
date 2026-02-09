@@ -41,7 +41,7 @@ func (e *XMLEncoder) ContentType() string {
 	return "application/xml;charset=utf-8"
 }
 
-// DefaultXMLEncoder instance using the standard xml.Marshal function
+// DefaultXMLEncoder is the default XMLEncoder instance using the standard xml.Marshal function.
 var DefaultXMLEncoder = &XMLEncoder{
 	MarshalFunc: xml.Marshal,
 }
@@ -65,7 +65,7 @@ func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 	return xml.Unmarshal(data, v) // Fallback to standard XML unmarshal
 }
 
-// DefaultXMLDecoder instance using the standard xml.Unmarshal function
+// DefaultXMLDecoder is the default XMLDecoder instance using the standard xml.Unmarshal function.
 var DefaultXMLDecoder = &XMLDecoder{
 	UnmarshalFunc: xml.Unmarshal,
 }

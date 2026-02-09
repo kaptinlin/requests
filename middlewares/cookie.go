@@ -6,7 +6,8 @@ import (
 	"github.com/kaptinlin/requests"
 )
 
-var CookieMiddleware = func(cookies []*http.Cookie) requests.Middleware {
+// CookieMiddleware creates a middleware that adds the specified cookies to each request.
+func CookieMiddleware(cookies []*http.Cookie) requests.Middleware {
 	return func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			for _, cookie := range cookies {

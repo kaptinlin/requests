@@ -2,40 +2,42 @@ package requests
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
 	"strings"
 )
 
-// RedirectPolicy is an interface that defines the Apply method
+// RedirectPolicy is an interface that defines the Apply method.
 type RedirectPolicy interface {
 	Apply(req *http.Request, via []*http.Request) error
 }
 
-// ProhibitRedirectPolicy is a redirect policy that does not allow any redirects
+// ProhibitRedirectPolicy is a redirect policy that does not allow any redirects.
 type ProhibitRedirectPolicy struct {
 }
 
+// NewProhibitRedirectPolicy creates a new ProhibitRedirectPolicy that prevents any redirects.
 func NewProhibitRedirectPolicy() *ProhibitRedirectPolicy {
 	return &ProhibitRedirectPolicy{}
 }
 
-// Apply is a method that implements the RedirectPolicy interface
+// Apply rejects all redirects by returning ErrAutoRedirectDisabled.
 func (p *ProhibitRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
 	return ErrAutoRedirectDisabled
 }
 
-// AllowRedirectPolicy is a redirect policy that allows a flexible number of redirects
+// AllowRedirectPolicy is a redirect policy that allows a flexible number of redirects.
 type AllowRedirectPolicy struct {
 	numberRedirects int
 }
 
-// New is a method that creates a new AllowRedirectPolicy
+// NewAllowRedirectPolicy creates a new AllowRedirectPolicy that allows up to the specified number of redirects.
 func NewAllowRedirectPolicy(numberRedirects int) *AllowRedirectPolicy {
 	return &AllowRedirectPolicy{numberRedirects: numberRedirects}
 }
 
-// Apply is a method that implements the RedirectPolicy interface
+// Apply allows redirects up to the configured limit, returning ErrTooManyRedirects if exceeded.
 func (a *AllowRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
 	if len(via) >= a.numberRedirects {
 		return fmt.Errorf("stopped after %d redirects: %w", a.numberRedirects, ErrTooManyRedirects)
@@ -44,26 +46,27 @@ func (a *AllowRedirectPolicy) Apply(req *http.Request, via []*http.Request) erro
 	return nil
 }
 
-// getHostname is a helper function that returns the hostname of the request
-func getHostname(host string) (hostname string) {
-	if strings.Index(host, ":") > 0 {
-		host, _, _ = net.SplitHostPort(host)
+// getHostname extracts the hostname from a host string, removing any port number.
+func getHostname(host string) string {
+	if strings.Contains(host, ":") {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
 	}
-	hostname = strings.ToLower(host)
-	return
+	return strings.ToLower(host)
 }
 
-// RedirectSpecifiedDomainPolicy is a redirect policy that checks if the redirect is allowed based on the hostnames
+// RedirectSpecifiedDomainPolicy is a redirect policy that checks if the redirect is allowed based on the hostnames.
 type RedirectSpecifiedDomainPolicy struct {
 	domains []string
 }
 
-// New is a method that creates a new RedirectSpecifiedDomainPolicy
+// NewRedirectSpecifiedDomainPolicy creates a new RedirectSpecifiedDomainPolicy that only allows redirects to the specified domains.
 func NewRedirectSpecifiedDomainPolicy(domains ...string) *RedirectSpecifiedDomainPolicy {
 	return &RedirectSpecifiedDomainPolicy{domains: domains}
 }
 
-// Apply is a method that implements the RedirectPolicy interface
+// Apply checks if the redirect target domain is in the allowed domains list.
 func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, via []*http.Request) error {
 	hosts := make(map[string]bool)
 	for _, h := range s.domains {
@@ -76,13 +79,11 @@ func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, via []*http.Req
 	return nil
 }
 
-// checkHostAndAddHeaders is a helper function that checks if the hostnames are the same and adds the headers
+// checkHostAndAddHeaders is a helper function that checks if the hostnames are the same and adds the headers.
 func checkHostAndAddHeaders(cur *http.Request, pre *http.Request) {
 	curHostname := getHostname(cur.URL.Host)
 	preHostname := getHostname(pre.URL.Host)
 	if strings.EqualFold(curHostname, preHostname) {
-		for key, val := range pre.Header {
-			cur.Header[key] = val
-		}
+		maps.Copy(cur.Header, pre.Header)
 	}
 }

@@ -45,12 +45,12 @@ func (e *JSONEncoder) ContentType() string {
 	return "application/json;charset=utf-8"
 }
 
-// jsonMarshal wraps JSON v2 marshal to match the expected signature
+// jsonMarshal wraps JSON v2 marshal to match the expected signature.
 func jsonMarshal(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// DefaultJSONEncoder instance using the JSON v2 marshal function
+// DefaultJSONEncoder is the default JSONEncoder instance using the JSON v2 marshal function.
 var DefaultJSONEncoder = &JSONEncoder{
 	MarshalFunc: jsonMarshal,
 }
@@ -74,12 +74,12 @@ func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 	return json.Unmarshal(data, v) // Fallback to standard JSON unmarshal
 }
 
-// jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature
+// jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature.
 func jsonUnmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-// DefaultJSONDecoder instance using the JSON v2 unmarshal function
+// DefaultJSONDecoder is the default JSONDecoder instance using the JSON v2 unmarshal function.
 var DefaultJSONDecoder = &JSONDecoder{
 	UnmarshalFunc: jsonUnmarshal,
 }

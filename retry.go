@@ -44,5 +44,8 @@ type RetryIfFunc func(req *http.Request, resp *http.Response, err error) bool
 
 // DefaultRetryIf is a simple retry condition that retries on 5xx status codes.
 func DefaultRetryIf(req *http.Request, resp *http.Response, err error) bool {
-	return resp.StatusCode >= 500 || err != nil
+	if err != nil {
+		return true
+	}
+	return resp != nil && resp.StatusCode >= 500
 }

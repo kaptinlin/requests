@@ -43,7 +43,7 @@ func (e *YAMLEncoder) ContentType() string {
 	return "application/yaml;charset=utf-8"
 }
 
-// DefaultYAMLEncoder instance using the goccy/go-yaml Marshal function
+// DefaultYAMLEncoder is the default YAMLEncoder instance using the goccy/go-yaml Marshal function.
 var DefaultYAMLEncoder = &YAMLEncoder{
 	MarshalFunc: yaml.Marshal,
 }
@@ -68,7 +68,7 @@ func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 	return yaml.Unmarshal(data, v)
 }
 
-// DefaultYAMLDecoder instance using the goccy/go-yaml Unmarshal function
+// DefaultYAMLDecoder is the default YAMLDecoder instance using the goccy/go-yaml Unmarshal function.
 var DefaultYAMLDecoder = &YAMLDecoder{
 	UnmarshalFunc: yaml.Unmarshal,
 }

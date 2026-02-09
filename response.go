@@ -27,7 +27,14 @@ type Response struct {
 }
 
 // NewResponse creates a new wrapped response object, leveraging the buffer pool for efficient memory usage.
-func NewResponse(ctx context.Context, resp *http.Response, client *Client, stream StreamCallback, streamErr StreamErrCallback, streamDone StreamDoneCallback) (*Response, error) {
+func NewResponse(
+	ctx context.Context,
+	resp *http.Response,
+	client *Client,
+	stream StreamCallback,
+	streamErr StreamErrCallback,
+	streamDone StreamDoneCallback,
+) (*Response, error) {
 	response := &Response{
 		RawResponse: resp,
 		Context:     ctx,
@@ -53,7 +60,9 @@ func NewResponse(ctx context.Context, resp *http.Response, client *Client, strea
 func (r *Response) handleStream() {
 	defer func() {
 		if err := r.RawResponse.Body.Close(); err != nil {
-			r.Client.Logger.Errorf("failed to close response body: %v", err)
+			if r.Client.Logger != nil {
+				r.Client.Logger.Errorf("failed to close response body: %v", err)
+			}
 		}
 	}()
 
@@ -83,7 +92,7 @@ func (r *Response) handleNonStream() error {
 
 	_, err := buf.ReadFrom(r.RawResponse.Body)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrResponseReadFailed, err) //nolint:errorlint
+		return fmt.Errorf("%w: %w", ErrResponseReadFailed, err)
 	}
 	_ = r.RawResponse.Body.Close()
 
@@ -112,7 +121,7 @@ func (r *Response) Cookies() []*http.Cookie {
 	return r.RawResponse.Cookies()
 }
 
-// Location returns the URL redirected address
+// Location returns the URL redirected address.
 func (r *Response) Location() (*url.URL, error) {
 	return r.RawResponse.Location()
 }
@@ -177,7 +186,7 @@ func (r *Response) String() string {
 }
 
 // Scan attempts to unmarshal the response body based on its content type.
-func (r *Response) Scan(v interface{}) error {
+func (r *Response) Scan(v any) error {
 	switch {
 	case r.IsJSON():
 		return r.ScanJSON(v)
@@ -191,7 +200,7 @@ func (r *Response) Scan(v interface{}) error {
 }
 
 // ScanJSON unmarshals the response body into a struct via JSON decoding.
-func (r *Response) ScanJSON(v interface{}) error {
+func (r *Response) ScanJSON(v any) error {
 	if r.BodyBytes == nil {
 		return nil
 	}
@@ -199,7 +208,7 @@ func (r *Response) ScanJSON(v interface{}) error {
 }
 
 // ScanXML unmarshals the response body into a struct via XML decoding.
-func (r *Response) ScanXML(v interface{}) error {
+func (r *Response) ScanXML(v any) error {
 	if r.BodyBytes == nil {
 		return nil
 	}
@@ -207,7 +216,7 @@ func (r *Response) ScanXML(v interface{}) error {
 }
 
 // ScanYAML unmarshals the response body into a struct via YAML decoding.
-func (r *Response) ScanYAML(v interface{}) error {
+func (r *Response) ScanYAML(v any) error {
 	if r.BodyBytes == nil {
 		return nil
 	}
@@ -241,7 +250,9 @@ func (r *Response) Save(v any) error {
 		}
 		defer func() {
 			if err := outFile.Close(); err != nil {
-				r.Client.Logger.Errorf("failed to close file: %v", err)
+				if r.Client.Logger != nil {
+					r.Client.Logger.Errorf("failed to close file: %v", err)
+				}
 			}
 		}()
 
@@ -261,7 +272,9 @@ func (r *Response) Save(v any) error {
 		// If the writer can be closed, close it
 		if pc, ok := p.(io.WriteCloser); ok {
 			if err := pc.Close(); err != nil {
-				r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
+				if r.Client.Logger != nil {
+					r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
+				}
 			}
 		}
 

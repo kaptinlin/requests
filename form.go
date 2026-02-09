@@ -9,24 +9,24 @@ import (
 	"github.com/google/go-querystring/query"
 )
 
-// File represents a form file
+// File represents a form file.
 type File struct {
 	Name     string        // Form field name
 	FileName string        // File name
 	Content  io.ReadCloser // File content
 }
 
-// SetContent sets the content of the file
+// SetContent sets the content of the file.
 func (f *File) SetContent(content io.ReadCloser) {
 	f.Content = content
 }
 
-// SetFileName sets the file name
+// SetFileName sets the file name.
 func (f *File) SetFileName(fileName string) {
 	f.FileName = fileName
 }
 
-// SetName sets the form field name
+// SetName sets the form field name.
 func (f *File) SetName(name string) {
 	f.Name = name
 }
@@ -49,12 +49,12 @@ func parseFormFields(fields any) (url.Values, error) {
 		return values, nil
 	default:
 		// Attempt to use query.Values for encoding struct types.
-		if values, err := query.Values(fields); err == nil {
-			return values, nil
-		} else {
+		values, err := query.Values(fields)
+		if err != nil {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err) //nolint:errorlint
+			return nil, fmt.Errorf("%w: %w", ErrUnsupportedFormFieldsType, err)
 		}
+		return values, nil
 	}
 }
 
@@ -97,12 +97,12 @@ func parseForm(v any) (url.Values, []*File, error) {
 		return values, files, nil
 	default:
 		// Attempt to use query.Values for encoding struct types.
-		if values, err := query.Values(v); err == nil {
-			return values, nil, nil
-		} else {
+		values, err := query.Values(v)
+		if err != nil {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, nil, fmt.Errorf("%w: %v", ErrUnsupportedFormFieldsType, err) //nolint:errorlint
+			return nil, nil, fmt.Errorf("%w: %w", ErrUnsupportedFormFieldsType, err)
 		}
+		return values, nil, nil
 	}
 }
 
@@ -128,14 +128,14 @@ func (e *FormEncoder) Encode(v any) (io.Reader, error) {
 		return strings.NewReader(values.Encode()), nil
 	default:
 		// Attempt to use query.Values for encoding struct types.
-		if values, err := query.Values(v); err == nil {
-			return strings.NewReader(values.Encode()), nil
-		} else {
+		values, err := query.Values(v)
+		if err != nil {
 			// Return an error if encoding fails or type is unsupported.
-			return nil, fmt.Errorf("%w: %v", ErrEncodingFailed, err) //nolint:errorlint
+			return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 		}
+		return strings.NewReader(values.Encode()), nil
 	}
 }
 
-// DefaultFormEncoder instance
+// DefaultFormEncoder is the default FormEncoder instance.
 var DefaultFormEncoder = &FormEncoder{}

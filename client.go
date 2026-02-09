@@ -14,7 +14,7 @@ import (
 	"golang.org/x/net/http2"
 )
 
-// Client represents an HTTP client
+// Client represents an HTTP client.
 type Client struct {
 	mu            sync.RWMutex
 	BaseURL       string
@@ -50,7 +50,7 @@ type Config struct {
 	RetryStrategy BackoffStrategy   // The backoff strategy function
 	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
 	Logger        Logger            // Logger instance for the client
-	HTTP2         bool              // Whether to use HTTP/2，The priority of http2 is lower than that of Transport
+	HTTP2         bool              // Whether to use HTTP/2. Transport takes priority over HTTP2 if both are set.
 }
 
 // URL creates a new HTTP client with the given base URL.
@@ -93,13 +93,12 @@ func Create(config *Config) *Client {
 	}
 
 	// Configure Transport, handle both TLS and HTTP/2
-	if client.TLSConfig != nil && config.HTTP2 {
-		// Use HTTP/2
+	switch {
+	case client.TLSConfig != nil && config.HTTP2:
 		client.HTTPClient.Transport = &http2.Transport{
 			TLSClientConfig: client.TLSConfig,
 		}
-	}
-	if client.TLSConfig != nil && !config.HTTP2 {
+	case client.TLSConfig != nil:
 		if httpClient.Transport != nil {
 			if transport, ok := httpClient.Transport.(*http.Transport); ok {
 				transport.TLSClientConfig = client.TLSConfig
@@ -109,8 +108,7 @@ func Create(config *Config) *Client {
 				TLSClientConfig: client.TLSConfig,
 			}
 		}
-	}
-	if client.TLSConfig == nil && config.HTTP2 {
+	case config.HTTP2:
 		client.HTTPClient.Transport = &http2.Transport{}
 	}
 
@@ -147,7 +145,7 @@ func Create(config *Config) *Client {
 	return client
 }
 
-// SetBaseURL sets the base URL for the client
+// SetBaseURL sets the base URL for the client.
 func (c *Client) SetBaseURL(baseURL string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -155,7 +153,7 @@ func (c *Client) SetBaseURL(baseURL string) {
 	c.BaseURL = baseURL
 }
 
-// AddMiddleware adds a middleware to the client
+// AddMiddleware adds a middleware to the client.
 func (c *Client) AddMiddleware(middlewares ...Middleware) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -232,10 +230,16 @@ func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
 func (c *Client) SetRootCertificate(pemFilePath string) *Client {
 	cleanPath := filepath.Clean(pemFilePath)
 	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
+		if c.Logger != nil {
+			c.Logger.Errorf("invalid certificate path: %s", cleanPath)
+		}
 		return c
 	}
 	rootPemData, err := os.ReadFile(pemFilePath)
 	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Errorf("failed to read root certificate: %v", err)
+		}
 		return c
 	}
 	c.handleCAs("root", rootPemData)
@@ -251,10 +255,16 @@ func (c *Client) SetRootCertificateFromString(pemCerts string) *Client {
 func (c *Client) SetClientRootCertificate(pemFilePath string) *Client {
 	cleanPath := filepath.Clean(pemFilePath)
 	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
+		if c.Logger != nil {
+			c.Logger.Errorf("invalid certificate path: %s", cleanPath)
+		}
 		return c
 	}
 	rootPemData, err := os.ReadFile(pemFilePath)
 	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Errorf("failed to read client root certificate: %v", err)
+		}
 		return c
 	}
 	return c.handleCAs("client", rootPemData)
@@ -290,7 +300,7 @@ func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
 	return c
 }
 
-// SetHTTPClient sets the HTTP client for the client
+// SetHTTPClient sets the HTTP client for the client.
 func (c *Client) SetHTTPClient(httpClient *http.Client) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -298,7 +308,7 @@ func (c *Client) SetHTTPClient(httpClient *http.Client) {
 	c.HTTPClient = httpClient
 }
 
-// SetDefaultHeaders sets the default headers for the client
+// SetDefaultHeaders sets the default headers for the client.
 func (c *Client) SetDefaultHeaders(headers *http.Header) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -306,7 +316,7 @@ func (c *Client) SetDefaultHeaders(headers *http.Header) {
 	c.Headers = headers
 }
 
-// SetDefaultHeader adds or updates a default header
+// SetDefaultHeader adds or updates a default header.
 func (c *Client) SetDefaultHeader(key, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -317,7 +327,7 @@ func (c *Client) SetDefaultHeader(key, value string) {
 	c.Headers.Set(key, value)
 }
 
-// AddDefaultHeader adds a default header
+// AddDefaultHeader adds a default header.
 func (c *Client) AddDefaultHeader(key, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -338,27 +348,27 @@ func (c *Client) DelDefaultHeader(key string) {
 	}
 }
 
-// SetDefaultContentType sets the default content type for the client
+// SetDefaultContentType sets the default content type for the client.
 func (c *Client) SetDefaultContentType(contentType string) {
 	c.SetDefaultHeader("Content-Type", contentType)
 }
 
-// SetDefaultAccept sets the default accept header for the client
+// SetDefaultAccept sets the default accept header for the client.
 func (c *Client) SetDefaultAccept(accept string) {
 	c.SetDefaultHeader("Accept", accept)
 }
 
-// SetDefaultUserAgent sets the default user agent for the client
+// SetDefaultUserAgent sets the default user agent for the client.
 func (c *Client) SetDefaultUserAgent(userAgent string) {
 	c.SetDefaultHeader("User-Agent", userAgent)
 }
 
-// SetDefaultReferer sets the default referer for the client
+// SetDefaultReferer sets the default referer for the client.
 func (c *Client) SetDefaultReferer(referer string) {
 	c.SetDefaultHeader("Referer", referer)
 }
 
-// SetDefaultTimeout sets the default timeout for the client
+// SetDefaultTimeout sets the default timeout for the client.
 func (c *Client) SetDefaultTimeout(timeout time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -366,7 +376,7 @@ func (c *Client) SetDefaultTimeout(timeout time.Duration) {
 	c.HTTPClient.Timeout = timeout
 }
 
-// SetDefaultTransport sets the default transport for the client
+// SetDefaultTransport sets the default transport for the client.
 func (c *Client) SetDefaultTransport(transport http.RoundTripper) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -374,7 +384,7 @@ func (c *Client) SetDefaultTransport(transport http.RoundTripper) {
 	c.HTTPClient.Transport = transport
 }
 
-// SetDefaultCookieJar sets the default cookie jar for the client
+// SetDefaultCookieJar sets the default cookie jar for the client.
 func (c *Client) SetDefaultCookieJar(jar *cookiejar.Jar) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -382,14 +392,14 @@ func (c *Client) SetDefaultCookieJar(jar *cookiejar.Jar) {
 	c.HTTPClient.Jar = jar
 }
 
-// SetDefaultCookies sets the default cookies for the client
+// SetDefaultCookies sets the default cookies for the client.
 func (c *Client) SetDefaultCookies(cookies map[string]string) {
 	for name, value := range cookies {
 		c.SetDefaultCookie(name, value)
 	}
 }
 
-// SetDefaultCookie sets a default cookie for the client
+// SetDefaultCookie sets a default cookie for the client.
 func (c *Client) SetDefaultCookie(name, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -400,7 +410,7 @@ func (c *Client) SetDefaultCookie(name, value string) {
 	c.Cookies = append(c.Cookies, &http.Cookie{Name: name, Value: value})
 }
 
-// DelDefaultCookie removes a default cookie from the client
+// DelDefaultCookie removes a default cookie from the client.
 func (c *Client) DelDefaultCookie(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -415,7 +425,7 @@ func (c *Client) DelDefaultCookie(name string) {
 	}
 }
 
-// SetJSONMarshal sets the JSON marshal function for the client's JSONEncoder
+// SetJSONMarshal sets the JSON marshal function for the client's JSONEncoder.
 func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -425,7 +435,7 @@ func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
 	}
 }
 
-// SetJSONUnmarshal sets the JSON unmarshal function for the client's JSONDecoder
+// SetJSONUnmarshal sets the JSON unmarshal function for the client's JSONDecoder.
 func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -435,7 +445,7 @@ func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) 
 	}
 }
 
-// SetXMLMarshal sets the XML marshal function for the client's XMLEncoder
+// SetXMLMarshal sets the XML marshal function for the client's XMLEncoder.
 func (c *Client) SetXMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -445,7 +455,7 @@ func (c *Client) SetXMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 	}
 }
 
-// SetXMLUnmarshal sets the XML unmarshal function for the client's XMLDecoder
+// SetXMLUnmarshal sets the XML unmarshal function for the client's XMLDecoder.
 func (c *Client) SetXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -455,7 +465,7 @@ func (c *Client) SetXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
 	}
 }
 
-// SetYAMLMarshal sets the YAML marshal function for the client's YAMLEncoder
+// SetYAMLMarshal sets the YAML marshal function for the client's YAMLEncoder.
 func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -465,7 +475,7 @@ func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 	}
 }
 
-// SetYAMLUnmarshal sets the YAML unmarshal function for the client's YAMLDecoder
+// SetYAMLUnmarshal sets the YAML unmarshal function for the client's YAMLDecoder.
 func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -475,7 +485,7 @@ func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) 
 	}
 }
 
-// SetMaxRetries sets the maximum number of retry attempts
+// SetMaxRetries sets the maximum number of retry attempts.
 func (c *Client) SetMaxRetries(maxRetries int) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -484,7 +494,7 @@ func (c *Client) SetMaxRetries(maxRetries int) *Client {
 	return c
 }
 
-// SetRetryStrategy sets the backoff strategy for retries
+// SetRetryStrategy sets the backoff strategy for retries.
 func (c *Client) SetRetryStrategy(strategy BackoffStrategy) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -493,7 +503,7 @@ func (c *Client) SetRetryStrategy(strategy BackoffStrategy) *Client {
 	return c
 }
 
-// SetRetryIf sets the custom retry condition function
+// SetRetryIf sets the custom retry condition function.
 func (c *Client) SetRetryIf(retryIf RetryIfFunc) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -512,7 +522,7 @@ func (c *Client) SetAuth(auth AuthMethod) {
 	}
 }
 
-// SetRedirectPolicy sets the redirect policy for the client
+// SetRedirectPolicy sets the redirect policy for the client.
 func (c *Client) SetRedirectPolicy(policies ...RedirectPolicy) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -536,52 +546,52 @@ func (c *Client) SetLogger(logger Logger) *Client {
 	return c
 }
 
-// Get initiates a GET request
+// Get initiates a GET request.
 func (c *Client) Get(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodGet, path)
 }
 
-// Post initiates a POST request
+// Post initiates a POST request.
 func (c *Client) Post(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodPost, path)
 }
 
-// Delete initiates a DELETE request
+// Delete initiates a DELETE request.
 func (c *Client) Delete(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodDelete, path)
 }
 
-// Put initiates a PUT request
+// Put initiates a PUT request.
 func (c *Client) Put(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodPut, path)
 }
 
-// Patch initiates a PATCH request
+// Patch initiates a PATCH request.
 func (c *Client) Patch(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodPatch, path)
 }
 
-// Options initiates an OPTIONS request
+// Options initiates an OPTIONS request.
 func (c *Client) Options(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodOptions, path)
 }
 
-// Head initiates a HEAD request
+// Head initiates a HEAD request.
 func (c *Client) Head(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodHead, path)
 }
 
-// CONNECT initiates a CONNECT request
+// CONNECT initiates a CONNECT request.
 func (c *Client) CONNECT(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodConnect, path)
 }
 
-// TRACE initiates a TRACE request
+// TRACE initiates a TRACE request.
 func (c *Client) TRACE(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodTrace, path)
 }
 
-// Custom initiates a custom request
+// Custom initiates a custom request.
 func (c *Client) Custom(path, method string) *RequestBuilder {
 	return c.NewRequestBuilder(method, path)
 }
