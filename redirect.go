@@ -68,7 +68,8 @@ func NewRedirectSpecifiedDomainPolicy(domains ...string) *RedirectSpecifiedDomai
 
 // Apply checks if the redirect target domain is in the allowed domains list.
 func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, via []*http.Request) error {
-	hosts := make(map[string]bool)
+	// Pre-allocate with expected size for better performance (Go 1.24+ Swiss Tables)
+	hosts := make(map[string]bool, len(s.domains))
 	for _, h := range s.domains {
 		hosts[strings.ToLower(h)] = true
 	}

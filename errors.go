@@ -43,4 +43,7 @@ var (
 
 	// ErrRedirectNotAllowed is returned when the redirect is not allowed.
 	ErrRedirectNotAllowed = errors.New("redirect is not allowed as per RedirectSpecifiedDomainPolicy")
+
+	// ErrTestTimeout is returned when a test request times out (used in tests).
+	ErrTestTimeout = errors.New("test timeout: request took too long")
 )

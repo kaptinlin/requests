@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/xml"
-	"errors"
 	"fmt"
-	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-json-experiment/json"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -28,13 +27,14 @@ func TestRequestCancellation(t *testing.T) {
 
 	client := Create(&Config{BaseURL: server.URL})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure resources are cleaned up
+	// Use WithCancelCause for better debugging (Go 1.20+)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil) // Ensure resources are cleaned up
 
 	// Cancel the request after 1 second
 	go func() {
 		time.Sleep(1 * time.Second)
-		cancel()
+		cancel(ErrTestTimeout)
 	}()
 
 	// Attempt to make a request that will be canceled
@@ -43,9 +43,12 @@ func TestRequestCancellation(t *testing.T) {
 		t.Errorf("Expected an error due to cancellation, but got none")
 	}
 
-	// Check if the error is due to context cancellation
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("Expected context.Canceled error, got %v", err)
+	// Verify the cancellation cause (Go 1.20+)
+	cause := context.Cause(ctx)
+	if cause == nil {
+		t.Errorf("Expected a cancellation cause, got nil")
+	} else if !strings.Contains(cause.Error(), "test timeout") {
+		t.Errorf("Expected cause to contain 'test timeout', got %v", cause)
 	}
 }
 

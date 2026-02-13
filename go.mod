@@ -1,14 +1,14 @@
 module github.com/kaptinlin/requests
 
-go 1.25
+go 1.26
 
 require (
 	github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/net v0.49.0
+	golang.org/x/net v0.50.0
 )
 
-require golang.org/x/text v0.33.0 // indirect
+require golang.org/x/text v0.34.0 // indirect
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
