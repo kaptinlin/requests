@@ -343,7 +343,7 @@ func TestResponseLines(t *testing.T) {
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
-	lines := make([]string, 0)
+	lines := make([]string, 0, 3)
 	for line := range resp.Lines() {
 		lines = append(lines, string(line))
 	}
@@ -363,7 +363,7 @@ func TestResponseLinesEmpty(t *testing.T) {
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
-	lines := make([]string, 0)
+	lines := make([]string, 0, 1)
 	for line := range resp.Lines() {
 		lines = append(lines, string(line))
 	}

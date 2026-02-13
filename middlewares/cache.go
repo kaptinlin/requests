@@ -35,10 +35,7 @@ func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) re
 			// Get cached data
 			cachedData, ok := cache.Get(cacheKey)
 			if ok {
-				logger.Debugf("Cache hit", map[string]any{
-					"url": req.URL.String(),
-					"key": cacheKey,
-				})
+				logger.Debugf("Cache hit: url=%s key=%s", req.URL.String(), cacheKey)
 				// Build response from cache
 				return buildResponseFromCache(cachedData)
 			}
@@ -53,10 +50,7 @@ func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) re
 				if data, err := cacheResponse(resp); err == nil {
 					// Cache response
 					cache.Set(cacheKey, data, ttl)
-					logger.Debugf("Cached response", map[string]any{
-						"url": req.URL.String(),
-						"key": cacheKey,
-					})
+					logger.Debugf("Cached response: url=%s key=%s", req.URL.String(), cacheKey)
 				}
 			}
 			// Return response
