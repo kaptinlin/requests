@@ -17,12 +17,17 @@ const (
 	LevelError
 )
 
-// Logger is a logger interface that output logs with a format.
+// Logger is a logger interface that outputs logs with a format.
 type Logger interface {
+	// Debugf logs a message at the Debug level.
 	Debugf(format string, v ...any)
+	// Infof logs a message at the Info level.
 	Infof(format string, v ...any)
+	// Warnf logs a message at the Warn level.
 	Warnf(format string, v ...any)
+	// Errorf logs a message at the Error level.
 	Errorf(format string, v ...any)
+	// SetLevel sets the log level of the logger.
 	SetLevel(level Level)
 }
 

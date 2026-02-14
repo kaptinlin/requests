@@ -114,8 +114,6 @@ func Create(config *Config) *Client {
 
 	if config.Middlewares != nil {
 		client.Middlewares = config.Middlewares
-	} else {
-		client.Middlewares = make([]Middleware, 0)
 	}
 
 	if config.Cookies != nil {
@@ -404,9 +402,6 @@ func (c *Client) SetDefaultCookie(name, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Cookies == nil {
-		c.Cookies = make([]*http.Cookie, 0)
-	}
 	c.Cookies = append(c.Cookies, &http.Cookie{Name: name, Value: value})
 }
 

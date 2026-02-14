@@ -67,8 +67,8 @@ func (r *Response) handleStream() {
 	}()
 
 	scanner := bufio.NewScanner(r.RawResponse.Body)
-	scanBuf := make([]byte, 0, maxStreamBufferSize)
-	scanner.Buffer(scanBuf, maxStreamBufferSize)
+	scanBuf := make([]byte, 0, MaxStreamBufferSize)
+	scanner.Buffer(scanBuf, MaxStreamBufferSize)
 
 	for scanner.Scan() {
 		if err := r.stream(scanner.Bytes()); err != nil {
@@ -223,7 +223,7 @@ func (r *Response) ScanYAML(v any) error {
 	return r.Client.YAMLDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
 }
 
-const dirPermissions = 0o750
+const DirPermissions = 0o750
 
 // Save saves the response body to a file or io.Writer.
 func (r *Response) Save(v any) error {
@@ -238,7 +238,7 @@ func (r *Response) Save(v any) error {
 				return fmt.Errorf("failed to check directory: %w", err)
 			}
 
-			if err = os.MkdirAll(dir, dirPermissions); err != nil {
+			if err = os.MkdirAll(dir, DirPermissions); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		}

@@ -54,9 +54,6 @@ func (c *Client) NewRequestBuilder(method, path string) *RequestBuilder {
 
 // AddMiddleware adds a middleware to the request.
 func (b *RequestBuilder) AddMiddleware(middlewares ...Middleware) {
-	if b.middlewares == nil {
-		b.middlewares = []Middleware{}
-	}
 	b.middlewares = append(b.middlewares, middlewares...)
 }
 
@@ -196,9 +193,6 @@ func (b *RequestBuilder) Cookies(cookies map[string]string) *RequestBuilder {
 
 // Cookie adds a cookie to the request.
 func (b *RequestBuilder) Cookie(key, value string) *RequestBuilder {
-	if b.cookies == nil {
-		b.cookies = []*http.Cookie{}
-	}
 	b.cookies = append(b.cookies, &http.Cookie{Name: key, Value: value})
 	return b
 }
@@ -313,20 +307,12 @@ func (b *RequestBuilder) DelFormField(key ...string) *RequestBuilder {
 
 // Files sets multiple files at once.
 func (b *RequestBuilder) Files(files ...*File) *RequestBuilder {
-	if b.formFiles == nil {
-		b.formFiles = []*File{}
-	}
-
 	b.formFiles = append(b.formFiles, files...)
 	return b
 }
 
 // File adds a file to the request.
 func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *RequestBuilder {
-	if b.formFiles == nil {
-		b.formFiles = []*File{}
-	}
-
 	b.formFiles = append(b.formFiles, &File{
 		Name:     key,
 		FileName: filename,
@@ -657,14 +643,14 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	// if a custom boundary is set, use it
+	// If a custom boundary is set, use it.
 	if b.boundary != "" {
 		if err := writer.SetBoundary(b.boundary); err != nil {
 			return nil, "", fmt.Errorf("setting custom boundary failed: %w", err)
 		}
 	}
 
-	// add form fields
+	// Add form fields.
 	for key, vals := range b.formFields {
 		for _, val := range vals {
 			if err := writer.WriteField(key, val); err != nil {
@@ -673,19 +659,19 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 		}
 	}
 
-	// add form files
+	// Add form files.
 	for _, file := range b.formFiles {
-		// create a new multipart part for the file
+		// Create a new multipart part for the file.
 		part, err := writer.CreateFormFile(file.Name, file.FileName)
 		if err != nil {
 			return nil, "", fmt.Errorf("creating form file failed: %w", err)
 		}
-		// copy the file content to the part
+		// Copy the file content to the part.
 		if _, err = io.Copy(part, file.Content); err != nil {
 			return nil, "", fmt.Errorf("copying file content failed: %w", err)
 		}
 
-		// close the file content if it's a closer
+		// Close the file content if it's a closer.
 		if closer, ok := file.Content.(io.Closer); ok {
 			if err = closer.Close(); err != nil {
 				return nil, "", fmt.Errorf("closing file content failed: %w", err)
@@ -693,7 +679,7 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 		}
 	}
 
-	// close the multipart writer
+	// Close the multipart writer.
 	if err := writer.Close(); err != nil {
 		return nil, "", fmt.Errorf("closing multipart writer failed: %w", err)
 	}
