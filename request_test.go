@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -528,7 +529,7 @@ func TestJSONBody(t *testing.T) {
 	client := Create(&Config{BaseURL: server.URL})
 
 	// Example JSON data
-	jsonData := map[string]interface{}{"name": "John Doe", "age": 30}
+	jsonData := map[string]any{"name": "John Doe", "age": 30}
 	jsonDataStr, _ := json.Marshal(jsonData)
 
 	resp, err := client.Post("/").
@@ -689,7 +690,7 @@ func TestFormWithNil(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// Ensure a valid JSON response is sent back for all scenarios
-		response := map[string]interface{}{
+		response := map[string]any{
 			"status": "received",
 			"body":   "empty or nil form",
 		}
@@ -704,7 +705,7 @@ func TestFormWithNil(t *testing.T) {
 	resp, err := client.Post("/").Form(nil).Send(context.Background())
 	assert.NoError(t, err, "No error expected on sending request with nil form")
 
-	var response map[string]interface{}
+	var response map[string]any
 	err = resp.ScanJSON(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
@@ -725,9 +726,7 @@ func startFormHandlingServer() *httptest.Server {
 		fields := make(map[string][]string)
 		files := make(map[string][]string)
 		if r.MultipartForm != nil {
-			for key, values := range r.MultipartForm.Value {
-				fields[key] = values
-			}
+			maps.Copy(fields, r.MultipartForm.Value)
 
 			for key, fileHeaders := range r.MultipartForm.File {
 				for _, fileHeader := range fileHeaders {
@@ -735,7 +734,7 @@ func startFormHandlingServer() *httptest.Server {
 				}
 			}
 		}
-		response := map[string]interface{}{
+		response := map[string]any{
 			"fields": fields,
 			"files":  files,
 		}
@@ -762,13 +761,13 @@ func TestFormWithFiles(t *testing.T) {
 	resp, err := client.Post("/").Form(formData).Send(context.Background())
 	assert.NoError(t, err, "No error expected on sending request with files")
 
-	var response map[string]interface{}
+	var response map[string]any
 	err = resp.ScanJSON(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Assert files are correctly received
-	assert.Contains(t, response["files"].(map[string]interface{}), "file1", "File1 should be present")
-	assert.Contains(t, response["files"].(map[string]interface{}), "file2", "File2 should be present")
+	assert.Contains(t, response["files"].(map[string]any), "file1", "File1 should be present")
+	assert.Contains(t, response["files"].(map[string]any), "file2", "File2 should be present")
 }
 
 func TestFormWithMixedFilesAndFields(t *testing.T) {
@@ -788,16 +787,16 @@ func TestFormWithMixedFilesAndFields(t *testing.T) {
 	resp, err := client.Post("/").Form(formData).Send(context.Background())
 	assert.NoError(t, err, "No error expected on sending request with mixed form data")
 
-	var response map[string]interface{}
+	var response map[string]any
 	err = resp.Scan(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Assert fields and files are correctly received
-	fields := response["fields"].(map[string]interface{})
+	fields := response["fields"].(map[string]any)
 	assert.Contains(t, fields, "name", "Name should be present")
 	assert.Contains(t, fields, "age", "Age should be present")
 
-	files := response["files"].(map[string]interface{})
+	files := response["files"].(map[string]any)
 	assert.Contains(t, files, "file", "File should be present")
 }
 

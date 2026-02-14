@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -77,9 +78,7 @@ func (b *RequestBuilder) PathParams(params map[string]string) *RequestBuilder {
 		// Pre-allocate with expected size for better performance (Go 1.24+ Swiss Tables)
 		b.pathParams = make(map[string]string, len(params))
 	}
-	for key, value := range params {
-		b.pathParams[key] = value
-	}
+	maps.Copy(b.pathParams, params)
 	return b
 }
 
