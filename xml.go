@@ -13,8 +13,8 @@ type XMLEncoder struct {
 
 // Encode marshals the provided value into XML format.
 func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
-	var err error
 	var data []byte
+	var err error
 
 	if e.MarshalFunc != nil {
 		data, err = e.MarshalFunc(v)

@@ -136,7 +136,7 @@ func (r *Response) ContentType() string {
 	return r.Header().Get("Content-Type")
 }
 
-// IsContentType Checks if the response Content-Type header matches a given content type.
+// IsContentType checks if the response Content-Type header matches a given content type.
 func (r *Response) IsContentType(contentType string) bool {
 	return strings.Contains(r.ContentType(), contentType)
 }

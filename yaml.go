@@ -14,8 +14,8 @@ type YAMLEncoder struct {
 
 // Encode marshals the provided value into YAML format.
 func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
-	var err error
 	var data []byte
+	var err error
 
 	if e.MarshalFunc != nil {
 		data, err = e.MarshalFunc(v)

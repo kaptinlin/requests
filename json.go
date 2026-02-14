@@ -14,8 +14,8 @@ type JSONEncoder struct {
 
 // Encode marshals the provided value into JSON format.
 func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
-	var err error
 	var data []byte
+	var err error
 
 	if e.MarshalFunc == nil {
 		data, err = json.Marshal(v) // Fallback to standard JSON marshal if no custom function is provided

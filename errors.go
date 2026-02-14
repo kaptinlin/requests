@@ -27,7 +27,7 @@ var (
 	ErrUnsupportedFormFieldsType = errors.New("unsupported form fields type")
 
 	// ErrNotSupportSaveMethod is returned when the provided type for saving is not supported.
-	ErrNotSupportSaveMethod = errors.New("the provided type for saving is not supported")
+	ErrNotSupportSaveMethod = errors.New("unsupported save type")
 
 	// ErrInvalidTransportType is returned when the transport type is invalid.
 	ErrInvalidTransportType = errors.New("invalid transport type")
@@ -42,7 +42,7 @@ var (
 	ErrTooManyRedirects = errors.New("too many redirects")
 
 	// ErrRedirectNotAllowed is returned when the redirect is not allowed.
-	ErrRedirectNotAllowed = errors.New("redirect is not allowed as per RedirectSpecifiedDomainPolicy")
+	ErrRedirectNotAllowed = errors.New("redirect not allowed")
 
 	// ErrTestTimeout is returned when a test request times out (used in tests).
 	ErrTestTimeout = errors.New("test timeout: request took too long")

@@ -74,6 +74,6 @@ func TestRedirectPolicies(t *testing.T) {
 		_, err := client.Get(ts.URL + "/redirect-1").Send(context.Background())
 
 		assert.Error(t, err, "Expected domain restriction error")
-		assert.EqualError(t, err, "Get \"/redirect-2\": redirect is not allowed as per RedirectSpecifiedDomainPolicy", "Expected domain not allowed error")
+		assert.EqualError(t, err, "Get \"/redirect-2\": redirect not allowed", "Expected domain not allowed error")
 	})
 }
