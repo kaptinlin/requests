@@ -20,7 +20,6 @@ func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 	if e.MarshalFunc != nil {
 		data, err = e.MarshalFunc(v)
 	} else {
-		// Use goccy/go-yaml for marshaling by default
 		data, err = yaml.Marshal(v)
 	}
 
@@ -64,7 +63,6 @@ func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 		return d.UnmarshalFunc(data, v)
 	}
 
-	// Fallback to standard YAML unmarshal using goccy/go-yaml
 	return yaml.Unmarshal(data, v)
 }
 

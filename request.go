@@ -416,28 +416,25 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 		}
 
 		if maxRetries < 1 {
-			return b.client.HTTPClient.Do(req) // Single request, no retries
+			return b.client.HTTPClient.Do(req)
 		}
 
 		var errs []error
 		var resp *http.Response
-		for attempt := 0; attempt <= maxRetries; attempt++ {
+		for attempt := range maxRetries + 1 {
 			var err error
 			resp, err = b.client.HTTPClient.Do(req)
 
 			if err != nil {
-				// Preserve error with attempt context for better debugging
 				errs = append(errs, fmt.Errorf("attempt %d/%d: %w", attempt+1, maxRetries+1, err))
 			}
 
-			// Determine if a retry is needed
 			shouldRetry := err != nil || (resp != nil && retryIf != nil && retryIf(req, resp, err))
 			if !shouldRetry || attempt == maxRetries {
 				if err != nil {
 					if b.client.Logger != nil {
 						b.client.Logger.Errorf("Error after %d attempts: %v", attempt+1, err)
 					}
-					// Return joined errors for better debugging when multiple attempts failed
 					if len(errs) > 1 {
 						return resp, errors.Join(errs...)
 					}
@@ -454,12 +451,10 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 				}
 			}
 
-			// Logging retry decision
 			if b.client.Logger != nil {
 				b.client.Logger.Infof("Retrying request (attempt %d) after backoff", attempt+1)
 			}
 
-			// Wait for backoff or context cancellation
 			timer := time.NewTimer(retryStrategy(attempt))
 			select {
 			case <-ctx.Done():
@@ -469,7 +464,6 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 				}
 				return nil, ctx.Err()
 			case <-timer.C:
-				// Timer fired, proceed with retry
 			}
 		}
 
@@ -511,24 +505,7 @@ func (b *RequestBuilder) StreamDone(callback StreamDoneCallback) *RequestBuilder
 
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
-	var body io.Reader
-	var contentType string
-	var err error
-
-	switch {
-	case len(b.formFiles) > 0:
-		// If the request includes files, indicating multipart/form-data encoding is required.
-		body, contentType, err = b.prepareMultipartBody()
-
-	case len(b.formFields) > 0:
-		// For form fields without files, use application/x-www-form-urlencoded encoding.
-		body, contentType = b.prepareFormFieldsBody()
-
-	case b.bodyData != nil:
-		// Fallback to handling as per original logic for JSON, XML, etc.
-		body, contentType, err = b.prepareBodyBasedOnContentType()
-	}
-
+	body, contentType, err := b.prepareBody()
 	if err != nil {
 		if b.client.Logger != nil {
 			b.client.Logger.Errorf("Error preparing request body: %v", err)
@@ -537,11 +514,9 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	}
 
 	if contentType != "" {
-		// Set the Content-Type header based on the determined contentType.
 		b.headers.Set("Content-Type", contentType)
 	}
 
-	// Parse the complete URL first to handle any modifications needed.
 	parsedURL, err := url.Parse(b.client.BaseURL + b.preparePath())
 	if err != nil {
 		if b.client.Logger != nil {
@@ -550,25 +525,19 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		return nil, err
 	}
 
-	// Combine query parameters from both the URL and the Query method.
 	query := parsedURL.Query()
 	for key, values := range b.queries {
 		for _, value := range values {
-			query.Set(key, value) // Add new values, preserving existing ones.
+			query.Set(key, value)
 		}
 	}
 	parsedURL.RawQuery = query.Encode()
 
-	// Create a context with a timeout if one is not already set.
-	var cancel context.CancelFunc
-	if _, ok := ctx.Deadline(); !ok {
-		if b.timeout > 0 {
-			ctx, cancel = context.WithTimeout(ctx, b.timeout)
-			defer cancel()
-		}
+	ctx, cancel := b.prepareContext(ctx)
+	if cancel != nil {
+		defer cancel()
 	}
 
-	// Create the HTTP request with the fully prepared URL, including query parameters.
 	req, err := http.NewRequestWithContext(ctx, b.method, parsedURL.String(), body)
 	if err != nil {
 		if b.client.Logger != nil {
@@ -577,31 +546,78 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		return nil, fmt.Errorf("%w: %w", ErrRequestCreationFailed, err)
 	}
 
+	b.applyAuth(req)
+	b.applyHeaders(req)
+	b.applyCookies(req)
+
+	resp, err := b.do(ctx, req)
+	if err != nil {
+		if b.client.Logger != nil {
+			b.client.Logger.Errorf("Error executing request: %v", err)
+		}
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, err
+	}
+
+	if resp == nil {
+		if b.client.Logger != nil {
+			b.client.Logger.Errorf("Response is nil")
+		}
+		return nil, fmt.Errorf("%w: %w", ErrResponseNil, err)
+	}
+
+	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
+}
+
+func (b *RequestBuilder) prepareBody() (io.Reader, string, error) {
+	if len(b.formFiles) > 0 {
+		return b.prepareMultipartBody()
+	}
+	if len(b.formFields) > 0 {
+		body, contentType := b.prepareFormFieldsBody()
+		return body, contentType, nil
+	}
+	if b.bodyData != nil {
+		return b.prepareBodyBasedOnContentType()
+	}
+	return nil, "", nil
+}
+
+func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); !ok && b.timeout > 0 {
+		return context.WithTimeout(ctx, b.timeout)
+	}
+	return ctx, nil
+}
+
+func (b *RequestBuilder) applyAuth(req *http.Request) {
 	if b.auth != nil {
 		b.auth.Apply(req)
 	} else if b.client.auth != nil {
 		b.client.auth.Apply(req)
 	}
+}
 
-	// Set the headers from the client and the request builder.
+func (b *RequestBuilder) applyHeaders(req *http.Request) {
 	if b.client.Headers != nil {
-		for key := range *b.client.Headers {
-			values := (*b.client.Headers)[key]
+		for key, values := range *b.client.Headers {
 			for _, value := range values {
 				req.Header.Add(key, value)
 			}
 		}
 	}
 	if b.headers != nil {
-		for key := range *b.headers {
-			values := (*b.headers)[key]
+		for key, values := range *b.headers {
 			for _, value := range values {
 				req.Header.Add(key, value)
 			}
 		}
 	}
+}
 
-	// Merge cookies from the client and the request builder.
+func (b *RequestBuilder) applyCookies(req *http.Request) {
 	if b.client.Cookies != nil {
 		for _, cookie := range b.client.Cookies {
 			req.AddCookie(cookie)
@@ -612,45 +628,18 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 			req.AddCookie(cookie)
 		}
 	}
-
-	// Execute the HTTP request.
-	resp, err := b.do(ctx, req)
-	if err != nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Error executing request: %v", err)
-		}
-
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-
-		return nil, err
-	}
-
-	if resp == nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Response is nil")
-		}
-
-		return nil, fmt.Errorf("%w: %w", ErrResponseNil, err)
-	}
-
-	// Wrap and return the response.
-	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
 }
 
 func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	// If a custom boundary is set, use it.
 	if b.boundary != "" {
 		if err := writer.SetBoundary(b.boundary); err != nil {
 			return nil, "", fmt.Errorf("setting custom boundary failed: %w", err)
 		}
 	}
 
-	// Add form fields.
 	for key, vals := range b.formFields {
 		for _, val := range vals {
 			if err := writer.WriteField(key, val); err != nil {
@@ -659,19 +648,14 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 		}
 	}
 
-	// Add form files.
 	for _, file := range b.formFiles {
-		// Create a new multipart part for the file.
 		part, err := writer.CreateFormFile(file.Name, file.FileName)
 		if err != nil {
 			return nil, "", fmt.Errorf("creating form file failed: %w", err)
 		}
-		// Copy the file content to the part.
 		if _, err = io.Copy(part, file.Content); err != nil {
 			return nil, "", fmt.Errorf("copying file content failed: %w", err)
 		}
-
-		// Close the file content if it's a closer.
 		if closer, ok := file.Content.(io.Closer); ok {
 			if err = closer.Close(); err != nil {
 				return nil, "", fmt.Errorf("closing file content failed: %w", err)
@@ -679,7 +663,6 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 		}
 	}
 
-	// Close the multipart writer.
 	if err := writer.Close(); err != nil {
 		return nil, "", fmt.Errorf("closing multipart writer failed: %w", err)
 	}
@@ -688,53 +671,58 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 }
 
 func (b *RequestBuilder) prepareFormFieldsBody() (io.Reader, string) {
-	// Encode formFields as URL-encoded string
-	data := b.formFields.Encode()
-	return strings.NewReader(data), "application/x-www-form-urlencoded"
+	return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded"
 }
 
 func (b *RequestBuilder) prepareBodyBasedOnContentType() (io.Reader, string, error) {
-	// Determine and prepare the body based on the specific Content-Type
 	contentType := b.headers.Get("Content-Type")
 
 	if contentType == "" && b.bodyData != nil {
-		switch b.bodyData.(type) {
-		case url.Values, map[string][]string, map[string]string:
-			contentType = "application/x-www-form-urlencoded"
-		case map[string]any, []any, struct{}:
-			contentType = "application/json"
-		case string, []byte:
-			contentType = "text/plain"
-		}
-
-		// Set the inferred Content-Type
+		contentType = b.inferContentType()
 		b.headers.Set("Content-Type", contentType)
 	}
 
-	var body io.Reader
-	var err error
+	body, err := b.encodeBody(contentType)
+	return body, contentType, err
+}
 
+func (b *RequestBuilder) inferContentType() string {
+	switch b.bodyData.(type) {
+	case url.Values, map[string][]string, map[string]string:
+		return "application/x-www-form-urlencoded"
+	case map[string]any, []any, struct{}:
+		return "application/json"
+	case string, []byte:
+		return "text/plain"
+	default:
+		return ""
+	}
+}
+
+func (b *RequestBuilder) encodeBody(contentType string) (io.Reader, error) {
 	switch contentType {
 	case "application/json":
-		body, err = b.client.JSONEncoder.Encode(b.bodyData)
+		return b.client.JSONEncoder.Encode(b.bodyData)
 	case "application/xml":
-		body, err = b.client.XMLEncoder.Encode(b.bodyData)
+		return b.client.XMLEncoder.Encode(b.bodyData)
 	case "application/yaml":
-		body, err = b.client.YAMLEncoder.Encode(b.bodyData)
+		return b.client.YAMLEncoder.Encode(b.bodyData)
 	case "application/x-www-form-urlencoded":
-		body, err = DefaultFormEncoder.Encode(b.bodyData)
+		return DefaultFormEncoder.Encode(b.bodyData)
 	case "text/plain", "application/octet-stream":
-		switch data := b.bodyData.(type) {
-		case string:
-			body = strings.NewReader(data)
-		case []byte:
-			body = bytes.NewReader(data)
-		default:
-			err = fmt.Errorf("%w: %s", ErrUnsupportedContentType, contentType)
-		}
+		return b.encodeRawBody()
 	default:
-		err = fmt.Errorf("%w: %s", ErrUnsupportedContentType, contentType)
+		return nil, fmt.Errorf("%w: %s", ErrUnsupportedContentType, contentType)
 	}
+}
 
-	return body, contentType, err
+func (b *RequestBuilder) encodeRawBody() (io.Reader, error) {
+	switch data := b.bodyData.(type) {
+	case string:
+		return strings.NewReader(data), nil
+	case []byte:
+		return bytes.NewReader(data), nil
+	default:
+		return nil, fmt.Errorf("%w: expected string or []byte", ErrUnsupportedContentType)
+	}
 }

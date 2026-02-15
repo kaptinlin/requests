@@ -19,7 +19,7 @@ func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
 	if e.MarshalFunc != nil {
 		data, err = e.MarshalFunc(v)
 	} else {
-		data, err = xml.Marshal(v) // Fallback to standard XML marshal if no custom function is provided
+		data, err = xml.Marshal(v)
 	}
 
 	if err != nil {
@@ -62,7 +62,7 @@ func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 		return d.UnmarshalFunc(data, v)
 	}
 
-	return xml.Unmarshal(data, v) // Fallback to standard XML unmarshal
+	return xml.Unmarshal(data, v)
 }
 
 // DefaultXMLDecoder is the default XMLDecoder instance using the standard xml.Unmarshal function.

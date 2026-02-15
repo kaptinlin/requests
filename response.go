@@ -229,60 +229,60 @@ const DirPermissions = 0o750
 func (r *Response) Save(v any) error {
 	switch p := v.(type) {
 	case string:
-		file := filepath.Clean(p)
-		dir := filepath.Dir(file)
-
-		// Create the directory if it doesn't exist
-		if _, err := os.Stat(dir); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("failed to check directory: %w", err)
-			}
-
-			if err = os.MkdirAll(dir, DirPermissions); err != nil {
-				return fmt.Errorf("failed to create directory: %w", err)
-			}
-		}
-
-		// Create and open the file for writing
-		outFile, err := os.Create(file)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer func() {
-			if err := outFile.Close(); err != nil {
-				if r.Client.Logger != nil {
-					r.Client.Logger.Errorf("failed to close file: %v", err)
-				}
-			}
-		}()
-
-		// Write the response body to the file
-		_, err = io.Copy(outFile, bytes.NewReader(r.Body()))
-		if err != nil {
-			return fmt.Errorf("failed to write response body to file: %w", err)
-		}
-
-		return nil
+		return r.saveToFile(p)
 	case io.Writer:
-		// Write the response body directly to the provided io.Writer
-		_, err := io.Copy(p, bytes.NewReader(r.Body()))
-		if err != nil {
-			return fmt.Errorf("failed to write response body to io.Writer: %w", err)
-		}
-		// If the writer can be closed, close it
-		if pc, ok := p.(io.WriteCloser); ok {
-			if err := pc.Close(); err != nil {
-				if r.Client.Logger != nil {
-					r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
-				}
-			}
-		}
-
-		return nil
+		return r.saveToWriter(p)
 	default:
-		// Return an error if the provided type is not supported
 		return ErrNotSupportSaveMethod
 	}
+}
+
+func (r *Response) saveToFile(path string) error {
+	file := filepath.Clean(path)
+	dir := filepath.Dir(file)
+
+	if _, err := os.Stat(dir); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to check directory: %w", err)
+		}
+		if err = os.MkdirAll(dir, DirPermissions); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	outFile, err := os.Create(file)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer func() {
+		if err := outFile.Close(); err != nil {
+			if r.Client.Logger != nil {
+				r.Client.Logger.Errorf("failed to close file: %v", err)
+			}
+		}
+	}()
+
+	if _, err = io.Copy(outFile, bytes.NewReader(r.Body())); err != nil {
+		return fmt.Errorf("failed to write response body to file: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Response) saveToWriter(w io.Writer) error {
+	if _, err := io.Copy(w, bytes.NewReader(r.Body())); err != nil {
+		return fmt.Errorf("failed to write response body to io.Writer: %w", err)
+	}
+
+	if wc, ok := w.(io.WriteCloser); ok {
+		if err := wc.Close(); err != nil {
+			if r.Client.Logger != nil {
+				r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // Lines returns an iterator that yields each line of the response body as []byte.

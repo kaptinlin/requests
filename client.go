@@ -240,8 +240,7 @@ func (c *Client) SetRootCertificate(pemFilePath string) *Client {
 		}
 		return c
 	}
-	c.handleCAs("root", rootPemData)
-	return c
+	return c.handleCAs("root", rootPemData)
 }
 
 // SetRootCertificateFromString sets the root certificate for the client from a string.
@@ -341,9 +340,10 @@ func (c *Client) DelDefaultHeader(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Headers != nil { // Only attempt to delete if Headers is initialized
-		c.Headers.Del(key)
+	if c.Headers == nil {
+		return
 	}
+	c.Headers.Del(key)
 }
 
 // SetDefaultContentType sets the default content type for the client.
@@ -410,12 +410,14 @@ func (c *Client) DelDefaultCookie(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Cookies != nil { // Only attempt to delete if Cookies is initialized
-		for i, cookie := range c.Cookies {
-			if cookie.Name == name {
-				c.Cookies = append(c.Cookies[:i], c.Cookies[i+1:]...)
-				break
-			}
+	if c.Cookies == nil {
+		return
+	}
+
+	for i, cookie := range c.Cookies {
+		if cookie.Name == name {
+			c.Cookies = append(c.Cookies[:i], c.Cookies[i+1:]...)
+			break
 		}
 	}
 }

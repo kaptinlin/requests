@@ -18,7 +18,7 @@ func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
 	var err error
 
 	if e.MarshalFunc == nil {
-		data, err = json.Marshal(v) // Fallback to standard JSON marshal if no custom function is provided
+		data, err = json.Marshal(v)
 	} else {
 		data, err = e.MarshalFunc(v)
 	}
@@ -30,14 +30,11 @@ func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
 	buf := GetBuffer()
 	_, err = buf.Write(data)
 	if err != nil {
-		PutBuffer(buf) // Ensure the buffer is returned to the pool in case of an error
+		PutBuffer(buf)
 		return nil, err
 	}
 
-	// Here, we need to ensure the buffer will be returned to the pool after being read.
-	// One approach is to wrap the bytes.Reader in a custom type that returns the buffer on close.
-	reader := &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}
-	return reader, nil
+	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
 }
 
 // ContentType returns the content type for JSON data.
@@ -71,7 +68,7 @@ func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 		return d.UnmarshalFunc(data, v)
 	}
 
-	return json.Unmarshal(data, v) // Fallback to standard JSON unmarshal
+	return json.Unmarshal(data, v)
 }
 
 // jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature.
