@@ -2,6 +2,7 @@ package requests
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/go-json-experiment/json"
@@ -24,14 +25,14 @@ func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
 
 	buf := GetBuffer()
 	_, err = buf.Write(data)
 	if err != nil {
 		PutBuffer(buf)
-		return nil, err
+		return nil, fmt.Errorf("failed to write JSON to buffer: %w", err)
 	}
 
 	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
@@ -61,14 +62,20 @@ type JSONDecoder struct {
 func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read JSON data: %w", err)
 	}
 
 	if d.UnmarshalFunc != nil {
-		return d.UnmarshalFunc(data, v)
+		if err := d.UnmarshalFunc(data, v); err != nil {
+			return fmt.Errorf("failed to unmarshal JSON: %w", err)
+		}
+		return nil
 	}
 
-	return json.Unmarshal(data, v)
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("failed to unmarshal JSON: %w", err)
+	}
+	return nil
 }
 
 // jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature.

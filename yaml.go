@@ -2,6 +2,7 @@ package requests
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/goccy/go-yaml"
@@ -24,14 +25,14 @@ func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
 
 	buf := GetBuffer()
 	_, err = buf.Write(data)
 	if err != nil {
 		PutBuffer(buf)
-		return nil, err
+		return nil, fmt.Errorf("failed to write YAML to buffer: %w", err)
 	}
 
 	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
@@ -56,14 +57,20 @@ type YAMLDecoder struct {
 func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read YAML data: %w", err)
 	}
 
 	if d.UnmarshalFunc != nil {
-		return d.UnmarshalFunc(data, v)
+		if err := d.UnmarshalFunc(data, v); err != nil {
+			return fmt.Errorf("failed to unmarshal YAML: %w", err)
+		}
+		return nil
 	}
 
-	return yaml.Unmarshal(data, v)
+	if err := yaml.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("failed to unmarshal YAML: %w", err)
+	}
+	return nil
 }
 
 // DefaultYAMLDecoder is the default YAMLDecoder instance using the goccy/go-yaml Unmarshal function.

@@ -58,10 +58,10 @@ request := client.Options("/path")
 request := client.Head("/path")
 
 // CONNECT
-request := client.CONNECT("/path")
+request := client.Connect("/path")
 
 // TRACE
-request := client.TRACE("/path")
+request := client.Trace("/path")
 
 // Custom Method
 request := client.Custom("/path", "METHOD")

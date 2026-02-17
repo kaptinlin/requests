@@ -3,6 +3,7 @@ package requests
 import (
 	"bytes"
 	"encoding/xml"
+	"fmt"
 	"io"
 )
 
@@ -23,14 +24,14 @@ func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
 
 	buf := GetBuffer()
 	_, err = buf.Write(data)
 	if err != nil {
 		PutBuffer(buf)
-		return nil, err
+		return nil, fmt.Errorf("failed to write XML to buffer: %w", err)
 	}
 
 	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
@@ -55,14 +56,20 @@ type XMLDecoder struct {
 func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read XML data: %w", err)
 	}
 
 	if d.UnmarshalFunc != nil {
-		return d.UnmarshalFunc(data, v)
+		if err := d.UnmarshalFunc(data, v); err != nil {
+			return fmt.Errorf("failed to unmarshal XML: %w", err)
+		}
+		return nil
 	}
 
-	return xml.Unmarshal(data, v)
+	if err := xml.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("failed to unmarshal XML: %w", err)
+	}
+	return nil
 }
 
 // DefaultXMLDecoder is the default XMLDecoder instance using the standard xml.Unmarshal function.

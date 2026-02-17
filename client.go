@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -229,13 +228,7 @@ func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
 // SetRootCertificate sets the root certificate for the client.
 func (c *Client) SetRootCertificate(pemFilePath string) *Client {
 	cleanPath := filepath.Clean(pemFilePath)
-	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
-		if c.Logger != nil {
-			c.Logger.Errorf("invalid certificate path: %s", cleanPath)
-		}
-		return c
-	}
-	rootPemData, err := os.ReadFile(pemFilePath)
+	rootPemData, err := os.ReadFile(cleanPath)
 	if err != nil {
 		if c.Logger != nil {
 			c.Logger.Errorf("failed to read root certificate: %v", err)
@@ -253,13 +246,7 @@ func (c *Client) SetRootCertificateFromString(pemCerts string) *Client {
 // SetClientRootCertificate sets the client root certificate for the client.
 func (c *Client) SetClientRootCertificate(pemFilePath string) *Client {
 	cleanPath := filepath.Clean(pemFilePath)
-	if !strings.HasPrefix(cleanPath, "/expected/base/path") {
-		if c.Logger != nil {
-			c.Logger.Errorf("invalid certificate path: %s", cleanPath)
-		}
-		return c
-	}
-	rootPemData, err := os.ReadFile(pemFilePath)
+	rootPemData, err := os.ReadFile(cleanPath)
 	if err != nil {
 		if c.Logger != nil {
 			c.Logger.Errorf("failed to read client root certificate: %v", err)
@@ -573,13 +560,13 @@ func (c *Client) Head(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodHead, path)
 }
 
-// CONNECT initiates a CONNECT request.
-func (c *Client) CONNECT(path string) *RequestBuilder {
+// Connect initiates a CONNECT request.
+func (c *Client) Connect(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodConnect, path)
 }
 
-// TRACE initiates a TRACE request.
-func (c *Client) TRACE(path string) *RequestBuilder {
+// Trace initiates a TRACE request.
+func (c *Client) Trace(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodTrace, path)
 }
 
