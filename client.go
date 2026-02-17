@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -414,12 +415,9 @@ func (c *Client) DelDefaultCookie(name string) {
 		return
 	}
 
-	for i, cookie := range c.Cookies {
-		if cookie.Name == name {
-			c.Cookies = append(c.Cookies[:i], c.Cookies[i+1:]...)
-			break
-		}
-	}
+	c.Cookies = slices.DeleteFunc(c.Cookies, func(cookie *http.Cookie) bool {
+		return cookie.Name == name
+	})
 }
 
 // SetJSONMarshal sets the JSON marshal function for the client's JSONEncoder.
