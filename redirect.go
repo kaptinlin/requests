@@ -58,25 +58,23 @@ func getHostname(host string) string {
 
 // RedirectSpecifiedDomainPolicy is a redirect policy that checks if the redirect is allowed based on the hostnames.
 type RedirectSpecifiedDomainPolicy struct {
-	domains []string
+	allowedHosts map[string]bool
 }
 
 // NewRedirectSpecifiedDomainPolicy creates a new RedirectSpecifiedDomainPolicy that only allows redirects to the specified domains.
 func NewRedirectSpecifiedDomainPolicy(domains ...string) *RedirectSpecifiedDomainPolicy {
-	return &RedirectSpecifiedDomainPolicy{domains: domains}
+	hosts := make(map[string]bool, len(domains))
+	for _, h := range domains {
+		hosts[strings.ToLower(h)] = true
+	}
+	return &RedirectSpecifiedDomainPolicy{allowedHosts: hosts}
 }
 
 // Apply checks if the redirect target domain is in the allowed domains list.
-func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, via []*http.Request) error {
-	// Pre-allocate with expected size for better performance (Go 1.24+ Swiss Tables)
-	hosts := make(map[string]bool, len(s.domains))
-	for _, h := range s.domains {
-		hosts[strings.ToLower(h)] = true
-	}
-	if ok := hosts[getHostname(req.URL.Host)]; !ok {
+func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, _ []*http.Request) error {
+	if !s.allowedHosts[getHostname(req.URL.Host)] {
 		return ErrRedirectNotAllowed
 	}
-
 	return nil
 }
 

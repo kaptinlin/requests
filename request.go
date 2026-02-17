@@ -470,16 +470,12 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 		return resp, nil
 	})
 
-	if b.middlewares != nil {
-		for i := len(b.middlewares) - 1; i >= 0; i-- {
-			finalHandler = b.middlewares[i](finalHandler)
-		}
+	// Wrap middlewares: request-level first (inner), then client-level (outer).
+	for _, mw := range slices.Backward(b.middlewares) {
+		finalHandler = mw(finalHandler)
 	}
-
-	if b.client.Middlewares != nil {
-		for i := len(b.client.Middlewares) - 1; i >= 0; i-- {
-			finalHandler = b.client.Middlewares[i](finalHandler)
-		}
+	for _, mw := range slices.Backward(b.client.Middlewares) {
+		finalHandler = mw(finalHandler)
 	}
 
 	return finalHandler(req)

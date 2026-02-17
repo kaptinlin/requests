@@ -184,17 +184,22 @@ func (c *Client) SetTLSConfig(config *tls.Config) *Client {
 	return c
 }
 
-// InsecureSkipVerify sets the TLS configuration to skip certificate verification.
-func (c *Client) InsecureSkipVerify() *Client {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+// ensureTLSConfig initializes the TLS configuration if nil.
+// Must be called with c.mu held.
+func (c *Client) ensureTLSConfig() {
 	if c.TLSConfig == nil {
 		c.TLSConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
 	}
+}
 
+// InsecureSkipVerify sets the TLS configuration to skip certificate verification.
+func (c *Client) InsecureSkipVerify() *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ensureTLSConfig()
 	c.TLSConfig.InsecureSkipVerify = true
 
 	if c.HTTPClient == nil {
@@ -216,11 +221,7 @@ func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.TLSConfig == nil {
-		c.TLSConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-	}
+	c.ensureTLSConfig()
 	c.TLSConfig.Certificates = certs
 	return c
 }
@@ -278,11 +279,7 @@ func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.TLSConfig == nil {
-		c.TLSConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-	}
+	c.ensureTLSConfig()
 	switch scope {
 	case "root":
 		if c.TLSConfig.RootCAs == nil {

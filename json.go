@@ -17,10 +17,10 @@ func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
 	var data []byte
 	var err error
 
-	if e.MarshalFunc == nil {
-		data, err = json.Marshal(v)
-	} else {
+	if e.MarshalFunc != nil {
 		data, err = e.MarshalFunc(v)
+	} else {
+		data, err = json.Marshal(v)
 	}
 
 	if err != nil {
