@@ -21,11 +21,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Task
+        uses: go-task/setup-task@v1
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download dependencies
         run: go mod download
 
       - name: Run unit tests
-        run: make test
+        run: task test
 
   lint:
     name: Lint
@@ -50,5 +56,6 @@ jobs:
           version: v${{ steps.golangci-version.outputs.GOLANGCI_VERSION }}
           args: -h
 
-      - run: make lint
+      - run: task lint
         name: Lint
+
