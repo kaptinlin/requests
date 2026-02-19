@@ -46,6 +46,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install Task
+        uses: go-task/setup-task@v1
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download dependencies
+        run: go mod download
+
       - name: Read golangci-lint version from .golangci.version
         id: golangci-version
         run: echo "GOLANGCI_VERSION=$(cat .golangci.version)" > $GITHUB_OUTPUT
