@@ -16,22 +16,22 @@ Creating a new HTTP client and making a request is straightforward:
 package main
 
 import (
-    "github.com/kaptinlin/requests"
+    "context"
     "log"
+    "time"
+
+    "github.com/kaptinlin/requests"
 )
 
 func main() {
-    // Create a client using a base URL
-    client := requests.URL("http://example.com")
-
-    // Alternatively, create a client with custom configuration
-    client = requests.Create(&requests.Config{
-        BaseURL: "http://example.com",
-        Timeout: 30 * time.Second,
-    })
+    // Create a client with functional options (recommended)
+    client := requests.New(
+        requests.WithBaseURL("http://example.com"),
+        requests.WithTimeout(30 * time.Second),
+    )
 
     // Perform a GET request
-    resp, err := client.Get("/resource")
+    resp, err := client.Get("/resource").Send(context.Background())
     if err != nil {
         log.Fatal(err)
     }
@@ -47,19 +47,41 @@ func main() {
 
 The `Client` struct is your gateway to making HTTP requests. You can configure it to your needs, setting default headers, cookies, timeout durations, and more.
 
-#### Usage Example:
+#### Creating a Client
 
 ```go
-client := requests.URL("http://example.com")
+// Functional options (recommended)
+client := requests.New(
+    requests.WithBaseURL("http://example.com"),
+    requests.WithTimeout(5 * time.Second),
+    requests.WithContentType("application/json"),
+    requests.WithBearerAuth("my-token"),
+    requests.WithMaxRetries(3),
+)
 
-// Or, with full configuration
+// Short form for URL-only clients
+client = requests.URL("http://example.com")
+
+// Struct-based configuration (for HTTP/2 or full control)
 client = requests.Create(&requests.Config{
     BaseURL: "http://example.com",
     Timeout: 5 * time.Second,
-    Headers: &http.Header{
-        "Content-Type": []string{"application/json"},
-    },
+    HTTP2:   true,
 })
+```
+
+#### Passing to Downstream Libraries
+
+The `New()` constructor returns `*Client` in a single expression, making it easy to pass into other libraries:
+
+```go
+scorer := NewVoyageScorer(
+    WithHTTPClient(requests.New(
+        requests.WithTimeout(60 * time.Second),
+        requests.WithMaxRetries(3),
+        requests.WithBearerAuth("token"),
+    )),
+)
 ```
 
 For more details, see [docs/client.md](docs/client.md).

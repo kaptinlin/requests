@@ -73,6 +73,17 @@ func (cfg *Config) hasTransportConfig() bool {
 		cfg.IdleConnTimeout > 0
 }
 
+// New creates a Client with functional options applied.
+// It calls Create(nil) to initialize a client with default settings,
+// then applies each option in order.
+func New(opts ...ClientOption) *Client {
+	c := Create(nil)
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
 // URL creates a new HTTP client with the given base URL.
 func URL(baseURL string) *Client {
 	return Create(&Config{BaseURL: baseURL})
