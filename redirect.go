@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+// sensitiveHeaders are headers that should be stripped when redirecting across hosts or
+// downgrading from HTTPS to HTTP.
+var sensitiveHeaders = []string{
+	"Authorization",
+	"Cookie",
+	"Cookie2",
+	"Proxy-Authorization",
+	"Www-Authenticate",
+}
+
 // RedirectPolicy is an interface that defines the Apply method.
 type RedirectPolicy interface {
 	Apply(req *http.Request, via []*http.Request) error
@@ -46,6 +56,57 @@ func (a *AllowRedirectPolicy) Apply(req *http.Request, via []*http.Request) erro
 	return nil
 }
 
+// SmartRedirectPolicy is a redirect policy that downgrades POST to GET on 301/302/303
+// redirects and strips sensitive headers on cross-host or scheme-downgrade redirects.
+type SmartRedirectPolicy struct {
+	maxRedirects int
+}
+
+// NewSmartRedirectPolicy creates a new SmartRedirectPolicy with the given redirect limit.
+func NewSmartRedirectPolicy(maxRedirects int) *SmartRedirectPolicy {
+	return &SmartRedirectPolicy{maxRedirects: maxRedirects}
+}
+
+// Apply enforces the redirect limit, performs method downgrade for 301/302/303, and
+// strips sensitive headers on cross-host or HTTPS-to-HTTP redirects.
+func (s *SmartRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
+	if len(via) >= s.maxRedirects {
+		return fmt.Errorf("stopped after %d redirects: %w", s.maxRedirects, ErrTooManyRedirects)
+	}
+
+	prev := via[len(via)-1]
+	checkHostAndAddHeaders(req, prev)
+
+	if prev.Response != nil {
+		switch prev.Response.StatusCode {
+		case http.StatusMovedPermanently, http.StatusFound: // 301, 302
+			if req.Method == http.MethodPost {
+				req.Method = http.MethodGet
+				req.Body = nil
+				req.ContentLength = 0
+				dropPayloadHeaders(req.Header)
+			}
+		case http.StatusSeeOther: // 303
+			if req.Method != http.MethodHead {
+				req.Method = http.MethodGet
+				req.Body = nil
+				req.ContentLength = 0
+				dropPayloadHeaders(req.Header)
+			}
+		}
+	}
+
+	return nil
+}
+
+// dropPayloadHeaders removes headers related to request body content.
+func dropPayloadHeaders(h http.Header) {
+	h.Del("Content-Type")
+	h.Del("Content-Length")
+	h.Del("Content-Encoding")
+	h.Del("Transfer-Encoding")
+}
+
 // getHostname extracts the hostname from a host string, removing any port number.
 func getHostname(host string) string {
 	if strings.Contains(host, ":") {
@@ -78,11 +139,22 @@ func (s *RedirectSpecifiedDomainPolicy) Apply(req *http.Request, _ []*http.Reque
 	return nil
 }
 
-// checkHostAndAddHeaders is a helper function that checks if the hostnames are the same and adds the headers.
+// stripSensitiveHeaders removes sensitive headers from the given header map.
+func stripSensitiveHeaders(h http.Header) {
+	for _, header := range sensitiveHeaders {
+		h.Del(header)
+	}
+}
+
+// checkHostAndAddHeaders copies headers from the previous request when the host and scheme match.
+// On cross-host or HTTPS-to-HTTP redirects, sensitive headers are stripped instead.
 func checkHostAndAddHeaders(cur *http.Request, pre *http.Request) {
-	curHostname := getHostname(cur.URL.Host)
-	preHostname := getHostname(pre.URL.Host)
-	if strings.EqualFold(curHostname, preHostname) {
+	sameHost := strings.EqualFold(getHostname(cur.URL.Host), getHostname(pre.URL.Host))
+	schemeDowngrade := pre.URL.Scheme == "https" && cur.URL.Scheme == "http"
+
+	if sameHost && !schemeDowngrade {
 		maps.Copy(cur.Header, pre.Header)
+	} else {
+		stripSensitiveHeaders(cur.Header)
 	}
 }

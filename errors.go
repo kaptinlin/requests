@@ -1,7 +1,9 @@
 package requests
 
 import (
+	"context"
 	"errors"
+	"net"
 )
 
 var (
@@ -22,6 +24,9 @@ var (
 
 	// ErrUnsupportedScheme is returned when the proxy scheme is unsupported.
 	ErrUnsupportedScheme = errors.New("unsupported proxy scheme")
+
+	// ErrNoProxies is returned when no proxy URLs are provided to a rotation function.
+	ErrNoProxies = errors.New("no proxy URLs provided")
 
 	// ErrUnsupportedFormFieldsType is returned when the form fields type is unsupported.
 	ErrUnsupportedFormFieldsType = errors.New("unsupported form fields type")
@@ -47,3 +52,26 @@ var (
 	// ErrTestTimeout is returned when a test request times out (used in tests).
 	ErrTestTimeout = errors.New("test timeout: request took too long")
 )
+
+// IsTimeout reports whether err is or wraps a timeout error.
+// It checks for context.DeadlineExceeded and net.Error timeout errors.
+func IsTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// IsConnectionError reports whether err is a connection-level failure
+// (DNS resolution, TCP connect, TLS handshake).
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var opErr *net.OpError
+	return errors.As(err, &opErr)
+}

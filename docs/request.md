@@ -248,6 +248,25 @@ request.Auth(requests.BasicAuth{
 })
 ```
 
+### Request Cloning
+
+Use `Clone()` to create a deep copy of a request builder. The clone shares the same client but has independent copies of headers, cookies, queries, path params, and form fields:
+
+```go
+base := client.Get("/users").
+    Header("Authorization", "Bearer token").
+    Query("page", "1")
+
+// Create variations from the same base
+req1 := base.Clone().Query("sort", "name")
+req2 := base.Clone().Query("sort", "date").Query("page", "2")
+
+resp1, _ := req1.Send(ctx)
+resp2, _ := req2.Send(ctx)
+```
+
+> **Note:** Body data, form files, stream callbacks, middlewares, and retry config are not copied by `Clone()` as they contain references that are not safe to share.
+
 ### Middleware
 
 Add custom middleware to process the request or response:

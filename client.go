@@ -3,6 +3,7 @@ package requests
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"os"
@@ -51,6 +52,25 @@ type Config struct {
 	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
 	Logger        Logger            // Logger instance for the client
 	HTTP2         bool              // Whether to use HTTP/2. Transport takes priority over HTTP2 if both are set.
+
+	// Transport-level timeouts (applied to http.Transport)
+	DialTimeout           time.Duration // TCP connection timeout
+	TLSHandshakeTimeout   time.Duration // TLS handshake timeout
+	ResponseHeaderTimeout time.Duration // Time to first response byte
+
+	// Connection pool settings (applied to http.Transport)
+	MaxIdleConns        int           // Max idle connections across all hosts (0 = default 100)
+	MaxIdleConnsPerHost int           // Max idle connections per host (0 = default 2)
+	MaxConnsPerHost     int           // Max total connections per host (0 = no limit)
+	IdleConnTimeout     time.Duration // How long idle connections live (0 = default 90s)
+}
+
+// hasTransportConfig checks if any transport-level configuration is set.
+func (cfg *Config) hasTransportConfig() bool {
+	return cfg.DialTimeout > 0 || cfg.TLSHandshakeTimeout > 0 ||
+		cfg.ResponseHeaderTimeout > 0 || cfg.MaxIdleConns > 0 ||
+		cfg.MaxIdleConnsPerHost > 0 || cfg.MaxConnsPerHost > 0 ||
+		cfg.IdleConnTimeout > 0
 }
 
 // URL creates a new HTTP client with the given base URL.
@@ -111,6 +131,9 @@ func Create(config *Config) *Client {
 	case config.HTTP2:
 		client.HTTPClient.Transport = &http2.Transport{}
 	}
+
+	// Apply transport-level timeouts and connection pool settings
+	applyTransportConfig(client, config)
 
 	if config.Middlewares != nil {
 		client.Middlewares = config.Middlewares
@@ -523,6 +546,113 @@ func (c *Client) SetLogger(logger Logger) *Client {
 
 	c.Logger = logger
 	return c
+}
+
+// withTransport executes a function on the client's transport, handling locking and error checking.
+// Returns the client for method chaining. Errors from ensureTransport are silently ignored to
+// maintain the fluent API pattern.
+func (c *Client) withTransport(fn func(*http.Transport)) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return c
+	}
+	fn(transport)
+	return c
+}
+
+// SetDialTimeout sets the TCP connection timeout on the underlying transport.
+func (c *Client) SetDialTimeout(d time.Duration) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.DialContext = (&net.Dialer{Timeout: d}).DialContext
+	})
+}
+
+// SetTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
+func (c *Client) SetTLSHandshakeTimeout(d time.Duration) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.TLSHandshakeTimeout = d
+	})
+}
+
+// SetResponseHeaderTimeout sets the time to wait for response headers after the request
+// is sent. This does not include the time to read the response body.
+func (c *Client) SetResponseHeaderTimeout(d time.Duration) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.ResponseHeaderTimeout = d
+	})
+}
+
+// SetMaxIdleConns sets the maximum number of idle connections across all hosts.
+func (c *Client) SetMaxIdleConns(n int) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.MaxIdleConns = n
+	})
+}
+
+// SetMaxIdleConnsPerHost sets the maximum number of idle connections per host.
+func (c *Client) SetMaxIdleConnsPerHost(n int) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.MaxIdleConnsPerHost = n
+	})
+}
+
+// SetMaxConnsPerHost sets the maximum total number of connections per host.
+func (c *Client) SetMaxConnsPerHost(n int) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.MaxConnsPerHost = n
+	})
+}
+
+// SetIdleConnTimeout sets how long idle connections remain in the pool before being closed.
+func (c *Client) SetIdleConnTimeout(d time.Duration) *Client {
+	return c.withTransport(func(t *http.Transport) {
+		t.IdleConnTimeout = d
+	})
+}
+
+// applyTransportConfig applies transport-level timeouts and connection pool settings
+// from Config to the client's transport. Only modifies settings that are explicitly set
+// (non-zero). Skips if the transport is not *http.Transport (e.g., HTTP/2 transport).
+func applyTransportConfig(c *Client, config *Config) {
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	if !ok {
+		// No *http.Transport available (nil or HTTP/2); create one if any config is set
+		if !config.hasTransportConfig() {
+			return
+		}
+
+		if c.HTTPClient.Transport == nil {
+			transport = &http.Transport{}
+			c.HTTPClient.Transport = transport
+		} else {
+			return // Non-nil, non-http.Transport (e.g., http2.Transport): skip
+		}
+	}
+
+	if config.DialTimeout > 0 {
+		transport.DialContext = (&net.Dialer{Timeout: config.DialTimeout}).DialContext
+	}
+	if config.TLSHandshakeTimeout > 0 {
+		transport.TLSHandshakeTimeout = config.TLSHandshakeTimeout
+	}
+	if config.ResponseHeaderTimeout > 0 {
+		transport.ResponseHeaderTimeout = config.ResponseHeaderTimeout
+	}
+	if config.MaxIdleConns > 0 {
+		transport.MaxIdleConns = config.MaxIdleConns
+	}
+	if config.MaxIdleConnsPerHost > 0 {
+		transport.MaxIdleConnsPerHost = config.MaxIdleConnsPerHost
+	}
+	if config.MaxConnsPerHost > 0 {
+		transport.MaxConnsPerHost = config.MaxConnsPerHost
+	}
+	if config.IdleConnTimeout > 0 {
+		transport.IdleConnTimeout = config.IdleConnTimeout
+	}
 }
 
 // Get initiates a GET request.

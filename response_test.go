@@ -395,6 +395,124 @@ func TestResponseLinesEarlyBreak(t *testing.T) {
 	assert.Equal(t, expected, lines)
 }
 
+func TestResponseIsError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		expected   bool
+	}{
+		{"200 OK", 200, false},
+		{"301 Redirect", 301, false},
+		{"400 Bad Request", 400, true},
+		{"404 Not Found", 404, true},
+		{"500 Internal Server Error", 500, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			client := Create(&Config{BaseURL: server.URL})
+			resp, err := client.Get("/").Send(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, resp.IsError())
+		})
+	}
+}
+
+func TestResponseIsClientError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		expected   bool
+	}{
+		{"200 OK", 200, false},
+		{"400 Bad Request", 400, true},
+		{"404 Not Found", 404, true},
+		{"499 Custom", 499, true},
+		{"500 Server Error", 500, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			client := Create(&Config{BaseURL: server.URL})
+			resp, err := client.Get("/").Send(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, resp.IsClientError())
+		})
+	}
+}
+
+func TestResponseIsServerError(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		expected   bool
+	}{
+		{"200 OK", 200, false},
+		{"404 Not Found", 404, false},
+		{"500 Internal Server Error", 500, true},
+		{"503 Service Unavailable", 503, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			client := Create(&Config{BaseURL: server.URL})
+			resp, err := client.Get("/").Send(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, resp.IsServerError())
+		})
+	}
+}
+
+func TestResponseIsRedirect(t *testing.T) {
+	// Use a server that doesn't actually redirect (we just check the code)
+	// We need to use a server that returns a redirect status without Location header
+	// to prevent the client from following the redirect.
+	client := Create(nil)
+	client.SetRedirectPolicy(NewProhibitRedirectPolicy())
+
+	tests := []struct {
+		name       string
+		statusCode int
+		expected   bool
+	}{
+		{"200 OK", 200, false},
+		{"301 Moved", 301, true},
+		{"302 Found", 302, true},
+		{"304 Not Modified", 304, true},
+		{"400 Bad Request", 400, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+			}))
+			defer server.Close()
+
+			// For non-redirect status codes, use a normal client
+			c := Create(&Config{BaseURL: server.URL})
+			resp, err := c.Get("/").Send(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, resp.IsRedirect())
+		})
+	}
+}
+
 func TestResponseSaveToWriter(t *testing.T) {
 	// Setup a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

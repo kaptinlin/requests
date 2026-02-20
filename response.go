@@ -175,6 +175,28 @@ func (r *Response) IsSuccess() bool {
 	return code >= 200 && code <= 299
 }
 
+// IsError checks if the response status code indicates an error (>= 400).
+func (r *Response) IsError() bool {
+	return r.StatusCode() >= 400
+}
+
+// IsClientError checks if the response status code indicates a client error (400 - 499).
+func (r *Response) IsClientError() bool {
+	code := r.StatusCode()
+	return code >= 400 && code < 500
+}
+
+// IsServerError checks if the response status code indicates a server error (>= 500).
+func (r *Response) IsServerError() bool {
+	return r.StatusCode() >= 500
+}
+
+// IsRedirect checks if the response status code indicates a redirect (300 - 399).
+func (r *Response) IsRedirect() bool {
+	code := r.StatusCode()
+	return code >= 300 && code < 400
+}
+
 // Body returns the response body as a byte slice.
 func (r *Response) Body() []byte {
 	return r.BodyBytes

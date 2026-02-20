@@ -499,6 +499,48 @@ func (b *RequestBuilder) StreamDone(callback StreamDoneCallback) *RequestBuilder
 	return b
 }
 
+// Clone creates a deep copy of the RequestBuilder. The clone shares the same client
+// reference (shallow copy) but has independent copies of headers, cookies, queries,
+// pathParams, and formFields (deep copy). This means configuration changes to the
+// client will affect both the original and clone.
+//
+// Body data, form files, stream callbacks, middlewares, and retry config are not copied
+// as they are not safe to share or clone. Set these on the cloned builder if needed.
+func (b *RequestBuilder) Clone() *RequestBuilder {
+	clone := &RequestBuilder{
+		client:   b.client,
+		method:   b.method,
+		path:     b.path,
+		timeout:  b.timeout,
+		boundary: b.boundary,
+	}
+
+	if b.headers != nil {
+		h := b.headers.Clone()
+		clone.headers = &h
+	}
+
+	if b.cookies != nil {
+		clone.cookies = slices.Clone(b.cookies)
+	}
+
+	if b.queries != nil {
+		clone.queries = url.Values{}
+		maps.Copy(clone.queries, b.queries)
+	}
+
+	if b.pathParams != nil {
+		clone.pathParams = maps.Clone(b.pathParams)
+	}
+
+	if b.formFields != nil {
+		clone.formFields = url.Values{}
+		maps.Copy(clone.formFields, b.formFields)
+	}
+
+	return clone
+}
+
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	body, contentType, err := b.prepareBody()

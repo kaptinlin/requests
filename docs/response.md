@@ -173,14 +173,46 @@ For processing responses line by line, such as SSE streams or JSONL data:
     }
     ```
 
-### Evaluating Response Success
+### Evaluating Response Status
 
-To assess whether the HTTP request was successful:
+To assess the HTTP response status:
 
-- **IsSuccess**: Check if the status code signifies a successful response.
+- **IsSuccess**: Check if the status code signifies a successful response (200-299).
 
     ```go
     if response.IsSuccess() {
         fmt.Println("The request succeeded.")
+    }
+    ```
+
+- **IsError**: Check if the status code indicates an error (>= 400).
+
+    ```go
+    if response.IsError() {
+        fmt.Println("The request failed.")
+    }
+    ```
+
+- **IsClientError**: Check if the status code indicates a client error (400-499).
+
+    ```go
+    if response.IsClientError() {
+        fmt.Println("Client error occurred.")
+    }
+    ```
+
+- **IsServerError**: Check if the status code indicates a server error (>= 500).
+
+    ```go
+    if response.IsServerError() {
+        fmt.Println("Server error occurred.")
+    }
+    ```
+
+- **IsRedirect**: Check if the status code indicates a redirect (300-399).
+
+    ```go
+    if response.IsRedirect() {
+        fmt.Println("Response is a redirect.")
     }
     ```

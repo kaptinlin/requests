@@ -1030,3 +1030,98 @@ func TestDelFile_EmptyFiles(t *testing.T) {
 	// Should remain nil
 	assert.Nil(t, builder.formFiles)
 }
+
+func TestClone(t *testing.T) {
+	t.Run("ProducesIndependentCopy", func(t *testing.T) {
+		client := Create(&Config{BaseURL: "http://example.com"})
+		original := client.Get("/users").
+			Header("Authorization", "Bearer token").
+			Query("page", "1").
+			PathParam("id", "123").
+			Cookie("session", "abc")
+
+		clone := original.Clone()
+
+		// Clone should have same values
+		assert.Equal(t, original.method, clone.method)
+		assert.Equal(t, original.path, clone.path)
+		assert.Equal(t, original.client, clone.client)
+		assert.Equal(t, original.headers.Get("Authorization"), clone.headers.Get("Authorization"))
+		assert.Equal(t, original.queries.Get("page"), clone.queries.Get("page"))
+		assert.Equal(t, original.pathParams["id"], clone.pathParams["id"])
+		assert.Len(t, clone.cookies, 1)
+		assert.Equal(t, "session", clone.cookies[0].Name)
+	})
+
+	t.Run("ModifyingCloneDoesNotAffectOriginal", func(t *testing.T) {
+		client := Create(&Config{BaseURL: "http://example.com"})
+		original := client.Get("/users").
+			Header("Authorization", "Bearer token").
+			Query("page", "1").
+			PathParam("id", "123").
+			Cookie("session", "abc")
+
+		clone := original.Clone()
+
+		// Modify the clone
+		clone.Header("Authorization", "Bearer different")
+		clone.Query("page", "2")
+		clone.PathParam("id", "456")
+		clone.Cookie("extra", "xyz")
+		clone.Method("POST")
+		clone.Path("/posts")
+
+		// Original should be unchanged
+		assert.Equal(t, "Bearer token", original.headers.Get("Authorization"))
+		assert.Equal(t, "1", original.queries.Get("page"))
+		assert.Equal(t, "123", original.pathParams["id"])
+		assert.Len(t, original.cookies, 1)
+		assert.Equal(t, http.MethodGet, original.method)
+		assert.Equal(t, "/users", original.path)
+	})
+
+	t.Run("ClonePreservesFormFields", func(t *testing.T) {
+		client := Create(&Config{BaseURL: "http://example.com"})
+		original := client.Post("/submit").
+			FormField("name", "John").
+			FormField("age", "30")
+
+		clone := original.Clone()
+
+		// Modify clone's form fields
+		clone.FormField("name", "Jane")
+		clone.FormField("extra", "field")
+
+		// Original form fields should be unchanged
+		assert.Equal(t, "John", original.formFields.Get("name"))
+		assert.Empty(t, original.formFields.Get("extra"))
+
+		// Clone should have new values
+		assert.Contains(t, clone.formFields["name"], "Jane")
+	})
+
+	t.Run("CloneNilFields", func(t *testing.T) {
+		client := Create(&Config{BaseURL: "http://example.com"})
+		original := client.Get("/simple")
+
+		clone := original.Clone()
+
+		// Should not panic and should work with nil fields
+		assert.Nil(t, clone.cookies)
+		assert.Nil(t, clone.pathParams)
+		assert.Nil(t, clone.formFields)
+	})
+
+	t.Run("CloneDoesNotCopyBodyOrStreaming", func(t *testing.T) {
+		client := Create(&Config{BaseURL: "http://example.com"})
+		original := client.Post("/data").
+			JSONBody(map[string]string{"key": "value"}).
+			Stream(func(data []byte) error { return nil })
+
+		clone := original.Clone()
+
+		assert.Nil(t, clone.bodyData, "Body data should not be copied")
+		assert.Nil(t, clone.stream, "Stream callback should not be copied")
+		assert.Nil(t, clone.middlewares, "Middlewares should not be copied")
+	})
+}

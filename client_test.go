@@ -980,6 +980,154 @@ func TestClientSetRootCertificate(t *testing.T) {
 	})
 }
 
+func TestTransportTimeoutsViaConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(3 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:               server.URL,
+		DialTimeout:           5 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 1 * time.Second,
+	})
+
+	_, err := client.Get("/").Send(context.Background())
+	assert.Error(t, err)
+}
+
+func TestTransportTimeoutsViaSetMethods(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(3 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	client.SetDialTimeout(5 * time.Second)
+	client.SetTLSHandshakeTimeout(5 * time.Second)
+	client.SetResponseHeaderTimeout(1 * time.Second)
+
+	_, err := client.Get("/").Send(context.Background())
+	assert.Error(t, err)
+}
+
+func TestConnectionPoolConfig(t *testing.T) {
+	client := Create(&Config{
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 10,
+		MaxConnsPerHost:     20,
+		IdleConnTimeout:     30 * time.Second,
+	})
+
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Equal(t, 50, transport.MaxIdleConns)
+	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
+	assert.Equal(t, 20, transport.MaxConnsPerHost)
+	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
+}
+
+func TestConnectionPoolConfigSetMethods(t *testing.T) {
+	client := Create(nil)
+	client.SetMaxIdleConns(50).
+		SetMaxIdleConnsPerHost(10).
+		SetMaxConnsPerHost(20).
+		SetIdleConnTimeout(30 * time.Second)
+
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Equal(t, 50, transport.MaxIdleConns)
+	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
+	assert.Equal(t, 20, transport.MaxConnsPerHost)
+	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
+}
+
+func TestTransportConfigSkipsHTTP2Transport(t *testing.T) {
+	client := Create(&Config{
+		HTTP2:               true,
+		TLSConfig:           &tls.Config{InsecureSkipVerify: true},
+		MaxIdleConns:        50,
+		MaxIdleConnsPerHost: 10,
+	})
+
+	_, isHTTPTransport := client.HTTPClient.Transport.(*http.Transport)
+	assert.False(t, isHTTPTransport)
+}
+
+func TestTransportConfigNoOpWhenNoSettings(t *testing.T) {
+	client := Create(&Config{
+		BaseURL: "http://example.com",
+	})
+	assert.Nil(t, client.HTTPClient.Transport)
+}
+
+func TestErrorIntrospection(t *testing.T) {
+	t.Run("IsTimeout with deadline exceeded", func(t *testing.T) {
+		assert.True(t, IsTimeout(context.DeadlineExceeded))
+	})
+
+	t.Run("IsTimeout with wrapped deadline exceeded", func(t *testing.T) {
+		err := fmt.Errorf("request failed: %w", context.DeadlineExceeded)
+		assert.True(t, IsTimeout(err))
+	})
+
+	t.Run("IsTimeout with nil", func(t *testing.T) {
+		assert.False(t, IsTimeout(nil))
+	})
+
+	t.Run("IsTimeout with non-timeout error", func(t *testing.T) {
+		assert.False(t, IsTimeout(ErrResponseReadFailed))
+	})
+
+	t.Run("IsTimeout with actual timeout", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(2 * time.Second)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := Create(&Config{
+			BaseURL: server.URL,
+			Timeout: 100 * time.Millisecond,
+		})
+		_, err := client.Get("/").Send(context.Background())
+		assert.Error(t, err)
+		assert.True(t, IsTimeout(err))
+	})
+
+	t.Run("IsConnectionError with nil", func(t *testing.T) {
+		assert.False(t, IsConnectionError(nil))
+	})
+
+	t.Run("IsConnectionError with non-connection error", func(t *testing.T) {
+		assert.False(t, IsConnectionError(ErrResponseReadFailed))
+	})
+
+	t.Run("IsConnectionError with OpError", func(t *testing.T) {
+		opErr := &net.OpError{Op: "dial", Err: ErrTestTimeout}
+		assert.True(t, IsConnectionError(opErr))
+	})
+
+	t.Run("IsConnectionError with wrapped OpError", func(t *testing.T) {
+		opErr := &net.OpError{Op: "dial", Err: ErrTestTimeout}
+		wrapped := fmt.Errorf("request failed: %w", opErr)
+		assert.True(t, IsConnectionError(wrapped))
+	})
+
+	t.Run("IsConnectionError with real connection failure", func(t *testing.T) {
+		client := Create(&Config{
+			BaseURL: "http://127.0.0.1:1",
+			Timeout: 2 * time.Second,
+		})
+		_, err := client.Get("/").Send(context.Background())
+		assert.Error(t, err)
+		assert.True(t, IsConnectionError(err))
+	})
+}
+
 func TestHttp2Scenarios(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping HTTP/2 external network tests in short mode")

@@ -138,7 +138,67 @@ log.Printf("Response Data: %s\n", apiResp.Data)
 
 This example demonstrates how to unmarshal a JSON response and check the HTTP status code.
 
+Additional status helpers: `IsSuccess()`, `IsError()`, `IsClientError()`, `IsServerError()`, `IsRedirect()`.
+
 For more on handling responses, see [docs/response.md](docs/response.md).
+
+### Proxy
+
+Configure proxy settings with optional bypass rules:
+
+```go
+// Single proxy
+client.SetProxy("http://proxy:8080")
+
+// Multiple proxies with round-robin rotation (retries auto-rotate)
+client.SetProxies("http://proxy1:8080", "http://proxy2:8080", "socks5://proxy3:1080")
+
+// Proxy with NO_PROXY bypass list
+client.SetProxyWithBypass("http://proxy:8080", "localhost, .internal.com, 10.0.0.0/8")
+
+// Use environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY)
+client.SetProxyFromEnv()
+```
+
+### Redirect Policies
+
+Control redirect behavior including browser-like method downgrade:
+
+```go
+// Smart redirect: downgrades POST→GET on 301/302/303, strips sensitive headers cross-host
+client.SetRedirectPolicy(requests.NewSmartRedirectPolicy(10))
+```
+
+For more details, see [docs/client.md](docs/client.md).
+
+### Transport Timeouts & Connection Pool
+
+Fine-grained control over request phases and connection pooling:
+
+```go
+client := requests.Create(&requests.Config{
+    BaseURL:               "https://api.example.com",
+    Timeout:               60 * time.Second,  // overall deadline
+    DialTimeout:           5 * time.Second,   // TCP connect
+    TLSHandshakeTimeout:   5 * time.Second,   // TLS negotiation
+    ResponseHeaderTimeout: 10 * time.Second,  // time to first byte
+    MaxIdleConnsPerHost:   10,                // connection pool tuning
+})
+```
+
+### Error Introspection
+
+Classify errors without manual type assertion chains:
+
+```go
+_, err := client.Get("/resource").Send(ctx)
+if requests.IsTimeout(err) {
+    // Handle timeout (context deadline, net timeout)
+}
+if requests.IsConnectionError(err) {
+    // Handle connection failure (DNS, TCP, TLS)
+}
+```
 
 ## Additional Resources
 

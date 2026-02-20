@@ -13,6 +13,8 @@ The Requests library in Go provides a simplified yet powerful interface for maki
    - [Setting Headers](#setting-headers)
    - [Managing Cookies](#managing-cookies)
    - [Configuring Timeouts](#configuring-timeouts)
+     - [Transport-Level Timeouts](#transport-level-timeouts)
+     - [Connection Pool Configuration](#connection-pool-configuration)
    - [TLS Configuration](#tls-configuration)
    - [HTTP2 Configuration](#http2-configuration)
 4. [Advanced Features](#advanced-features)
@@ -148,6 +150,50 @@ client := requests.Create(&requests.Config{
 })
 ```
 
+#### Transport-Level Timeouts
+
+For fine-grained control over different phases of a request, configure transport-level timeouts:
+
+```go
+client := requests.Create(&requests.Config{
+    BaseURL:               "https://api.example.com",
+    Timeout:               60 * time.Second,             // overall deadline
+    DialTimeout:           5 * time.Second,              // TCP connect
+    TLSHandshakeTimeout:   5 * time.Second,              // TLS negotiation
+    ResponseHeaderTimeout: 10 * time.Second,             // time to first byte
+})
+```
+
+Or use Set methods:
+
+```go
+client.SetDialTimeout(5 * time.Second)
+client.SetTLSHandshakeTimeout(5 * time.Second)
+client.SetResponseHeaderTimeout(10 * time.Second)
+```
+
+#### Connection Pool Configuration
+
+Tune the connection pool for high-throughput scenarios:
+
+```go
+client := requests.Create(&requests.Config{
+    MaxIdleConns:        100, // Max idle connections across all hosts (default: 100)
+    MaxIdleConnsPerHost: 10,  // Max idle connections per host (default: 2)
+    MaxConnsPerHost:     50,  // Max total connections per host (default: no limit)
+    IdleConnTimeout:     90 * time.Second, // Idle connection lifetime (default: 90s)
+})
+```
+
+Or use Set methods:
+
+```go
+client.SetMaxIdleConns(100)
+client.SetMaxIdleConnsPerHost(10)
+client.SetMaxConnsPerHost(50)
+client.SetIdleConnTimeout(90 * time.Second)
+```
+
 ### TLS Configuration
 
 Custom TLS configurations can be applied for enhanced security measures, such as loading custom certificates:
@@ -250,6 +296,53 @@ Route requests through a proxy server:
 client.SetProxy("http://localhost:8080")
 ```
 
+#### Proxy with Bypass (NO_PROXY)
+
+Configure a proxy with a bypass list to exclude certain hosts:
+
+```go
+// Bypass localhost, internal domains, and a CIDR range
+client.SetProxyWithBypass("http://proxy:8080", "localhost, .internal.com, 10.0.0.0/8")
+```
+
+Supported bypass formats:
+- Domain names: `example.com` (matches exact and subdomains)
+- Leading dot domains: `.example.com` (matches subdomains only)
+- IP addresses: `192.168.1.1`
+- CIDR subnets: `10.0.0.0/8`
+- Wildcard: `*` (bypass all)
+
+#### Proxy from Environment
+
+Use standard environment variables (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`):
+
+```go
+client.SetProxyFromEnv()
+```
+
+#### Proxy Rotation
+
+Rotate through multiple proxies per-request using round-robin:
+
+```go
+client.SetProxies("http://proxy1:8080", "http://proxy2:8080", "socks5://proxy3:1080")
+```
+
+Each call to `Send()` (including retries) picks the next proxy in order. This means retries automatically hit a different proxy — no special configuration needed.
+
+For random selection or custom logic, use `SetProxySelector`:
+
+```go
+// Random selection
+selector, _ := requests.RandomProxies("http://proxy1:8080", "http://proxy2:8080")
+client.SetProxySelector(selector)
+
+// Custom: geo-routing, weighted, health-aware, etc.
+client.SetProxySelector(func(req *http.Request) (*url.URL, error) {
+    return pickByRegion(req.URL.Host), nil
+})
+```
+
 ### Authentication
 
 Supports various authentication methods:
@@ -319,4 +412,16 @@ client.SetRedirectPolicy(requests.NewRedirectSpecifiedDomainPolicy(
     "example.com",
     "api.example.com",
 ))
+```
+
+#### Smart Redirect Policy
+
+The `SmartRedirectPolicy` provides browser-like redirect behavior:
+- **301/302**: Downgrades POST to GET (per browser convention)
+- **303**: Converts any method (except HEAD) to GET
+- **307/308**: Preserves the original method and body
+- Automatically strips sensitive headers (`Authorization`, `Cookie`, etc.) on cross-host or HTTPS-to-HTTP redirects
+
+```go
+client.SetRedirectPolicy(requests.NewSmartRedirectPolicy(10))
 ```

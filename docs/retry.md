@@ -53,6 +53,22 @@ For exponential delay increases between attempts, with an option to cap the dela
 client.SetRetryStrategy(requests.ExponentialBackoffStrategy(1*time.Second, 2, 30*time.Second))
 ```
 
+#### Adding Jitter to Backoff Strategies
+
+Wrap any backoff strategy with jitter to prevent thundering herd problems. The `JitterBackoffStrategy` applies random ±fraction jitter to each delay:
+
+```go
+// Exponential backoff with ±25% jitter
+base := requests.ExponentialBackoffStrategy(1*time.Second, 2, 30*time.Second)
+client.SetRetryStrategy(requests.JitterBackoffStrategy(base, 0.25))
+
+// Linear backoff with ±10% jitter
+base := requests.LinearBackoffStrategy(500 * time.Millisecond)
+client.SetRetryStrategy(requests.JitterBackoffStrategy(base, 0.1))
+```
+
+The `fraction` parameter controls the jitter range: `0.25` means ±25% of the base delay. A fraction of `0` returns the exact base delay.
+
 ### Customizing Retry Conditions
 
 Define when retries should be attempted based on response status codes or errors:
