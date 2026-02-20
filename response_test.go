@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -538,5 +539,40 @@ func TestResponseSaveToWriter(t *testing.T) {
 	expected := "Sample response body"
 	if buffer.String() != expected {
 		t.Errorf("Expected buffer content %q, got %q", expected, buffer.String())
+	}
+}
+
+func TestHandleNonStream_ConcurrentSafety(t *testing.T) {
+	t.Parallel()
+
+	const goroutines = 50
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return the requested ID so each goroutine gets unique data
+		id := r.URL.Query().Get("id")
+		_, _ = fmt.Fprintf(w, "response-%s", id)
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL(server.URL))
+
+	results := make([]string, goroutines)
+
+	var wg sync.WaitGroup
+	for i := range goroutines {
+		wg.Go(func() {
+			resp, err := client.Get(fmt.Sprintf("/?id=%d", i)).Send(context.Background())
+			if err != nil {
+				results[i] = fmt.Sprintf("ERROR: %v", err)
+				return
+			}
+			results[i] = string(resp.Body())
+		})
+	}
+	wg.Wait()
+
+	for i := range goroutines {
+		expected := fmt.Sprintf("response-%d", i)
+		assert.Equal(t, expected, results[i], "goroutine %d: body data mismatch (possible data race)", i)
 	}
 }

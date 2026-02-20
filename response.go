@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -96,8 +97,11 @@ func (r *Response) handleNonStream() error {
 	}
 	_ = r.RawResponse.Body.Close()
 
-	r.RawResponse.Body = io.NopCloser(bytes.NewReader(buf.B))
-	r.BodyBytes = buf.B
+	// Copy data before returning buffer to pool to prevent data race.
+	// Without this, concurrent goroutines could get the same pooled buffer,
+	// causing one goroutine's response data to be overwritten by another.
+	r.BodyBytes = slices.Clone(buf.B)
+	r.RawResponse.Body = io.NopCloser(bytes.NewReader(r.BodyBytes))
 	return nil
 }
 

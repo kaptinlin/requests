@@ -1,6 +1,7 @@
 package requests
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/xml"
@@ -645,6 +646,50 @@ func TestRawBody(t *testing.T) {
 	// Asserts
 	assert.Equal(t, string(rawData), response["body"], "The body content should match.")
 	assert.Equal(t, "application/octet-stream", response["contentType"], "The content type should be set to application/octet-stream.")
+}
+
+func TestReaderBody(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+
+	readerData := "This is data from an io.Reader."
+
+	resp, err := client.Post("/").
+		Body(strings.NewReader(readerData)).
+		ContentType("text/plain").
+		Send(context.Background())
+	assert.NoError(t, err)
+
+	var response map[string]string
+	err = resp.Scan(&response)
+	assert.NoError(t, err)
+
+	assert.Equal(t, readerData, response["body"])
+	assert.Equal(t, "text/plain", response["contentType"])
+}
+
+func TestReaderBody_OctetStream(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		assert.Equal(t, "application/octet-stream", r.Header.Get("Content-Type"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+
+	data := []byte{0x00, 0x01, 0x02, 0xFF}
+
+	resp, err := client.Post("/").
+		Body(bytes.NewReader(data)).
+		ContentType("application/octet-stream").
+		Send(context.Background())
+	assert.NoError(t, err)
+
+	assert.Equal(t, data, resp.Body())
 }
 
 func TestRequestLevelRetries(t *testing.T) {

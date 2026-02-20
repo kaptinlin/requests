@@ -760,7 +760,9 @@ func (b *RequestBuilder) encodeRawBody() (io.Reader, error) {
 		return strings.NewReader(data), nil
 	case []byte:
 		return bytes.NewReader(data), nil
+	case io.Reader:
+		return data, nil
 	default:
-		return nil, fmt.Errorf("%w: expected string or []byte", ErrUnsupportedContentType)
+		return nil, fmt.Errorf("%w: expected string, []byte, or io.Reader", ErrUnsupportedContentType)
 	}
 }
