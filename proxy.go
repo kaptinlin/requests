@@ -23,7 +23,7 @@ type NoProxy struct {
 // CIDR subnets, and "*" for wildcard (bypass all).
 func parseNoProxy(bypass string) *NoProxy {
 	np := &NoProxy{}
-	for _, entry := range strings.Split(bypass, ",") {
+	for entry := range strings.SplitSeq(bypass, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
 			continue
