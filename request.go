@@ -398,32 +398,32 @@ func (b *RequestBuilder) RetryIf(retryIf RetryIfFunc) *RequestBuilder {
 	return b
 }
 
-func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Response, error) {
+func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientSnapshot) (*http.Response, error) {
 	finalHandler := MiddlewareHandlerFunc(func(req *http.Request) (*http.Response, error) {
-		maxRetries := b.client.MaxRetries
+		maxRetries := snap.MaxRetries
 		if b.maxRetries > 0 {
 			maxRetries = b.maxRetries
 		}
 
-		retryStrategy := b.client.RetryStrategy
+		retryStrategy := snap.RetryStrategy
 		if b.retryStrategy != nil {
 			retryStrategy = b.retryStrategy
 		}
 
-		retryIf := b.client.RetryIf
+		retryIf := snap.RetryIf
 		if b.retryIf != nil {
 			retryIf = b.retryIf
 		}
 
 		if maxRetries < 1 {
-			return b.client.HTTPClient.Do(req)
+			return snap.HTTPClient.Do(req)
 		}
 
 		var errs []error
 		var resp *http.Response
 		for attempt := range maxRetries + 1 {
 			var err error
-			resp, err = b.client.HTTPClient.Do(req)
+			resp, err = snap.HTTPClient.Do(req)
 
 			if err != nil {
 				errs = append(errs, fmt.Errorf("attempt %d/%d: %w", attempt+1, maxRetries+1, err))
@@ -432,8 +432,8 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 			shouldRetry := err != nil || (resp != nil && retryIf != nil && retryIf(req, resp, err))
 			if !shouldRetry || attempt == maxRetries {
 				if err != nil {
-					if b.client.Logger != nil {
-						b.client.Logger.Errorf("Error after %d attempts: %v", attempt+1, err)
+					if snap.Logger != nil {
+						snap.Logger.Errorf("Error after %d attempts: %v", attempt+1, err)
 					}
 					if len(errs) > 1 {
 						return resp, errors.Join(errs...)
@@ -445,22 +445,23 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 
 			if resp != nil {
 				if closeErr := resp.Body.Close(); closeErr != nil {
-					if b.client.Logger != nil {
-						b.client.Logger.Errorf("Error closing response body: %v", closeErr)
+					if snap.Logger != nil {
+						snap.Logger.Errorf("Error closing response body: %v", closeErr)
 					}
 				}
 			}
 
-			if b.client.Logger != nil {
-				b.client.Logger.Infof("Retrying request (attempt %d) after backoff", attempt+1)
+			if snap.Logger != nil {
+				snap.Logger.Infof("Retrying request (attempt %d) after backoff", attempt+1)
 			}
 
-			timer := time.NewTimer(retryStrategy(attempt))
+			delay := retryAfterDelay(resp, retryStrategy(attempt))
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
-				if b.client.Logger != nil {
-					b.client.Logger.Errorf("Request canceled or timed out: %v", ctx.Err())
+				if snap.Logger != nil {
+					snap.Logger.Errorf("Request canceled or timed out: %v", ctx.Err())
 				}
 				return nil, ctx.Err()
 			case <-timer.C:
@@ -470,11 +471,10 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request) (*http.Respo
 		return resp, nil
 	})
 
-	// Wrap middlewares: request-level first (inner), then client-level (outer).
 	for _, mw := range slices.Backward(b.middlewares) {
 		finalHandler = mw(finalHandler)
 	}
-	for _, mw := range slices.Backward(b.client.Middlewares) {
+	for _, mw := range slices.Backward(snap.Middlewares) {
 		finalHandler = mw(finalHandler)
 	}
 
@@ -543,10 +543,11 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
-	body, contentType, err := b.prepareBody()
+	snap := b.client.snapshot()
+	body, contentType, err := b.prepareBody(snap)
 	if err != nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Error preparing request body: %v", err)
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Error preparing request body: %v", err)
 		}
 		return nil, err
 	}
@@ -555,10 +556,10 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		b.headers.Set("Content-Type", contentType)
 	}
 
-	parsedURL, err := url.Parse(b.client.BaseURL + b.preparePath())
+	parsedURL, err := url.Parse(snap.BaseURL + b.preparePath())
 	if err != nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Error parsing URL: %v", err)
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Error parsing URL: %v", err)
 		}
 		return nil, err
 	}
@@ -578,20 +579,20 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 
 	req, err := http.NewRequestWithContext(ctx, b.method, parsedURL.String(), body)
 	if err != nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Error creating request: %v", err)
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Error creating request: %v", err)
 		}
 		return nil, fmt.Errorf("%w: %w", ErrRequestCreationFailed, err)
 	}
 
-	b.applyAuth(req)
-	b.applyHeaders(req)
-	b.applyCookies(req)
+	b.applyAuth(req, snap)
+	b.applyHeaders(req, snap)
+	b.applyCookies(req, snap)
 
-	resp, err := b.do(ctx, req)
+	resp, err := b.do(ctx, req, snap)
 	if err != nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Error executing request: %v", err)
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Error executing request: %v", err)
 		}
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -600,8 +601,8 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	}
 
 	if resp == nil {
-		if b.client.Logger != nil {
-			b.client.Logger.Errorf("Response is nil")
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Response is nil")
 		}
 		return nil, fmt.Errorf("%w: %w", ErrResponseNil, err)
 	}
@@ -609,7 +610,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
 }
 
-func (b *RequestBuilder) prepareBody() (io.Reader, string, error) {
+func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, error) {
 	if len(b.formFiles) > 0 {
 		return b.prepareMultipartBody()
 	}
@@ -618,7 +619,7 @@ func (b *RequestBuilder) prepareBody() (io.Reader, string, error) {
 		return body, contentType, nil
 	}
 	if b.bodyData != nil {
-		return b.prepareBodyBasedOnContentType()
+		return b.prepareBodyBasedOnContentType(snap)
 	}
 	return nil, "", nil
 }
@@ -630,20 +631,18 @@ func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, c
 	return ctx, nil
 }
 
-func (b *RequestBuilder) applyAuth(req *http.Request) {
+func (b *RequestBuilder) applyAuth(req *http.Request, snap clientSnapshot) {
 	if b.auth != nil {
 		b.auth.Apply(req)
-	} else if b.client.auth != nil {
-		b.client.auth.Apply(req)
+	} else if snap.auth != nil {
+		snap.auth.Apply(req)
 	}
 }
 
-func (b *RequestBuilder) applyHeaders(req *http.Request) {
-	if b.client.Headers != nil {
-		for key, values := range *b.client.Headers {
-			for _, value := range values {
-				req.Header.Add(key, value)
-			}
+func (b *RequestBuilder) applyHeaders(req *http.Request, snap clientSnapshot) {
+	for key, values := range snap.Headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
 		}
 	}
 	if b.headers != nil {
@@ -655,11 +654,9 @@ func (b *RequestBuilder) applyHeaders(req *http.Request) {
 	}
 }
 
-func (b *RequestBuilder) applyCookies(req *http.Request) {
-	if b.client.Cookies != nil {
-		for _, cookie := range b.client.Cookies {
-			req.AddCookie(cookie)
-		}
+func (b *RequestBuilder) applyCookies(req *http.Request, snap clientSnapshot) {
+	for _, cookie := range snap.Cookies {
+		req.AddCookie(cookie)
 	}
 	if b.cookies != nil {
 		for _, cookie := range b.cookies {
@@ -712,7 +709,7 @@ func (b *RequestBuilder) prepareFormFieldsBody() (io.Reader, string) {
 	return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded"
 }
 
-func (b *RequestBuilder) prepareBodyBasedOnContentType() (io.Reader, string, error) {
+func (b *RequestBuilder) prepareBodyBasedOnContentType(snap clientSnapshot) (io.Reader, string, error) {
 	contentType := b.headers.Get("Content-Type")
 
 	if contentType == "" && b.bodyData != nil {
@@ -720,7 +717,7 @@ func (b *RequestBuilder) prepareBodyBasedOnContentType() (io.Reader, string, err
 		b.headers.Set("Content-Type", contentType)
 	}
 
-	body, err := b.encodeBody(contentType)
+	body, err := b.encodeBody(contentType, snap)
 	return body, contentType, err
 }
 
@@ -737,14 +734,14 @@ func (b *RequestBuilder) inferContentType() string {
 	}
 }
 
-func (b *RequestBuilder) encodeBody(contentType string) (io.Reader, error) {
+func (b *RequestBuilder) encodeBody(contentType string, snap clientSnapshot) (io.Reader, error) {
 	switch contentType {
 	case "application/json":
-		return b.client.JSONEncoder.Encode(b.bodyData)
+		return snap.JSONEncoder.Encode(b.bodyData)
 	case "application/xml":
-		return b.client.XMLEncoder.Encode(b.bodyData)
+		return snap.XMLEncoder.Encode(b.bodyData)
 	case "application/yaml":
-		return b.client.YAMLEncoder.Encode(b.bodyData)
+		return snap.YAMLEncoder.Encode(b.bodyData)
 	case "application/x-www-form-urlencoded":
 		return DefaultFormEncoder.Encode(b.bodyData)
 	case "text/plain", "application/octet-stream":

@@ -214,8 +214,19 @@ func TestNew_WithMiddleware(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
 
+func createOptionTestTLSServer(t *testing.T) *httptest.Server {
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	cert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+	require.NoError(t, err)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
+	server.StartTLS()
+	return server
+}
+
 func TestNew_WithInsecureSkipVerify(t *testing.T) {
-	server := createTestTLSServer()
+	server := createOptionTestTLSServer(t)
 	defer server.Close()
 
 	c := New(WithBaseURL(server.URL), WithInsecureSkipVerify())
@@ -225,7 +236,7 @@ func TestNew_WithInsecureSkipVerify(t *testing.T) {
 }
 
 func TestNew_WithTLSConfig(t *testing.T) {
-	server := createTestTLSServer()
+	server := createOptionTestTLSServer(t)
 	defer server.Close()
 
 	c := New(
@@ -235,6 +246,16 @@ func TestNew_WithTLSConfig(t *testing.T) {
 	resp, err := c.Get("/").Send(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
+}
+
+func TestNew_WithClientCertificateAndTLSServerName(t *testing.T) {
+	c := New(
+		WithClientCertificate(".github/testdata/cert.pem", ".github/testdata/key.pem"),
+		WithTLSServerName("example.com"),
+	)
+	require.NotNil(t, c.TLSConfig)
+	assert.Len(t, c.TLSConfig.Certificates, 1)
+	assert.Equal(t, "example.com", c.TLSConfig.ServerName)
 }
 
 func TestNew_WithProxy(t *testing.T) {

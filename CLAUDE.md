@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with th
 **Go Version**: 1.26
 **Purpose**: HTTP client library providing a fluent/builder pattern interface for making HTTP requests with middleware, retry mechanisms, streaming, and multiple encoding formats.
 
-The `requests` library simplifies HTTP operations in Go by offering an ergonomic alternative to `net/http` with features like automatic retries, middleware chains, streaming support, and built-in encoders/decoders for JSON, XML, and YAML.
+The `requests` library simplifies HTTP operations in Go by offering an ergonomic alternative to `net/http` with features like automatic retries, `Retry-After` handling, middleware chains, streaming support, mTLS helpers, and built-in encoders/decoders for JSON, XML, and YAML.
 
 ## Design Philosophy
 
@@ -22,6 +22,7 @@ The `requests` library simplifies HTTP operations in Go by offering an ergonomic
 ## Commands
 
 ### Primary Targets
+
 ```bash
 task test          # Run tests with race detection
 task lint          # Run golangci-lint v2.9.0 and go mod tidy checks
@@ -30,6 +31,7 @@ task clean         # Clean build artifacts and caches
 ```
 
 ### Development Commands
+
 ```bash
 go test ./...                    # Run tests without race detection
 go test -v ./...                 # Run tests with verbose output
@@ -41,7 +43,7 @@ golangci-lint run                # Run linter directly
 
 ### Core Components
 
-```
+```text
 requests/
 ├── client.go           # Client struct, configuration, HTTP/2 setup
 ├── request.go          # RequestBuilder (fluent API for building requests)
@@ -69,12 +71,13 @@ requests/
 1. **Client Creation**: `requests.URL()` or `requests.Create()` initializes client with config
 2. **Request Building**: `client.Get("/path")` returns `RequestBuilder` for method chaining
 3. **Middleware Chain**: Client and request-level middlewares wrap the request
-4. **Retry Logic**: Failed requests retry with backoff strategy if configured
-5. **Response Handling**: Response body is buffered or streamed based on configuration
+4. **Retry Logic**: Failed requests retry with backoff strategy if configured; `429`/`503` may use `Retry-After`
+5. **Response Handling**: Request execution snapshots mutable client state first, then buffers or streams the response based on configuration
 
 ### Key Types and Interfaces
 
-**Client**
+#### Client
+
 ```go
 type Client struct {
     BaseURL       string
@@ -87,7 +90,8 @@ type Client struct {
 }
 ```
 
-**RequestBuilder**
+#### RequestBuilder
+
 ```go
 type RequestBuilder struct {
     // Fluent API for building requests
@@ -95,12 +99,14 @@ type RequestBuilder struct {
 }
 ```
 
-**Middleware Interface**
+#### Middleware Interface
+
 ```go
 type Middleware func(req *http.Request, next RequestFunc) (*http.Response, error)
 ```
 
-**Response**
+#### Response
+
 ```go
 type Response struct {
     RawResponse *http.Response
@@ -135,6 +141,7 @@ type Response struct {
 
 - **Fluent Builders**: All request configuration methods return `*RequestBuilder` for chaining
 - **Functional Options**: Use functional options pattern for optional configuration
+- **Explicit Validation**: Prefer `Config.Validate()` when examples or helpers construct rich configs
 - **Interface Segregation**: Small, focused interfaces (e.g., `Encoder`, `Decoder`, `Logger`)
 
 ## Testing

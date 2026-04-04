@@ -1,11 +1,47 @@
 package requests
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestDefaultRetryIf(t *testing.T) {
+	assert.True(t, DefaultRetryIf(nil, nil, assert.AnError))
+	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusRequestTimeout}, nil))
+	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusTooManyRequests}, nil))
+	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusInternalServerError}, nil))
+	assert.False(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusBadRequest}, nil))
+}
+
+func TestRetryAfterDelay(t *testing.T) {
+	fallback := 2 * time.Second
+
+	t.Run("Seconds", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"3"}}}
+		assert.Equal(t, 3*time.Second, retryAfterDelay(resp, fallback))
+	})
+
+	t.Run("HTTPDate", func(t *testing.T) {
+		when := time.Now().Add(150 * time.Millisecond).UTC().Format(http.TimeFormat)
+		resp := &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Retry-After": []string{when}}}
+		delay := retryAfterDelay(resp, fallback)
+		assert.GreaterOrEqual(t, delay, time.Duration(0))
+		assert.LessOrEqual(t, delay, 500*time.Millisecond)
+	})
+
+	t.Run("InvalidFallsBack", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": []string{"bad"}}}
+		assert.Equal(t, fallback, retryAfterDelay(resp, fallback))
+	})
+
+	t.Run("IgnoredForOtherStatus", func(t *testing.T) {
+		resp := &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{"Retry-After": []string{"3"}}}
+		assert.Equal(t, fallback, retryAfterDelay(resp, fallback))
+	})
+}
 
 func TestJitterBackoffStrategy(t *testing.T) {
 	t.Run("OutputWithinExpectedBounds", func(t *testing.T) {

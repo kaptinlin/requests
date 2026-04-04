@@ -51,6 +51,12 @@ var (
 
 	// ErrTestTimeout is returned when a test request times out (used in tests).
 	ErrTestTimeout = errors.New("test timeout: request took too long")
+
+	// ErrInvalidConfigValue is returned when a config field has an invalid value.
+	ErrInvalidConfigValue = errors.New("invalid config value")
+
+	// ErrInvalidTLSClientCertificateConfig is returned when TLS client cert and key paths are inconsistently configured.
+	ErrInvalidTLSClientCertificateConfig = errors.New("TLSClientCertFile and TLSClientKeyFile must both be set or both be empty")
 )
 
 // IsTimeout reports whether err is or wraps a timeout error.

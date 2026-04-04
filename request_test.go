@@ -692,6 +692,63 @@ func TestReaderBody_OctetStream(t *testing.T) {
 	assert.Equal(t, data, resp.Body())
 }
 
+func TestDefaultRetryOn408And429(t *testing.T) {
+	t.Run("408", func(t *testing.T) {
+		var requestCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			count := atomic.AddInt32(&requestCount, 1)
+			if count == 1 {
+				w.WriteHeader(http.StatusRequestTimeout)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(0)})
+		_, err := client.Get("/").Send(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, int32(2), requestCount)
+	})
+
+	t.Run("429", func(t *testing.T) {
+		var requestCount int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			count := atomic.AddInt32(&requestCount, 1)
+			if count == 1 {
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(0)})
+		_, err := client.Get("/").Send(context.Background())
+		assert.NoError(t, err)
+		assert.Equal(t, int32(2), requestCount)
+	})
+}
+
+func TestRetryAfterHeader(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&requestCount, 1)
+		if count == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(5 * time.Second)})
+	_, err := client.Get("/").Send(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, int32(2), requestCount)
+}
+
 func TestRequestLevelRetries(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

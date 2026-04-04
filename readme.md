@@ -45,7 +45,7 @@ func main() {
 
 ### Client
 
-The `Client` struct is your gateway to making HTTP requests. You can configure it to your needs, setting default headers, cookies, timeout durations, and more.
+The `Client` struct is your gateway to making HTTP requests. You can configure it to your needs, setting default headers, cookies, timeout durations, TLS/mTLS options, retry policies, and more.
 
 #### Creating a Client
 
@@ -64,10 +64,16 @@ client = requests.URL("http://example.com")
 
 // Struct-based configuration (for HTTP/2 or full control)
 client = requests.Create(&requests.Config{
-    BaseURL: "http://example.com",
-    Timeout: 5 * time.Second,
-    HTTP2:   true,
+    BaseURL:       "http://example.com",
+    Timeout:       5 * time.Second,
+    HTTP2:         true,
+    TLSServerName: "api.example.com",
 })
+
+// Optional explicit validation before constructing a client
+if err := (&requests.Config{BaseURL: "http://example.com"}).Validate(); err != nil {
+    log.Fatal(err)
+}
 ```
 
 #### Passing to Downstream Libraries
@@ -85,6 +91,15 @@ scorer := NewVoyageScorer(
 ```
 
 For more details, see [docs/client.md](docs/client.md).
+
+You can also read back the underlying client configuration safely:
+
+```go
+httpClient := client.GetHTTPClient()
+baseURL := client.GetBaseURL()
+_ = httpClient
+_ = baseURL
+```
 
 
 ### Request
@@ -164,7 +179,7 @@ Additional status helpers: `IsSuccess()`, `IsError()`, `IsClientError()`, `IsSer
 
 For more on handling responses, see [docs/response.md](docs/response.md).
 
-### Proxy
+### Proxy Configuration
 
 Configure proxy settings with optional bypass rules:
 
@@ -206,6 +221,26 @@ client := requests.Create(&requests.Config{
     ResponseHeaderTimeout: 10 * time.Second,  // time to first byte
     MaxIdleConnsPerHost:   10,                // connection pool tuning
 })
+```
+
+### TLS and Validation
+
+Configure TLS, mTLS helpers, and validate config before construction:
+
+```go
+cfg := &requests.Config{
+    BaseURL:           "https://api.example.com",
+    TLSServerName:     "api.example.com",
+    TLSClientCertFile: "client.crt",
+    TLSClientKeyFile:  "client.key",
+}
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
+}
+
+client := requests.Create(cfg)
+client.SetClientCertificate("client.crt", "client.key")
+client.SetTLSServerName("api.example.com")
 ```
 
 ### Error Introspection

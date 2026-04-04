@@ -118,7 +118,7 @@ request.Referer("https://example.com")
 
 ### Cookies
 
-Add cookies to your request using `Cookie`, `Cookies`, or remove them with `DelCookie`. 
+Add cookies to your request using `Cookie`, `Cookies`, or remove them with `DelCookie`.
 
 ```go
 // Add a single cookie
@@ -164,6 +164,8 @@ Configure request-specific timeout and retry strategies:
 request.Timeout(10 * time.Second).MaxRetries(3)
 ```
 
+Request-level retry settings override the client defaults for that request only. If retries are enabled, the retry loop respects the request context and uses `Retry-After` for `429` and `503` responses before falling back to the configured backoff strategy.
+
 ### Sending Requests
 
 The `Send(ctx)` method executes the HTTP request built with the Request builder. It requires a `context.Context` argument, allowing you to control request cancellation and timeouts.
@@ -176,6 +178,7 @@ if err != nil {
 // Process response...
 ```
 
+Before dispatch, the builder resolves the final URL, prepares the encoded body, and applies client defaults such as headers, cookies, auth, retry policy, and middleware.
 
 ### Handling Cancellation
 
@@ -243,7 +246,7 @@ Apply authentication methods directly to the request:
 
 ```go
 request.Auth(requests.BasicAuth{
-   Username: "user", 
+   Username: "user",
    Password: "pass",
 })
 ```

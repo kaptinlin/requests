@@ -80,6 +80,7 @@ This method allows for incremental building of your client configuration, provid
 These examples demonstrate two ways to configure the Requests `Client` for use in your projects, whether you prefer a comprehensive or incremental setup approach.
 
 ## Client Configuration
+
 ### Configuring BaseURL
 
 Set the base URL for all requests:
@@ -196,11 +197,31 @@ client.SetIdleConnTimeout(90 * time.Second)
 
 ### TLS Configuration
 
-Custom TLS configurations can be applied for enhanced security measures, such as loading custom certificates:
+Custom TLS configurations can be applied for enhanced security measures, such as loading custom certificates. For the common case, requests now includes convenience helpers for client certificates and server name configuration:
 
 ```go
 tlsConfig := &tls.Config{InsecureSkipVerify: true}
 client.SetTLSConfig(tlsConfig)
+```
+
+```go
+client.SetClientCertificate("client.crt", "client.key")
+client.SetTLSServerName("api.example.com")
+```
+
+Or configure them on `Config`:
+
+```go
+cfg := &requests.Config{
+    BaseURL:           "https://api.example.com",
+    TLSServerName:     "api.example.com",
+    TLSClientCertFile: "client.crt",
+    TLSClientKeyFile:  "client.key",
+}
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
+}
+client := requests.Create(cfg)
 ```
 
 Load and set client certificates:
@@ -260,6 +281,24 @@ client.SetRootCertificate("root-cert.pem")
 client.SetClientRootCertificate("client-root-cert.pem")
 ```
 
+### Validating Config
+
+`Config.Validate()` checks deterministic configuration errors before construction.
+
+```go
+cfg := &requests.Config{
+    BaseURL:           "https://api.example.com",
+    MaxRetries:        3,
+    TLSServerName:     "api.example.com",
+    TLSClientCertFile: "client.crt",
+    TLSClientKeyFile:  "client.key",
+}
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
+}
+client := requests.Create(cfg)
+```
+
 ### HTTP/2 Configuration
 
 Configure HTTP/2 support for the client:
@@ -306,6 +345,7 @@ client.SetProxyWithBypass("http://proxy:8080", "localhost, .internal.com, 10.0.0
 ```
 
 Supported bypass formats:
+
 - Domain names: `example.com` (matches exact and subdomains)
 - Leading dot domains: `.example.com` (matches subdomains only)
 - IP addresses: `192.168.1.1`
@@ -391,6 +431,15 @@ customHTTPClient := &http.Client{Timeout: 20 * time.Second}
 client.SetHTTPClient(customHTTPClient)
 ```
 
+For read access without bypassing client locking, use:
+
+```go
+httpClient := client.GetHTTPClient()
+baseURL := client.GetBaseURL()
+_ = httpClient
+_ = baseURL
+```
+
 ### Redirection Configuration
 
 Configure the redirect behavior of requests using various redirect policies:
@@ -417,6 +466,7 @@ client.SetRedirectPolicy(requests.NewRedirectSpecifiedDomainPolicy(
 #### Smart Redirect Policy
 
 The `SmartRedirectPolicy` provides browser-like redirect behavior:
+
 - **301/302**: Downgrades POST to GET (per browser convention)
 - **303**: Converts any method (except HEAD) to GET
 - **307/308**: Preserves the original method and body

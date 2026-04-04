@@ -112,6 +112,16 @@ func WithCertificates(certs ...tls.Certificate) ClientOption {
 	return func(c *Client) { c.SetCertificates(certs...) }
 }
 
+// WithClientCertificate loads and sets a client certificate and key from file paths.
+func WithClientCertificate(certFile, keyFile string) ClientOption {
+	return func(c *Client) { c.SetClientCertificate(certFile, keyFile) }
+}
+
+// WithTLSServerName sets the TLS server name (SNI).
+func WithTLSServerName(serverName string) ClientOption {
+	return func(c *Client) { c.SetTLSServerName(serverName) }
+}
+
 // WithRootCertificate sets the root certificate from a PEM file path.
 func WithRootCertificate(pemFilePath string) ClientOption {
 	return func(c *Client) { c.SetRootCertificate(pemFilePath) }

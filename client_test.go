@@ -710,6 +710,27 @@ func TestDelDefaultCookie(t *testing.T) {
 	}
 }
 
+func TestConfigValidate(t *testing.T) {
+	assert.NoError(t, (&Config{BaseURL: "https://example.com"}).Validate())
+	assert.Error(t, (&Config{BaseURL: "://bad"}).Validate())
+	assert.Error(t, (&Config{MaxRetries: -1}).Validate())
+	assert.Error(t, (&Config{TLSClientCertFile: "cert.pem"}).Validate())
+}
+
+func TestGettersAndSnapshot(t *testing.T) {
+	client := Create(&Config{BaseURL: "https://example.com"})
+	client.SetDefaultHeader("X-Test", "1")
+	client.SetDefaultCookie("session", "abc")
+
+	assert.Equal(t, "https://example.com", client.GetBaseURL())
+	assert.NotNil(t, client.GetHTTPClient())
+
+	snap := client.snapshot()
+	assert.Equal(t, "https://example.com", snap.BaseURL)
+	assert.Equal(t, "1", snap.Headers.Get("X-Test"))
+	assert.Len(t, snap.Cookies, 1)
+}
+
 // Helper function to create a test TLS server.
 func createTestTLSServer() *httptest.Server {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

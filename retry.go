@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -63,10 +64,47 @@ type RetryConfig struct {
 // RetryIfFunc defines the function signature for retry conditions.
 type RetryIfFunc func(req *http.Request, resp *http.Response, err error) bool
 
-// DefaultRetryIf is a simple retry condition that retries on 5xx status codes.
+// DefaultRetryIf is a simple retry condition that retries on transport errors,
+// request timeouts, rate limiting, and 5xx status codes.
 func DefaultRetryIf(req *http.Request, resp *http.Response, err error) bool {
 	if err != nil {
 		return true
 	}
-	return resp != nil && resp.StatusCode >= 500
+	if resp == nil {
+		return false
+	}
+	return resp.StatusCode == http.StatusRequestTimeout ||
+		resp.StatusCode == http.StatusTooManyRequests ||
+		resp.StatusCode >= 500
+}
+
+func retryAfterDelay(resp *http.Response, fallback time.Duration) time.Duration {
+	if resp == nil {
+		return fallback
+	}
+	if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
+		return fallback
+	}
+
+	header := resp.Header.Get("Retry-After")
+	if header == "" {
+		return fallback
+	}
+
+	if seconds, err := strconv.Atoi(header); err == nil {
+		if seconds < 0 {
+			return fallback
+		}
+		return time.Duration(seconds) * time.Second
+	}
+
+	if when, err := http.ParseTime(header); err == nil {
+		delay := time.Until(when)
+		if delay < 0 {
+			return 0
+		}
+		return delay
+	}
+
+	return fallback
 }

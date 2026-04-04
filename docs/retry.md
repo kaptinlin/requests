@@ -3,6 +3,7 @@
 The retry feature in the Requests library automatically attempts failed HTTP requests again based on certain conditions. This section explains how to set up and adjust these retry strategies for more dependable web interactions.
 
 ## Table of Contents
+
 1. [Enhancing Reliability with Retries](#enhancing-reliability-with-retries)
 2. [Configuring Retry Strategies](#configuring-retry-strategies)
    - [Applying a Default Backoff Strategy](#applying-a-default-backoff-strategy)
@@ -12,6 +13,15 @@ The retry feature in the Requests library automatically attempts failed HTTP req
 4. [Setting Maximum Retry Attempts](#setting-maximum-retry-attempts)
 
 ### Enhancing Reliability with Retries
+
+By default, `DefaultRetryIf` retries on:
+
+- transport errors
+- `408 Request Timeout`
+- `429 Too Many Requests`
+- `5xx` responses
+
+When a `429` or `503` response includes a `Retry-After` header, the retry loop uses that delay before falling back to the configured backoff strategy.
 
 To set up retries in a fluent, chainable manner, you can configure your client like so:
 
@@ -68,6 +78,19 @@ client.SetRetryStrategy(requests.JitterBackoffStrategy(base, 0.1))
 ```
 
 The `fraction` parameter controls the jitter range: `0.25` means ±25% of the base delay. A fraction of `0` returns the exact base delay.
+
+### Retry-After Support
+
+For `429 Too Many Requests` and `503 Service Unavailable`, the retry loop checks `Retry-After` before using the configured backoff strategy.
+
+Supported formats:
+
+```http
+Retry-After: 120
+Retry-After: Wed, 21 Oct 2015 07:28:00 GMT
+```
+
+If the header is invalid, requests falls back to the configured retry strategy.
 
 ### Customizing Retry Conditions
 

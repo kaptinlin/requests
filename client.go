@@ -3,9 +3,12 @@ package requests
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -39,19 +42,22 @@ type Client struct {
 
 // Config sets up the initial configuration for the HTTP client.
 type Config struct {
-	BaseURL       string            // The base URL for all requests made by this client.
-	Headers       *http.Header      // Default headers to be sent with each request.
-	Cookies       map[string]string // Default Cookies to be sent with each request.
-	Timeout       time.Duration     // Timeout for requests.
-	CookieJar     *cookiejar.Jar    // Cookie jar for the client.
-	Middlewares   []Middleware      // Middleware stack for request/response manipulation.
-	TLSConfig     *tls.Config       // TLS configuration for the client.
-	Transport     http.RoundTripper // Custom transport for the client.
-	MaxRetries    int               // Maximum number of retry attempts
-	RetryStrategy BackoffStrategy   // The backoff strategy function
-	RetryIf       RetryIfFunc       // Custom function to determine retry based on request and response
-	Logger        Logger            // Logger instance for the client
-	HTTP2         bool              // Whether to use HTTP/2. Transport takes priority over HTTP2 if both are set.
+	BaseURL           string            // The base URL for all requests made by this client.
+	Headers           *http.Header      // Default headers to be sent with each request.
+	Cookies           map[string]string // Default Cookies to be sent with each request.
+	Timeout           time.Duration     // Timeout for requests.
+	CookieJar         *cookiejar.Jar    // Cookie jar for the client.
+	Middlewares       []Middleware      // Middleware stack for request/response manipulation.
+	TLSConfig         *tls.Config       // TLS configuration for the client.
+	TLSClientCertFile string            // Client certificate file path.
+	TLSClientKeyFile  string            // Client private key file path.
+	TLSServerName     string            // TLS server name (SNI).
+	Transport         http.RoundTripper // Custom transport for the client.
+	MaxRetries        int               // Maximum number of retry attempts
+	RetryStrategy     BackoffStrategy   // The backoff strategy function
+	RetryIf           RetryIfFunc       // Custom function to determine retry based on request and response
+	Logger            Logger            // Logger instance for the client
+	HTTP2             bool              // Whether to use HTTP/2. Transport takes priority over HTTP2 if both are set.
 
 	// Transport-level timeouts (applied to http.Transport)
 	DialTimeout           time.Duration // TCP connection timeout
@@ -63,6 +69,66 @@ type Config struct {
 	MaxIdleConnsPerHost int           // Max idle connections per host (0 = default 2)
 	MaxConnsPerHost     int           // Max total connections per host (0 = no limit)
 	IdleConnTimeout     time.Duration // How long idle connections live (0 = default 90s)
+}
+
+type clientSnapshot struct {
+	BaseURL       string
+	Headers       http.Header
+	Cookies       []*http.Cookie
+	Middlewares   []Middleware
+	MaxRetries    int
+	RetryStrategy BackoffStrategy
+	RetryIf       RetryIfFunc
+	HTTPClient    *http.Client
+	JSONEncoder   Encoder
+	XMLEncoder    Encoder
+	YAMLEncoder   Encoder
+	Logger        Logger
+	auth          AuthMethod
+}
+
+// Validate checks whether the config contains deterministic invalid values.
+func (cfg *Config) Validate() error {
+	var errs []error
+
+	if cfg.BaseURL != "" {
+		if _, err := url.Parse(cfg.BaseURL); err != nil {
+			errs = append(errs, fmt.Errorf("invalid BaseURL: %w", err))
+		}
+	}
+
+	if cfg.Timeout < 0 {
+		errs = append(errs, fmt.Errorf("%w: Timeout", ErrInvalidConfigValue))
+	}
+	if cfg.DialTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%w: DialTimeout", ErrInvalidConfigValue))
+	}
+	if cfg.TLSHandshakeTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%w: TLSHandshakeTimeout", ErrInvalidConfigValue))
+	}
+	if cfg.ResponseHeaderTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%w: ResponseHeaderTimeout", ErrInvalidConfigValue))
+	}
+	if cfg.IdleConnTimeout < 0 {
+		errs = append(errs, fmt.Errorf("%w: IdleConnTimeout", ErrInvalidConfigValue))
+	}
+	if cfg.MaxRetries < 0 {
+		errs = append(errs, fmt.Errorf("%w: MaxRetries", ErrInvalidConfigValue))
+	}
+	if cfg.MaxIdleConns < 0 {
+		errs = append(errs, fmt.Errorf("%w: MaxIdleConns", ErrInvalidConfigValue))
+	}
+	if cfg.MaxIdleConnsPerHost < 0 {
+		errs = append(errs, fmt.Errorf("%w: MaxIdleConnsPerHost", ErrInvalidConfigValue))
+	}
+	if cfg.MaxConnsPerHost < 0 {
+		errs = append(errs, fmt.Errorf("%w: MaxConnsPerHost", ErrInvalidConfigValue))
+	}
+	if (cfg.TLSClientCertFile == "") != (cfg.TLSClientKeyFile == "") {
+		errs = append(errs, ErrInvalidTLSClientCertificateConfig)
+	}
+
+	return errors.Join(errs...)
 }
 
 // hasTransportConfig checks if any transport-level configuration is set.
@@ -121,6 +187,23 @@ func Create(config *Config) *Client {
 		YAMLEncoder: DefaultYAMLEncoder,
 		YAMLDecoder: DefaultYAMLDecoder,
 		TLSConfig:   config.TLSConfig,
+	}
+
+	if config.TLSServerName != "" {
+		if client.TLSConfig == nil {
+			client.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
+		client.TLSConfig.ServerName = config.TLSServerName
+	}
+
+	if config.TLSClientCertFile != "" && config.TLSClientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(filepath.Clean(config.TLSClientCertFile), filepath.Clean(config.TLSClientKeyFile))
+		if err == nil {
+			if client.TLSConfig == nil {
+				client.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+			}
+			client.TLSConfig.Certificates = []tls.Certificate{cert}
+		}
 	}
 
 	// Configure Transport, handle both TLS and HTTP/2
@@ -193,27 +276,27 @@ func (c *Client) AddMiddleware(middlewares ...Middleware) {
 	c.Middlewares = append(c.Middlewares, middlewares...)
 }
 
+func (c *Client) syncTLSConfigLocked() {
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	if c.TLSConfig == nil {
+		return
+	}
+	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
+		transport.TLSClientConfig = c.TLSConfig
+		return
+	}
+	c.HTTPClient.Transport = &http.Transport{TLSClientConfig: c.TLSConfig}
+}
+
 // SetTLSConfig sets the TLS configuration for the client.
 func (c *Client) SetTLSConfig(config *tls.Config) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.TLSConfig = config
-
-	if c.HTTPClient == nil {
-		c.HTTPClient = &http.Client{}
-	}
-
-	// Apply the TLS configuration to the existing transport if possible.
-	// If the current transport is not an *http.Transport, replace it.
-	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
-		transport.TLSClientConfig = config
-	} else {
-		c.HTTPClient.Transport = &http.Transport{
-			TLSClientConfig: config,
-		}
-	}
-
+	c.syncTLSConfigLocked()
 	return c
 }
 
@@ -234,18 +317,7 @@ func (c *Client) InsecureSkipVerify() *Client {
 
 	c.ensureTLSConfig()
 	c.TLSConfig.InsecureSkipVerify = true
-
-	if c.HTTPClient == nil {
-		c.HTTPClient = &http.Client{}
-	}
-	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
-		transport.TLSClientConfig = c.TLSConfig
-	} else {
-		c.HTTPClient.Transport = &http.Transport{
-			TLSClientConfig: c.TLSConfig,
-		}
-	}
-
+	c.syncTLSConfigLocked()
 	return c
 }
 
@@ -256,6 +328,30 @@ func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
 
 	c.ensureTLSConfig()
 	c.TLSConfig.Certificates = certs
+	c.syncTLSConfigLocked()
+	return c
+}
+
+// SetClientCertificate loads and sets a client certificate and private key from files.
+func (c *Client) SetClientCertificate(certFile, keyFile string) *Client {
+	cert, err := tls.LoadX509KeyPair(filepath.Clean(certFile), filepath.Clean(keyFile))
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Errorf("failed to load client certificate: %v", err)
+		}
+		return c
+	}
+	return c.SetCertificates(cert)
+}
+
+// SetTLSServerName sets the TLS server name (SNI) for the client.
+func (c *Client) SetTLSServerName(serverName string) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ensureTLSConfig()
+	c.TLSConfig.ServerName = serverName
+	c.syncTLSConfigLocked()
 	return c
 }
 
@@ -313,6 +409,7 @@ func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
 		}
 		c.TLSConfig.ClientCAs.AppendCertsFromPEM(permCerts)
 	}
+	c.syncTLSConfigLocked()
 	return c
 }
 
@@ -496,6 +593,51 @@ func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) 
 	c.YAMLDecoder = &YAMLDecoder{
 		UnmarshalFunc: unmarshalFunc,
 	}
+}
+
+func (c *Client) snapshot() clientSnapshot {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	headers := http.Header{}
+	if c.Headers != nil {
+		headers = c.Headers.Clone()
+	}
+
+	cookies := make([]*http.Cookie, 0, len(c.Cookies))
+	cookies = append(cookies, c.Cookies...)
+
+	middlewares := slices.Clone(c.Middlewares)
+
+	return clientSnapshot{
+		BaseURL:       c.BaseURL,
+		Headers:       headers,
+		Cookies:       cookies,
+		Middlewares:   middlewares,
+		MaxRetries:    c.MaxRetries,
+		RetryStrategy: c.RetryStrategy,
+		RetryIf:       c.RetryIf,
+		HTTPClient:    c.HTTPClient,
+		JSONEncoder:   c.JSONEncoder,
+		XMLEncoder:    c.XMLEncoder,
+		YAMLEncoder:   c.YAMLEncoder,
+		Logger:        c.Logger,
+		auth:          c.auth,
+	}
+}
+
+// GetHTTPClient returns the underlying HTTP client in a thread-safe way.
+func (c *Client) GetHTTPClient() *http.Client {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.HTTPClient
+}
+
+// GetBaseURL returns the configured base URL in a thread-safe way.
+func (c *Client) GetBaseURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BaseURL
 }
 
 // SetMaxRetries sets the maximum number of retry attempts.
