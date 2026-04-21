@@ -604,8 +604,15 @@ func (c *Client) snapshot() clientSnapshot {
 		headers = c.Headers.Clone()
 	}
 
-	cookies := make([]*http.Cookie, 0, len(c.Cookies))
-	cookies = append(cookies, c.Cookies...)
+	cookies := make([]*http.Cookie, len(c.Cookies))
+	for i, cookie := range c.Cookies {
+		if cookie == nil {
+			continue
+		}
+		clone := *cookie
+		clone.Unparsed = slices.Clone(cookie.Unparsed)
+		cookies[i] = &clone
+	}
 
 	middlewares := slices.Clone(c.Middlewares)
 

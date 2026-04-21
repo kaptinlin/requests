@@ -766,6 +766,9 @@ func TestGettersAndSnapshot(t *testing.T) {
 	assert.Equal(t, "https://example.com", snap.BaseURL)
 	assert.Equal(t, "1", snap.Headers.Get("X-Test"))
 	assert.Len(t, snap.Cookies, 1)
+
+	snap.Cookies[0].Value = "changed"
+	assert.Equal(t, "abc", client.Cookies[0].Value)
 }
 
 // Helper function to create a test TLS server.

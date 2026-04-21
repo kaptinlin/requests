@@ -537,8 +537,7 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 	}
 
 	if b.queries != nil {
-		clone.queries = url.Values{}
-		maps.Copy(clone.queries, b.queries)
+		clone.queries = maps.Clone(b.queries)
 	}
 
 	if b.pathParams != nil {
@@ -546,8 +545,7 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 	}
 
 	if b.formFields != nil {
-		clone.formFields = url.Values{}
-		maps.Copy(clone.formFields, b.formFields)
+		clone.formFields = maps.Clone(b.formFields)
 	}
 
 	return clone
