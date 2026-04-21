@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-json-experiment/json"
 	"github.com/stretchr/testify/assert"
+	"github.com/test-go/testify/require"
 )
 
 func TestRequestCancellation(t *testing.T) {
@@ -575,7 +576,7 @@ func TestXMLBody(t *testing.T) {
 	assert.Equal(t, "application/xml", response["contentType"], "The content type should be set to application/xml.")
 }
 
-func TestFormWithUrlValues(t *testing.T) {
+func TestFormWithURLValues(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
@@ -599,6 +600,73 @@ func TestFormWithUrlValues(t *testing.T) {
 	// Asserts
 	assert.Equal(t, formData.Encode(), response["body"], "The body content should match.")
 	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"], "The content type should be set correctly.")
+}
+
+func TestPrepareBodyWithFormFields(t *testing.T) {
+	builder := New().Post("/").Form(url.Values{
+		"name": {"Jane Doe"},
+		"age":  {"32"},
+	})
+
+	body, contentType, err := builder.prepareBody(clientSnapshot{})
+	require.NoError(t, err)
+	assert.Equal(t, "application/x-www-form-urlencoded", contentType)
+
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, url.Values{"name": {"Jane Doe"}, "age": {"32"}}.Encode(), string(data))
+}
+
+func TestDelQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, r.URL.RawQuery)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Get("/").
+		Query("keep", "1").
+		Query("drop", "2").
+		DelQuery("drop").
+		Send(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, "keep=1", resp.String())
+}
+
+func TestRequestTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	_, err := client.Get("/").Timeout(50 * time.Millisecond).Send(context.Background())
+	assert.Error(t, err)
+	assert.True(t, IsTimeout(err))
+}
+
+func TestFormFieldsWithStruct(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	formData := struct {
+		Name string `url:"name"`
+		Age  int    `url:"age"`
+	}{
+		Name: "Jane Doe",
+		Age:  32,
+	}
+
+	resp, err := client.Post("/").FormFields(formData).Send(context.Background())
+	assert.NoError(t, err)
+
+	var response map[string]string
+	err = resp.Scan(&response)
+	assert.NoError(t, err)
+	assert.Equal(t, url.Values{"name": {"Jane Doe"}, "age": {"32"}}.Encode(), response["body"])
+	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"])
 }
 
 func TestTextBody(t *testing.T) {

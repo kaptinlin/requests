@@ -1,8 +1,10 @@
 package middlewares
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -144,4 +146,55 @@ func TestNonGetRequests(t *testing.T) {
 	// Verify nothing was stored in cache
 	_, ok := cache.Get("/test")
 	assert.False(t, ok, "POST request should not be cached")
+}
+
+func TestCacheResponseAndBuildResponseFromCache(t *testing.T) {
+	resp := &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/plain"}},
+		Body:       io.NopCloser(bytes.NewBufferString("cached-body")),
+	}
+
+	data, err := cacheResponse(resp)
+	assert.NoError(t, err)
+
+	body, err := io.ReadAll(resp.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, "cached-body", string(body))
+
+	rebuilt, err := buildResponseFromCache(data)
+	assert.NoError(t, err)
+
+	rebuiltBody, err := io.ReadAll(rebuilt.Body)
+	assert.NoError(t, err)
+	assert.Equal(t, "cached-body", string(rebuiltBody))
+	assert.Equal(t, http.StatusOK, rebuilt.StatusCode)
+	assert.Equal(t, "text/plain", rebuilt.Header.Get("Content-Type"))
+}
+
+func TestBuildResponseFromCacheInvalidData(t *testing.T) {
+	_, err := buildResponseFromCache([]byte("{"))
+	assert.Error(t, err)
+}
+
+func TestMemoryCacheCloseStopsCleaner(t *testing.T) {
+	cache := &MemoryCache{
+		data: make(map[string]*cacheItem),
+		done: make(chan struct{}),
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		cache.cleanExpired()
+		close(stopped)
+	}()
+
+	cache.Close()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("expected cleaner goroutine to stop after close")
+	}
 }

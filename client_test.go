@@ -254,6 +254,23 @@ func TestClientTraceRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
 }
 
+func TestClientConnectRequest(t *testing.T) {
+	var method string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = r.Method
+		_, _ = fmt.Fprintln(w, "CONNECT response")
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Connect("/test-connect").Send(context.Background())
+
+	assert.NoError(t, err)
+	assert.Equal(t, http.MethodConnect, method)
+	assert.Equal(t, "CONNECT response\n", resp.String())
+}
+
 func TestClientCustomMethodRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
@@ -518,6 +535,26 @@ func TestSetDefaultHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
+}
+
+func TestAddDefaultHeader(t *testing.T) {
+	var received []string
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = append([]string(nil), r.Header.Values("X-Custom-Header")...)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer mockServer.Close()
+
+	client := Create(&Config{BaseURL: mockServer.URL})
+	client.AddDefaultHeader("X-Custom-Header", "HeaderValue1")
+	client.AddDefaultHeader("X-Custom-Header", "HeaderValue2")
+
+	_, err := client.Get("/").Send(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, received, 2)
+	assert.Contains(t, received, "HeaderValue1")
+	assert.Contains(t, received, "HeaderValue2")
 }
 
 func TestDelDefaultHeader(t *testing.T) {
@@ -1015,6 +1052,18 @@ func TestClientSetRootCertificate(t *testing.T) {
 		client.SetRootCertificateFromString(cert)
 		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
 			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
+		}
+	})
+
+	t.Run("client root cert from string", func(t *testing.T) {
+		client := Create(nil)
+
+		cert := `-----BEGIN CERTIFICATE-----`
+
+		client.SetClientRootCertificateFromString(cert)
+		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+			require.NotNil(t, transport.TLSClientConfig)
+			assert.NotNil(t, transport.TLSClientConfig.ClientCAs)
 		}
 	})
 }

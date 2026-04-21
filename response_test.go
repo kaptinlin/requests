@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 )
+
+var errFailingWriter = errors.New("failing writer")
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errFailingWriter
+}
 
 func TestResponseContentType(t *testing.T) {
 	server := startTestHTTPServer()
@@ -72,6 +81,23 @@ func TestResponseHeaderAndCookies(t *testing.T) {
 		assert.Equal(t, "test-cookie", cookies[0].Name)
 		assert.Equal(t, "cookie-value", cookies[0].Value)
 	})
+}
+
+func TestResponseLocation(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://example.com/start", nil)
+	assert.NoError(t, err)
+
+	resp := &Response{
+		RawResponse: &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": []string{"/next"}},
+			Request:    req,
+		},
+	}
+
+	location, err := resp.Location()
+	assert.NoError(t, err)
+	assert.Equal(t, "https://example.com/next", location.String())
 }
 
 func TestResponseContentLengthAndIsEmpty(t *testing.T) {
@@ -540,6 +566,17 @@ func TestResponseSaveToWriter(t *testing.T) {
 	if buffer.String() != expected {
 		t.Errorf("Expected buffer content %q, got %q", expected, buffer.String())
 	}
+}
+
+func TestResponseSaveToWriterError(t *testing.T) {
+	resp := &Response{
+		Client:    Create(nil),
+		BodyBytes: []byte("body"),
+	}
+
+	err := resp.Save(failingWriter{})
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, errFailingWriter))
 }
 
 func TestHandleNonStream_ConcurrentSafety(t *testing.T) {

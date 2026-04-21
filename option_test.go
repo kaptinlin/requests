@@ -258,6 +258,20 @@ func TestNew_WithClientCertificateAndTLSServerName(t *testing.T) {
 	assert.Equal(t, "example.com", c.TLSConfig.ServerName)
 }
 
+func TestNew_WithCertificatesAndRootCertificates(t *testing.T) {
+	cert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
+	require.NoError(t, err)
+
+	c := New(
+		WithCertificates(cert),
+		WithRootCertificate(".testdata/sample_root.pem"),
+		WithRootCertificateFromString("-----BEGIN CERTIFICATE-----"),
+	)
+	require.NotNil(t, c.TLSConfig)
+	assert.Len(t, c.TLSConfig.Certificates, 1)
+	assert.NotNil(t, c.TLSConfig.RootCAs)
+}
+
 func TestNew_WithProxy(t *testing.T) {
 	c := New(WithProxy("http://proxy.example.com:8080"))
 	transport, ok := c.HTTPClient.Transport.(*http.Transport)

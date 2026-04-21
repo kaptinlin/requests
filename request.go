@@ -615,8 +615,7 @@ func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, er
 		return b.prepareMultipartBody()
 	}
 	if len(b.formFields) > 0 {
-		body, contentType := b.prepareFormFieldsBody()
-		return body, contentType, nil
+		return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded", nil
 	}
 	if b.bodyData != nil {
 		return b.prepareBodyBasedOnContentType(snap)
@@ -703,10 +702,6 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 	}
 
 	return &buf, writer.FormDataContentType(), nil
-}
-
-func (b *RequestBuilder) prepareFormFieldsBody() (io.Reader, string) {
-	return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded"
 }
 
 func (b *RequestBuilder) prepareBodyBasedOnContentType(snap clientSnapshot) (io.Reader, string, error) {
