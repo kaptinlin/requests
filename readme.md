@@ -90,7 +90,7 @@ scorer := NewVoyageScorer(
 )
 ```
 
-For more details, see [docs/client.md](docs/client.md).
+For more details, see [SPECS/20-client-api-specs.md](SPECS/20-client-api-specs.md).
 
 You can also read back the underlying client configuration safely:
 
@@ -149,7 +149,7 @@ resp, err := client.Delete("/articles/{article_id}").
     Send(context.Background())
 ```
 
-For more details, visit [docs/request.md](docs/request.md).
+For more details, see [SPECS/21-request-builder-api-specs.md](SPECS/21-request-builder-api-specs.md).
 
 ### Response
 
@@ -177,7 +177,7 @@ This example demonstrates how to unmarshal a JSON response and check the HTTP st
 
 Additional status helpers: `IsSuccess()`, `IsError()`, `IsClientError()`, `IsServerError()`, `IsRedirect()`.
 
-For more on handling responses, see [docs/response.md](docs/response.md).
+For more on handling responses, see [SPECS/22-response-api-specs.md](SPECS/22-response-api-specs.md).
 
 ### Proxy Configuration
 
@@ -206,7 +206,7 @@ Control redirect behavior including browser-like method downgrade:
 client.SetRedirectPolicy(requests.NewSmartRedirectPolicy(10))
 ```
 
-For more details, see [docs/client.md](docs/client.md).
+For more details, see [SPECS/20-client-api-specs.md](SPECS/20-client-api-specs.md).
 
 ### Transport Timeouts & Connection Pool
 
@@ -259,10 +259,14 @@ if requests.IsConnectionError(err) {
 
 ## Additional Resources
 
-- **Logging:** Learn how to configure logging for your requests. See [docs/logging.md](docs/logging.md).
-- **Middleware:** Extend functionality with custom middleware. See [docs/middleware.md](docs/middleware.md).
-- **Retry Mechanism:** Implement retry strategies for transient errors. See [docs/retry.md](docs/retry.md).
-- **Stream Support:** Utilize streaming for real-time data processing. See [docs/stream.md](docs/stream.md).
+- **Package Overview:** Start with [SPECS/00-overview.md](SPECS/00-overview.md).
+- **Client:** See [SPECS/20-client-api-specs.md](SPECS/20-client-api-specs.md).
+- **Request Builder:** See [SPECS/21-request-builder-api-specs.md](SPECS/21-request-builder-api-specs.md).
+- **Response:** See [SPECS/22-response-api-specs.md](SPECS/22-response-api-specs.md).
+- **Streaming:** See [SPECS/23-streaming-api-specs.md](SPECS/23-streaming-api-specs.md).
+- **Logging:** See [SPECS/24-logging-api-specs.md](SPECS/24-logging-api-specs.md).
+- **Middleware:** See [SPECS/40-middleware-architecture-specs.md](SPECS/40-middleware-architecture-specs.md).
+- **Retry and Delivery:** See [SPECS/41-retry-and-delivery-specs.md](SPECS/41-retry-and-delivery-specs.md).
 
 ## Credits
 

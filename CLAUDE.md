@@ -68,7 +68,7 @@ requests/
 
 ### Request Flow
 
-1. **Client Creation**: `requests.URL()` or `requests.Create()` initializes client with config
+1. **Client Creation**: `requests.New()`, `requests.URL()`, or `requests.Create()` initializes a client with config
 2. **Request Building**: `client.Get("/path")` returns `RequestBuilder` for method chaining
 3. **Middleware Chain**: Client and request-level middlewares wrap the request
 4. **Retry Logic**: Failed requests retry with backoff strategy if configured; `429`/`503` may use `Retry-After`
@@ -102,7 +102,7 @@ type RequestBuilder struct {
 #### Middleware Interface
 
 ```go
-type Middleware func(req *http.Request, next RequestFunc) (*http.Response, error)
+type Middleware func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc
 ```
 
 #### Response
@@ -111,7 +111,7 @@ type Middleware func(req *http.Request, next RequestFunc) (*http.Response, error
 type Response struct {
     RawResponse *http.Response
     BodyBytes   []byte
-    // Methods: ScanJSON(), ScanXML(), String(), SaveToFile(), etc.
+    // Methods: ScanJSON(), ScanXML(), String(), Save(), Lines(), etc.
 }
 ```
 
@@ -225,14 +225,15 @@ This package has access to shared agent skills at `.claude/skills`:
 
 Use these skills when working on related tasks (e.g., use `testing` skill when writing tests, `modernizing` when refactoring code).
 
-## Additional Documentation
+## SPECS Index
 
-Detailed documentation is available in the `docs/` directory:
+Canonical design and API documentation lives in `SPECS/`:
 
-- **docs/client.md** - Client configuration and setup
-- **docs/request.md** - Request building and sending
-- **docs/response.md** - Response handling and parsing
-- **docs/middleware.md** - Middleware system and custom middleware
-- **docs/retry.md** - Retry mechanisms and backoff strategies
-- **docs/stream.md** - Streaming support for real-time data
-- **docs/logging.md** - Logging configuration
+- **SPECS/00-overview.md** - Package model, boundaries, and request lifecycle
+- **SPECS/20-client-api-specs.md** - Client construction, defaults, transport, TLS, proxy, and redirect rules
+- **SPECS/21-request-builder-api-specs.md** - Request builder state, body precedence, clone, and dispatch rules
+- **SPECS/22-response-api-specs.md** - Buffered response helpers, decoding, save, and line iteration rules
+- **SPECS/23-streaming-api-specs.md** - Streaming callback registration and line-oriented delivery rules
+- **SPECS/24-logging-api-specs.md** - Logger interface and default logger rules
+- **SPECS/40-middleware-architecture-specs.md** - Middleware signature, layering, and built-in middleware rules
+- **SPECS/41-retry-and-delivery-specs.md** - Retry counts, backoff, `Retry-After`, and cancellation rules
