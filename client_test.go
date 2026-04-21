@@ -732,7 +732,7 @@ func TestGettersAndSnapshot(t *testing.T) {
 }
 
 // Helper function to create a test TLS server.
-func createTestTLSServer() *httptest.Server {
+func createTestTLSServer() (*httptest.Server, error) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -740,7 +740,8 @@ func createTestTLSServer() *httptest.Server {
 	// Load server certificate and key.
 	cert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
 	if err != nil {
-		panic("failed to load test certificate: " + err.Error())
+		server.Close()
+		return nil, fmt.Errorf("load test certificate: %w", err)
 	}
 
 	server.TLS = &tls.Config{
@@ -748,12 +749,13 @@ func createTestTLSServer() *httptest.Server {
 	}
 	server.StartTLS()
 
-	return server
+	return server, nil
 }
 
 func TestSetTLSConfig(t *testing.T) {
 	// Start a test TLS server.
-	server := createTestTLSServer()
+	server, err := createTestTLSServer()
+	require.NoError(t, err)
 	defer server.Close()
 
 	// Initialize your client pointing to the test server.
@@ -779,7 +781,8 @@ func TestSetTLSConfig(t *testing.T) {
 }
 
 func TestSetTLSConfigWithCert(t *testing.T) {
-	server := createTestTLSServer()
+	server, err := createTestTLSServer()
+	require.NoError(t, err)
 	defer server.Close()
 
 	client := URL(server.URL)
@@ -814,7 +817,8 @@ func TestSetTLSConfigWithCert(t *testing.T) {
 
 func TestInsecureSkipVerify(t *testing.T) {
 	// Start a test TLS server.
-	server := createTestTLSServer()
+	server, err := createTestTLSServer()
+	require.NoError(t, err)
 	defer server.Close()
 
 	// Initialize your client pointing to the test server.
@@ -833,6 +837,20 @@ func TestInsecureSkipVerify(t *testing.T) {
 	if response == nil {
 		t.Fatal("Expected non-nil response")
 	}
+}
+
+func TestCreateTestTLSServerMissingCertificate(t *testing.T) {
+	originalCertPath := ".github/testdata/cert.pem"
+	tempCertPath := ".github/testdata/cert.pem.bak"
+	require.NoError(t, os.Rename(originalCertPath, tempCertPath))
+	defer func() {
+		require.NoError(t, os.Rename(tempCertPath, originalCertPath))
+	}()
+
+	server, err := createTestTLSServer()
+	require.Error(t, err)
+	assert.Nil(t, server)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func createTestRetryServer(t *testing.T) *httptest.Server {
