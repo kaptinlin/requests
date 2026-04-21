@@ -32,7 +32,7 @@ func (r *poolReader) Close() error {
 }
 
 
-## coder.go
+## codec.go
 package requests
 
 import (

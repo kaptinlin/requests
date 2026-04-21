@@ -52,7 +52,7 @@ requests/
 ├── retry.go            # Retry logic with backoff strategies
 ├── middleware.go       # Middleware interface and chain execution
 ├── stream.go           # Streaming callbacks and buffer management
-├── coder.go            # Encoder/Decoder interfaces
+├── codec.go            # Encoder/Decoder interfaces
 ├── json.go             # JSON encoding/decoding (go-json-experiment)
 ├── xml.go              # XML encoding/decoding
 ├── yaml.go             # YAML encoding/decoding (goccy/go-yaml)
