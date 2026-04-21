@@ -1107,6 +1107,23 @@ func TestDelCookie_NonExistentCookie(t *testing.T) {
 	assert.Equal(t, "existing", builder.cookies[0].Name)
 }
 
+// TestDelCookie_DuplicateKeys tests deleting with duplicate keys
+func TestDelCookie_DuplicateKeys(t *testing.T) {
+	builder := &RequestBuilder{
+		cookies: []*http.Cookie{
+			{Name: "keep1", Value: "1"},
+			{Name: "delete", Value: "2"},
+			{Name: "keep2", Value: "3"},
+		},
+	}
+
+	builder.DelCookie("delete", "delete")
+
+	assert.Len(t, builder.cookies, 2)
+	assert.Equal(t, "keep1", builder.cookies[0].Name)
+	assert.Equal(t, "keep2", builder.cookies[1].Name)
+}
+
 // TestDelCookie_EmptyCookies tests deleting from empty cookie slice
 func TestDelCookie_EmptyCookies(t *testing.T) {
 	builder := &RequestBuilder{}
@@ -1186,6 +1203,23 @@ func TestDelFile_ConsecutiveFiles(t *testing.T) {
 	assert.Len(t, builder.formFiles, 2)
 
 	// Verify the correct files remain
+	assert.Equal(t, "keep1", builder.formFiles[0].Name)
+	assert.Equal(t, "keep2", builder.formFiles[1].Name)
+}
+
+// TestDelFile_DuplicateKeys tests deleting with duplicate keys
+func TestDelFile_DuplicateKeys(t *testing.T) {
+	builder := &RequestBuilder{
+		formFiles: []*File{
+			{Name: "keep1", FileName: "k1.txt"},
+			{Name: "delete", FileName: "d1.txt"},
+			{Name: "keep2", FileName: "k2.txt"},
+		},
+	}
+
+	builder.DelFile("delete", "delete")
+
+	assert.Len(t, builder.formFiles, 2)
 	assert.Equal(t, "keep1", builder.formFiles[0].Name)
 	assert.Equal(t, "keep2", builder.formFiles[1].Name)
 }
