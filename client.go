@@ -21,54 +21,54 @@ import (
 // Client represents an HTTP client.
 type Client struct {
 	mu            sync.RWMutex
-	BaseURL       string
-	Headers       *http.Header
-	Cookies       []*http.Cookie
-	Middlewares   []Middleware
-	TLSConfig     *tls.Config
-	MaxRetries    int             // Maximum number of retry attempts
-	RetryStrategy BackoffStrategy // The backoff strategy function
-	RetryIf       RetryIfFunc     // Custom function to determine retry based on request and response
-	HTTPClient    *http.Client
-	JSONEncoder   Encoder
-	JSONDecoder   Decoder
-	XMLEncoder    Encoder
-	XMLDecoder    Decoder
-	YAMLEncoder   Encoder
-	YAMLDecoder   Decoder
-	Logger        Logger
+	BaseURL       string          // BaseURL is prepended to relative request paths.
+	Headers       *http.Header    // Headers contains the default headers sent with each request.
+	Cookies       []*http.Cookie  // Cookies contains the default cookies sent with each request.
+	Middlewares   []Middleware    // Middlewares contains the client-level middleware chain.
+	TLSConfig     *tls.Config     // TLSConfig configures TLS settings for the underlying transport.
+	MaxRetries    int             // MaxRetries is the maximum number of retry attempts.
+	RetryStrategy BackoffStrategy // RetryStrategy computes the delay before the next retry.
+	RetryIf       RetryIfFunc     // RetryIf decides whether a request should be retried.
+	HTTPClient    *http.Client    // HTTPClient is the underlying HTTP client used to send requests.
+	JSONEncoder   Encoder         // JSONEncoder encodes JSON request bodies.
+	JSONDecoder   Decoder         // JSONDecoder decodes JSON response bodies.
+	XMLEncoder    Encoder         // XMLEncoder encodes XML request bodies.
+	XMLDecoder    Decoder         // XMLDecoder decodes XML response bodies.
+	YAMLEncoder   Encoder         // YAMLEncoder encodes YAML request bodies.
+	YAMLDecoder   Decoder         // YAMLDecoder decodes YAML response bodies.
+	Logger        Logger          // Logger receives client log output when configured.
 	auth          AuthMethod
 }
 
 // Config sets up the initial configuration for the HTTP client.
 type Config struct {
-	BaseURL           string            // The base URL for all requests made by this client.
-	Headers           *http.Header      // Default headers to be sent with each request.
-	Cookies           map[string]string // Default Cookies to be sent with each request.
-	Timeout           time.Duration     // Timeout for requests.
-	CookieJar         *cookiejar.Jar    // Cookie jar for the client.
-	Middlewares       []Middleware      // Middleware stack for request/response manipulation.
-	TLSConfig         *tls.Config       // TLS configuration for the client.
-	TLSClientCertFile string            // Client certificate file path.
-	TLSClientKeyFile  string            // Client private key file path.
-	TLSServerName     string            // TLS server name (SNI).
-	Transport         http.RoundTripper // Custom transport for the client.
-	MaxRetries        int               // Maximum number of retry attempts
-	RetryStrategy     BackoffStrategy   // The backoff strategy function
-	RetryIf           RetryIfFunc       // Custom function to determine retry based on request and response
-	Logger            Logger            // Logger instance for the client
-	HTTP2             bool              // Whether to use HTTP/2. Transport takes priority over HTTP2 if both are set.
+	BaseURL           string            // BaseURL is the base URL for requests made by this client.
+	Headers           *http.Header      // Headers contains the default headers sent with each request.
+	Cookies           map[string]string // Cookies contains the default cookies sent with each request.
+	Timeout           time.Duration     // Timeout is the default request timeout.
+	CookieJar         *cookiejar.Jar    // CookieJar stores and sends cookies for the client.
+	Middlewares       []Middleware      // Middlewares contains the middleware stack for request and response handling.
+	TLSConfig         *tls.Config       // TLSConfig configures TLS settings for the client.
+	TLSClientCertFile string            // TLSClientCertFile is the path to the client certificate file.
+	TLSClientKeyFile  string            // TLSClientKeyFile is the path to the client private key file.
+	TLSServerName     string            // TLSServerName is the TLS server name used for SNI.
+	Transport         http.RoundTripper // Transport is the custom transport used by the client.
+	MaxRetries        int               // MaxRetries is the maximum number of retry attempts.
+	RetryStrategy     BackoffStrategy   // RetryStrategy computes the delay before the next retry.
+	RetryIf           RetryIfFunc       // RetryIf decides whether a request should be retried.
+	Logger            Logger            // Logger receives client log output when configured.
+	HTTP2             bool              // HTTP2 enables HTTP/2 when Transport is not provided.
 
-	// Transport-level timeouts (applied to http.Transport)
-	DialTimeout           time.Duration // TCP connection timeout
-	TLSHandshakeTimeout   time.Duration // TLS handshake timeout
-	ResponseHeaderTimeout time.Duration // Time to first response byte
+	// Transport-level timeouts.
+	DialTimeout           time.Duration // DialTimeout is the TCP connection timeout.
+	TLSHandshakeTimeout   time.Duration // TLSHandshakeTimeout is the TLS handshake timeout.
+	ResponseHeaderTimeout time.Duration // ResponseHeaderTimeout is the time to the first response byte.
 
-	// Connection pool settings (applied to http.Transport)
-	MaxIdleConns        int           // Max idle connections across all hosts (0 = default 100)
-	MaxIdleConnsPerHost int           // Max idle connections per host (0 = default 2)
-	MaxConnsPerHost     int           // Max total connections per host (0 = no limit)
-	IdleConnTimeout     time.Duration // How long idle connections live (0 = default 90s)
+	// Connection pool settings.
+	MaxIdleConns        int           // MaxIdleConns is the maximum number of idle connections across all hosts.
+	MaxIdleConnsPerHost int           // MaxIdleConnsPerHost is the maximum number of idle connections per host.
+	MaxConnsPerHost     int           // MaxConnsPerHost is the maximum number of connections per host.
+	IdleConnTimeout     time.Duration // IdleConnTimeout is how long idle connections remain open.
 }
 
 type clientSnapshot struct {

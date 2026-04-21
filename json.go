@@ -10,7 +10,7 @@ import (
 
 // JSONEncoder handles encoding of JSON data.
 type JSONEncoder struct {
-	MarshalFunc func(v any) ([]byte, error)
+	MarshalFunc func(v any) ([]byte, error) // MarshalFunc marshals a value into JSON.
 }
 
 // Encode marshals the provided value into JSON format.
@@ -55,7 +55,7 @@ var DefaultJSONEncoder = &JSONEncoder{
 
 // JSONDecoder handles decoding of JSON data.
 type JSONDecoder struct {
-	UnmarshalFunc func(data []byte, v any) error
+	UnmarshalFunc func(data []byte, v any) error // UnmarshalFunc unmarshals JSON data into a value.
 }
 
 // Decode reads the data from the reader and unmarshals it into the provided value.

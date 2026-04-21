@@ -54,14 +54,12 @@ func (np *NoProxy) matches(host string) bool {
 		return true
 	}
 
-	// Strip port if present
 	hostname := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostname = h
 	}
 	hostname = strings.ToLower(hostname)
 
-	// Check IP-based rules
 	if ip := net.ParseIP(hostname); ip != nil {
 		for _, bypassIP := range np.ips {
 			if bypassIP.Equal(ip) {
@@ -76,7 +74,6 @@ func (np *NoProxy) matches(host string) bool {
 		return false
 	}
 
-	// Check domain-based rules
 	for _, domain := range np.domains {
 		d := domain
 		if strings.HasPrefix(d, ".") {
@@ -102,7 +99,6 @@ func verifyProxy(proxyURL string) (*url.URL, error) {
 		return nil, err
 	}
 
-	// Check if the scheme is supported
 	switch parsedURL.Scheme {
 	case "http", "https", "socks5":
 		return parsedURL, nil
@@ -129,7 +125,6 @@ func (c *Client) SetProxy(proxyURL string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Validate and parse the proxy URL
 	validatedProxyURL, err := verifyProxy(proxyURL)
 	if err != nil {
 		return err
@@ -235,7 +230,6 @@ func RoundRobinProxies(proxyURLs ...string) (func(*http.Request) (*url.URL, erro
 	if err != nil {
 		return nil, err
 	}
-	// Use uint64 for atomic operations with atomic.Uint64
 	n := uint64(len(proxies))
 	var counter atomic.Uint64
 	return func(_ *http.Request) (*url.URL, error) {

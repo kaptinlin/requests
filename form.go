@@ -11,9 +11,9 @@ import (
 
 // File represents a form file.
 type File struct {
-	Name     string        // Form field name
-	FileName string        // File name
-	Content  io.ReadCloser // File content
+	Name     string        // Name is the form field name.
+	FileName string        // FileName is the uploaded file name.
+	Content  io.ReadCloser // Content is the uploaded file content.
 }
 
 // SetContent sets the content of the file.

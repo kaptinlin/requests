@@ -18,8 +18,9 @@ var sensitiveHeaders = []string{
 	"Www-Authenticate",
 }
 
-// RedirectPolicy is an interface that defines the Apply method.
+// RedirectPolicy applies redirect behavior to outgoing requests.
 type RedirectPolicy interface {
+	// Apply applies the redirect policy to req based on the prior requests in via.
 	Apply(req *http.Request, via []*http.Request) error
 }
 

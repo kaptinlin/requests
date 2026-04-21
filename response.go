@@ -21,10 +21,10 @@ type Response struct {
 	stream      StreamCallback
 	streamErr   StreamErrCallback
 	streamDone  StreamDoneCallback
-	RawResponse *http.Response
-	BodyBytes   []byte
-	Context     context.Context
-	Client      *Client
+	RawResponse *http.Response  // RawResponse is the underlying HTTP response.
+	BodyBytes   []byte          // BodyBytes contains the buffered response body for non-streaming responses.
+	Context     context.Context // Context is the request context associated with the response.
+	Client      *Client         // Client is the client that created the response.
 }
 
 // NewResponse creates a new wrapped response object, leveraging the buffer pool for efficient memory usage.
@@ -88,7 +88,7 @@ func (r *Response) handleStream() {
 
 // handleNonStream reads the HTTP response body into a buffer for non-streaming responses.
 func (r *Response) handleNonStream() error {
-	buf := GetBuffer() // Use the buffer pool
+	buf := GetBuffer()
 	defer PutBuffer(buf)
 
 	_, err := buf.ReadFrom(r.RawResponse.Body)
@@ -249,6 +249,7 @@ func (r *Response) ScanYAML(v any) error {
 	return r.Client.YAMLDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
 }
 
+// DirPermissions is the permission mode used when Save creates parent directories.
 const DirPermissions = 0o750
 
 // Save saves the response body to a file or io.Writer.

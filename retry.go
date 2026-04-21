@@ -40,8 +40,8 @@ func ExponentialBackoffStrategy(initialInterval time.Duration, multiplier float6
 }
 
 // JitterBackoffStrategy wraps a base backoff strategy and applies random jitter.
-// The fraction parameter controls the jitter range: the delay is adjusted by ±fraction
-// of the base delay. For example, a fraction of 0.25 means ±25% jitter.
+// The fraction parameter controls the jitter range: the delay is adjusted by plus or minus
+// the fraction of the base delay. For example, a fraction of 0.25 means plus or minus 25% jitter.
 func JitterBackoffStrategy(base BackoffStrategy, fraction float64) BackoffStrategy {
 	return func(attempt int) time.Duration {
 		delay := base(attempt)
@@ -56,9 +56,9 @@ func JitterBackoffStrategy(base BackoffStrategy, fraction float64) BackoffStrate
 
 // RetryConfig defines the configuration for retrying requests.
 type RetryConfig struct {
-	MaxRetries int             // Maximum number of retry attempts
-	Strategy   BackoffStrategy // The backoff strategy function
-	RetryIf    RetryIfFunc     // Custom function to determine retry based on request and response
+	MaxRetries int             // MaxRetries is the maximum number of retry attempts.
+	Strategy   BackoffStrategy // Strategy computes the delay before the next retry.
+	RetryIf    RetryIfFunc     // RetryIf decides whether a request should be retried.
 }
 
 // RetryIfFunc defines the function signature for retry conditions.

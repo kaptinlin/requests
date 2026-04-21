@@ -1,19 +1,19 @@
-// Package requests provides a fluent HTTP client library for Go.
-// Runtime failures are returned as errors rather than panics, and the package does not expose Must-style APIs.
 package requests
 
 import "net/http"
 
 // AuthMethod defines the interface for applying authentication strategies to requests.
 type AuthMethod interface {
+	// Apply applies the authentication strategy to req.
 	Apply(req *http.Request)
+	// Valid reports whether the authentication strategy is configured.
 	Valid() bool
 }
 
 // BasicAuth represents HTTP Basic Authentication credentials.
 type BasicAuth struct {
-	Username string
-	Password string
+	Username string // Username is the HTTP Basic Authentication username.
+	Password string // Password is the HTTP Basic Authentication password.
 }
 
 // Apply adds the Basic Auth credentials to the request.
@@ -28,7 +28,7 @@ func (b BasicAuth) Valid() bool {
 
 // BearerAuth represents an OAuth 2.0 Bearer token.
 type BearerAuth struct {
-	Token string
+	Token string // Token is the bearer token value.
 }
 
 // Apply adds the Bearer token to the request's Authorization header.
@@ -45,7 +45,7 @@ func (b BearerAuth) Valid() bool {
 
 // CustomAuth allows for custom Authorization header values.
 type CustomAuth struct {
-	Header string
+	Header string // Header is the Authorization header value.
 }
 
 // Apply sets a custom Authorization header value.

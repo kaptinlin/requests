@@ -6,14 +6,17 @@ import (
 	"log/slog"
 )
 
-// Level is a type that represents the log level.
+// Level represents a log level.
 type Level int
 
-// The levels of logs.
 const (
+	// LevelDebug enables debug logging.
 	LevelDebug Level = iota
+	// LevelInfo enables info logging.
 	LevelInfo
+	// LevelWarn enables warning logging.
 	LevelWarn
+	// LevelError enables error logging.
 	LevelError
 )
 
@@ -74,13 +77,9 @@ func (l *DefaultLogger) SetLevel(level Level) {
 // NewDefaultLogger creates a new `DefaultLogger` with the given output and log level.
 func NewDefaultLogger(output io.Writer, level Level) Logger {
 	levelVar := &slog.LevelVar{}
-
-	// Initialize text handler at the desired log level if possible
 	textHandler := slog.NewTextHandler(output, &slog.HandlerOptions{
 		Level: levelVar,
 	})
-
-	// Create and return a new `DefaultLogger`
 	logger := &DefaultLogger{
 		logger: slog.New(textHandler),
 		level:  levelVar,

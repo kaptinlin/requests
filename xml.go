@@ -9,7 +9,7 @@ import (
 
 // XMLEncoder handles encoding of XML data.
 type XMLEncoder struct {
-	MarshalFunc func(v any) ([]byte, error)
+	MarshalFunc func(v any) ([]byte, error) // MarshalFunc marshals a value into XML.
 }
 
 // Encode marshals the provided value into XML format.
@@ -49,7 +49,7 @@ var DefaultXMLEncoder = &XMLEncoder{
 
 // XMLDecoder handles decoding of XML data.
 type XMLDecoder struct {
-	UnmarshalFunc func(data []byte, v any) error
+	UnmarshalFunc func(data []byte, v any) error // UnmarshalFunc unmarshals XML data into a value.
 }
 
 // Decode reads the data from the reader and unmarshals it into the provided value.

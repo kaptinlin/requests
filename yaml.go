@@ -10,7 +10,7 @@ import (
 
 // YAMLEncoder handles encoding of YAML data.
 type YAMLEncoder struct {
-	MarshalFunc func(v any) ([]byte, error)
+	MarshalFunc func(v any) ([]byte, error) // MarshalFunc marshals a value into YAML.
 }
 
 // Encode marshals the provided value into YAML format.
@@ -50,7 +50,7 @@ var DefaultYAMLEncoder = &YAMLEncoder{
 
 // YAMLDecoder handles decoding of YAML data.
 type YAMLDecoder struct {
-	UnmarshalFunc func(data []byte, v any) error
+	UnmarshalFunc func(data []byte, v any) error // UnmarshalFunc unmarshals YAML data into a value.
 }
 
 // Decode reads the data from the reader and unmarshals it into the provided value.

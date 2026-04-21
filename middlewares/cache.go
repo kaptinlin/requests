@@ -1,5 +1,3 @@
-// Package middlewares provides reusable middleware components for the requests HTTP client,
-// including caching, cookie management, and header injection.
 package middlewares
 
 import (
@@ -13,12 +11,16 @@ import (
 	"github.com/kaptinlin/requests"
 )
 
+// Duration stores a duration value as an int64.
 type Duration int64
 
 // Cacher is the interface for the cache.
 type Cacher interface {
+	// Get returns the cached value for key and reports whether it was found.
 	Get(key string) ([]byte, bool)
+	// Set stores value under key until ttl expires.
 	Set(key string, value []byte, ttl time.Duration)
+	// Delete removes the cached value for key.
 	Delete(key string)
 }
 
@@ -26,34 +28,26 @@ type Cacher interface {
 func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
 	return func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
-			// If not GET request, skip cache
 			if req.Method != http.MethodGet {
 				return next(req)
 			}
-			// Generate cache key
 			cacheKey := generateCacheKey(req)
-			// Get cached data
 			cachedData, ok := cache.Get(cacheKey)
 			if ok {
 				logger.Debugf("Cache hit: url=%s key=%s", req.URL.String(), cacheKey)
-				// Build response from cache
 				return buildResponseFromCache(cachedData)
 			}
-			// Call next middleware
 			resp, err := next(req)
 			if err != nil {
 				return nil, err
 			}
 
-			// Cache response if status code is 200
 			if resp.StatusCode == http.StatusOK {
 				if data, err := cacheResponse(resp); err == nil {
-					// Cache response
 					cache.Set(cacheKey, data, ttl)
 					logger.Debugf("Cached response: url=%s key=%s", req.URL.String(), cacheKey)
 				}
 			}
-			// Return response
 			return resp, nil
 		}
 	}
@@ -64,10 +58,8 @@ func cacheResponse(resp *http.Response) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Reset body
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 
-	// Cache data
 	cacheData := &CachedResponse{
 		Status:     resp.Status,
 		StatusCode: resp.StatusCode,
@@ -104,10 +96,10 @@ func buildResponseFromCache(data []byte) (*http.Response, error) {
 
 // CachedResponse represents a serializable HTTP response stored in the cache.
 type CachedResponse struct {
-	Status     string
-	StatusCode int
-	Headers    http.Header
-	Body       []byte
+	Status     string      // Status is the HTTP status text.
+	StatusCode int         // StatusCode is the HTTP status code.
+	Headers    http.Header // Headers contains the cached response headers.
+	Body       []byte      // Body contains the cached response body.
 }
 
 // MemoryCache is an in-memory cache implementation with TTL-based expiration.
