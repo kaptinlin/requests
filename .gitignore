@@ -24,6 +24,9 @@ go.work.sum
 # IntelliJ files
 .idea/
 
+# Claude Code local files
+.claude/
+
 # Coverage files
 cover.out
 cover.html
