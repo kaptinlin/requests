@@ -100,7 +100,7 @@ func (r *Response) handleNonStream() error {
 	// Copy data before returning buffer to pool to prevent data race.
 	// Without this, concurrent goroutines could get the same pooled buffer,
 	// causing one goroutine's response data to be overwritten by another.
-	r.BodyBytes = slices.Clone(buf.B)
+	r.BodyBytes = bytes.Clone(buf.B)
 	r.RawResponse.Body = io.NopCloser(bytes.NewReader(r.BodyBytes))
 	return nil
 }

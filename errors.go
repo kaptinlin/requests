@@ -68,8 +68,8 @@ func IsTimeout(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	var netErr net.Error
-	return errors.As(err, &netErr) && netErr.Timeout()
+	netErr, ok := errors.AsType[net.Error](err)
+	return ok && netErr.Timeout()
 }
 
 // IsConnectionError reports whether err is a connection-level failure
@@ -78,6 +78,6 @@ func IsConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var opErr *net.OpError
-	return errors.As(err, &opErr)
+	_, ok := errors.AsType[*net.OpError](err)
+	return ok
 }

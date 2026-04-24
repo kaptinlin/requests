@@ -1171,6 +1171,12 @@ func TestErrorIntrospection(t *testing.T) {
 		assert.True(t, IsTimeout(err))
 	})
 
+	t.Run("IsTimeout with wrapped net.Error", func(t *testing.T) {
+		timeoutErr := net.DNSError{IsTimeout: true}
+		err := fmt.Errorf("request failed: %w", &timeoutErr)
+		assert.True(t, IsTimeout(err))
+	})
+
 	t.Run("IsConnectionError with nil", func(t *testing.T) {
 		assert.False(t, IsConnectionError(nil))
 	})
