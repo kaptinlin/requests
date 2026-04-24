@@ -82,21 +82,14 @@ func (s *SmartRedirectPolicy) Apply(req *http.Request, via []*http.Request) erro
 		return nil
 	}
 
-	switch prev.Response.StatusCode {
-	case http.StatusMovedPermanently, http.StatusFound: // 301, 302
-		if req.Method == http.MethodPost {
-			req.Method = http.MethodGet
-			req.Body = nil
-			req.ContentLength = 0
-			dropPayloadHeaders(req.Header)
-		}
-	case http.StatusSeeOther: // 303
-		if req.Method != http.MethodHead {
-			req.Method = http.MethodGet
-			req.Body = nil
-			req.ContentLength = 0
-			dropPayloadHeaders(req.Header)
-		}
+	status := prev.Response.StatusCode
+	shouldDowngrade := (status == http.StatusMovedPermanently || status == http.StatusFound) && req.Method == http.MethodPost
+	shouldDowngrade = shouldDowngrade || status == http.StatusSeeOther && req.Method != http.MethodHead
+	if shouldDowngrade {
+		req.Method = http.MethodGet
+		req.Body = nil
+		req.ContentLength = 0
+		dropPayloadHeaders(req.Header)
 	}
 
 	return nil
@@ -112,10 +105,8 @@ func dropPayloadHeaders(h http.Header) {
 
 // getHostname extracts the hostname from a host string, removing any port number.
 func getHostname(host string) string {
-	if strings.Contains(host, ":") {
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
 	return strings.ToLower(host)
 }

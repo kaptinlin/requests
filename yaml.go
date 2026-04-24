@@ -15,15 +15,12 @@ type YAMLEncoder struct {
 
 // Encode marshals the provided value into YAML format.
 func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
-	var data []byte
-	var err error
-
+	marshal := yaml.Marshal
 	if e.MarshalFunc != nil {
-		data, err = e.MarshalFunc(v)
-	} else {
-		data, err = yaml.Marshal(v)
+		marshal = e.MarshalFunc
 	}
 
+	data, err := marshal(v)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
@@ -60,14 +57,12 @@ func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 		return fmt.Errorf("failed to read YAML data: %w", err)
 	}
 
+	unmarshal := yaml.Unmarshal
 	if d.UnmarshalFunc != nil {
-		if err := d.UnmarshalFunc(data, v); err != nil {
-			return fmt.Errorf("failed to unmarshal YAML: %w", err)
-		}
-		return nil
+		unmarshal = d.UnmarshalFunc
 	}
 
-	if err := yaml.Unmarshal(data, v); err != nil {
+	if err := unmarshal(data, v); err != nil {
 		return fmt.Errorf("failed to unmarshal YAML: %w", err)
 	}
 	return nil

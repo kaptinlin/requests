@@ -91,10 +91,8 @@ type clientSnapshot struct {
 func (cfg *Config) Validate() error {
 	var errs []error
 
-	if cfg.BaseURL != "" {
-		if _, err := url.Parse(cfg.BaseURL); err != nil {
-			errs = append(errs, fmt.Errorf("invalid BaseURL: %w", err))
-		}
+	if _, err := url.Parse(cfg.BaseURL); cfg.BaseURL != "" && err != nil {
+		errs = append(errs, fmt.Errorf("invalid BaseURL: %w", err))
 	}
 
 	if cfg.Timeout < 0 {
@@ -175,7 +173,6 @@ func Create(config *Config) *Client {
 		httpClient.Jar = config.CookieJar
 	}
 
-	// Return a new Client instance.
 	client := &Client{
 		BaseURL:     config.BaseURL,
 		Headers:     config.Headers,
@@ -206,7 +203,6 @@ func Create(config *Config) *Client {
 		}
 	}
 
-	// Configure Transport, handle both TLS and HTTP/2
 	switch {
 	case client.TLSConfig != nil && config.HTTP2:
 		client.HTTPClient.Transport = &http2.Transport{
@@ -392,7 +388,7 @@ func (c *Client) SetClientRootCertificateFromString(pemCerts string) *Client {
 }
 
 // handleCAs sets the TLS certificates for the client.
-func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
+func (c *Client) handleCAs(scope string, pemCerts []byte) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -402,12 +398,12 @@ func (c *Client) handleCAs(scope string, permCerts []byte) *Client {
 		if c.TLSConfig.RootCAs == nil {
 			c.TLSConfig.RootCAs = x509.NewCertPool()
 		}
-		c.TLSConfig.RootCAs.AppendCertsFromPEM(permCerts)
+		c.TLSConfig.RootCAs.AppendCertsFromPEM(pemCerts)
 	case "client":
 		if c.TLSConfig.ClientCAs == nil {
 			c.TLSConfig.ClientCAs = x509.NewCertPool()
 		}
-		c.TLSConfig.ClientCAs.AppendCertsFromPEM(permCerts)
+		c.TLSConfig.ClientCAs.AppendCertsFromPEM(pemCerts)
 	}
 	c.syncTLSConfigLocked()
 	return c
@@ -778,18 +774,12 @@ func (c *Client) SetIdleConnTimeout(d time.Duration) *Client {
 // (non-zero). Skips if the transport is not *http.Transport (e.g., HTTP/2 transport).
 func applyTransportConfig(c *Client, config *Config) {
 	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	if !ok && (c.HTTPClient.Transport != nil || !config.hasTransportConfig()) {
+		return
+	}
 	if !ok {
-		// No *http.Transport available (nil or HTTP/2); create one if any config is set
-		if !config.hasTransportConfig() {
-			return
-		}
-
-		if c.HTTPClient.Transport == nil {
-			transport = &http.Transport{}
-			c.HTTPClient.Transport = transport
-		} else {
-			return // Non-nil, non-http.Transport (e.g., http2.Transport): skip
-		}
+		transport = &http.Transport{}
+		c.HTTPClient.Transport = transport
 	}
 
 	if config.DialTimeout > 0 {

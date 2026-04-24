@@ -161,9 +161,6 @@ func (r *Response) IsYAML() bool {
 
 // ContentLength returns the length of the response body.
 func (r *Response) ContentLength() int {
-	if r.BodyBytes == nil {
-		return 0
-	}
 	return len(r.BodyBytes)
 }
 

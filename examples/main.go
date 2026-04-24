@@ -10,10 +10,10 @@ import (
 
 // Post represents a JSONPlaceholder post.
 type Post struct {
-	UserID int    `json:"userId"` // UserID is the post author's identifier.
-	ID     int    `json:"id"`     // ID is the post identifier.
-	Title  string `json:"title"`  // Title is the post title.
-	Body   string `json:"body"`   // Body is the post content.
+	UserID int    `json:"userId"`
+	ID     int    `json:"id"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
 }
 
 func main() {

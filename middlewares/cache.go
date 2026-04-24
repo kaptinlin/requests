@@ -136,10 +136,7 @@ func (c *MemoryCache) Get(key string) ([]byte, bool) {
 	defer c.mutex.RUnlock()
 
 	item, exists := c.data[key]
-	if !exists {
-		return nil, false
-	}
-	if time.Now().After(item.expiration) {
+	if !exists || time.Now().After(item.expiration) {
 		return nil, false
 	}
 	return item.value, true

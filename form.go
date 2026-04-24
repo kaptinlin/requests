@@ -71,16 +71,16 @@ func parseForm(v any) (url.Values, []*File, error) {
 		values := make(url.Values)
 		var files []*File
 		for key, value := range data {
-			switch v := value.(type) {
+			switch field := value.(type) {
 			case string:
-				values.Set(key, v)
+				values.Set(key, field)
 			case []string:
-				for _, v := range v {
-					values.Add(key, v)
+				for _, item := range field {
+					values.Add(key, item)
 				}
 			case *File:
-				v.SetName(key)
-				files = append(files, v)
+				field.SetName(key)
+				files = append(files, field)
 			default:
 				return nil, nil, fmt.Errorf("%w: %T", ErrUnsupportedDataType, value)
 			}

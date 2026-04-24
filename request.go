@@ -90,10 +90,11 @@ func (b *RequestBuilder) PathParam(key, value string) *RequestBuilder {
 
 // DelPathParam removes one or more path params fields from the RequestBuilder instance.
 func (b *RequestBuilder) DelPathParam(key ...string) *RequestBuilder {
-	if b.pathParams != nil {
-		for _, k := range key {
-			delete(b.pathParams, k)
-		}
+	if b.pathParams == nil {
+		return b
+	}
+	for _, k := range key {
+		delete(b.pathParams, k)
 	}
 	return b
 }
@@ -643,7 +644,9 @@ func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, c
 func (b *RequestBuilder) applyAuth(req *http.Request, snap clientSnapshot) {
 	if b.auth != nil {
 		b.auth.Apply(req)
-	} else if snap.auth != nil {
+		return
+	}
+	if snap.auth != nil {
 		snap.auth.Apply(req)
 	}
 }
@@ -667,10 +670,8 @@ func (b *RequestBuilder) applyCookies(req *http.Request, snap clientSnapshot) {
 	for _, cookie := range snap.Cookies {
 		req.AddCookie(cookie)
 	}
-	if b.cookies != nil {
-		for _, cookie := range b.cookies {
-			req.AddCookie(cookie)
-		}
+	for _, cookie := range b.cookies {
+		req.AddCookie(cookie)
 	}
 }
 

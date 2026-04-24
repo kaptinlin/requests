@@ -14,15 +14,12 @@ type XMLEncoder struct {
 
 // Encode marshals the provided value into XML format.
 func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
-	var data []byte
-	var err error
-
+	marshal := xml.Marshal
 	if e.MarshalFunc != nil {
-		data, err = e.MarshalFunc(v)
-	} else {
-		data, err = xml.Marshal(v)
+		marshal = e.MarshalFunc
 	}
 
+	data, err := marshal(v)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
@@ -59,14 +56,12 @@ func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 		return fmt.Errorf("failed to read XML data: %w", err)
 	}
 
+	unmarshal := xml.Unmarshal
 	if d.UnmarshalFunc != nil {
-		if err := d.UnmarshalFunc(data, v); err != nil {
-			return fmt.Errorf("failed to unmarshal XML: %w", err)
-		}
-		return nil
+		unmarshal = d.UnmarshalFunc
 	}
 
-	if err := xml.Unmarshal(data, v); err != nil {
+	if err := unmarshal(data, v); err != nil {
 		return fmt.Errorf("failed to unmarshal XML: %w", err)
 	}
 	return nil
