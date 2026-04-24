@@ -614,7 +614,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		if snap.Logger != nil {
 			snap.Logger.Errorf("Response is nil")
 		}
-		return nil, fmt.Errorf("%w: %w", ErrResponseNil, err)
+		return nil, ErrResponseNil
 	}
 
 	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)

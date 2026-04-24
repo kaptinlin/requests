@@ -13,11 +13,12 @@ import (
 
 	"github.com/kaptinlin/requests"
 	"github.com/stretchr/testify/assert"
+	"github.com/test-go/testify/require"
 )
 
-// TestCacheMiddleware tests the basic functionality of cache middleware
 func TestCacheMiddleware(t *testing.T) {
-	// Create test server
+	t.Parallel()
+
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -26,41 +27,33 @@ func TestCacheMiddleware(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create memory cache and logger
 	cache := NewMemoryCache()
 	logger := requests.NewDefaultLogger(os.Stdout, requests.LevelDebug)
-
-	// Create client with cache middleware
 	client := requests.Create(&requests.Config{
 		BaseURL: server.URL,
 		Middlewares: []requests.Middleware{
-			CacheMiddleware(cache, 5*time.Second, logger),
+			CacheMiddleware(cache, time.Millisecond, logger),
 		},
 	})
 
-	// First request (cache miss)
 	resp1, err := client.Get("/test").Send(context.Background())
-	assert.NoError(t, err, "First request failed")
+	require.NoError(t, err)
 	defer resp1.Close() //nolint:errcheck
+	assert.Equal(t, 1, callCount)
 
-	assert.Equal(t, 1, callCount, "Expected server to be called once")
-
-	// Second request (should hit cache)
 	resp2, err := client.Get("/test").Send(context.Background())
-	assert.NoError(t, err, "Second request failed")
+	require.NoError(t, err)
 	defer resp2.Close() //nolint:errcheck
+	assert.Equal(t, 1, callCount)
 
-	assert.Equal(t, 1, callCount, "Expected server to still be called once")
-
-	// Wait for cache to expire
-	time.Sleep(6 * time.Second)
-
-	// Third request (cache should be expired)
-	resp3, err := client.Get("/test").Send(context.Background())
-	assert.NoError(t, err, "Third request failed")
-	defer resp3.Close() //nolint:errcheck
-
-	assert.Equal(t, 2, callCount, "Expected server to be called twice")
+	assert.Eventually(t, func() bool {
+		resp3, err := client.Get("/test").Send(context.Background())
+		if err != nil {
+			return false
+		}
+		defer resp3.Close() //nolint:errcheck
+		return callCount == 2
+	}, time.Second, 10*time.Millisecond)
 }
 
 // TestCacheKeyGeneration tests cache key generation
@@ -98,27 +91,23 @@ func TestCacheKeyGeneration(t *testing.T) {
 	}
 }
 
-// TestMemoryCache tests basic memory cache operations
 func TestMemoryCache(t *testing.T) {
+	t.Parallel()
+
 	cache := NewMemoryCache()
-
-	// Test set and get
-	cache.Set("key1", []byte("value1"), 2*time.Second)
+	cache.Set("key1", []byte("value1"), time.Second)
 	value, ok := cache.Get("key1")
-	assert.True(t, ok, "Failed to get cached value")
-	assert.Equal(t, "value1", string(value), "Unexpected cached value")
+	assert.True(t, ok)
+	assert.Equal(t, "value1", string(value))
 
-	// Test expiration
-	cache.Set("key2", []byte("value2"), 1*time.Second)
-	time.Sleep(2 * time.Second)
+	cache.Set("key2", []byte("value2"), -time.Nanosecond)
 	_, ok = cache.Get("key2")
-	assert.False(t, ok, "Cache item should have expired")
+	assert.False(t, ok)
 
-	// Test deletion
-	cache.Set("key3", []byte("value3"), 10*time.Second)
+	cache.Set("key3", []byte("value3"), time.Second)
 	cache.Delete("key3")
 	_, ok = cache.Get("key3")
-	assert.False(t, ok, "Cache item should have been deleted")
+	assert.False(t, ok)
 }
 
 // TestNonGetRequests tests handling of non-GET requests

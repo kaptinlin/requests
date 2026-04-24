@@ -48,12 +48,12 @@ func NewResponse(
 
 	if response.stream != nil {
 		go response.handleStream()
-	} else {
-		if err := response.handleNonStream(); err != nil {
-			return nil, err
-		}
+		return response, nil
 	}
 
+	if err := response.handleNonStream(); err != nil {
+		return nil, err
+	}
 	return response, nil
 }
 

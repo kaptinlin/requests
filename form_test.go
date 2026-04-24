@@ -3,14 +3,16 @@ package requests
 import (
 	"context"
 	"fmt"
-	"github.com/go-json-experiment/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/go-json-experiment/json"
 	"github.com/stretchr/testify/assert"
+	"github.com/test-go/testify/require"
 )
 
 // startFileUploadServer starts a mock server to test file uploads.
@@ -59,7 +61,62 @@ func startFileUploadServer() *httptest.Server {
 	}))
 }
 
+func TestFileSetters(t *testing.T) {
+	t.Parallel()
+
+	content := io.NopCloser(strings.NewReader("payload"))
+	file := &File{}
+	file.SetName("avatar")
+	file.SetFileName("avatar.txt")
+	file.SetContent(content)
+
+	assert.Equal(t, "avatar", file.Name)
+	assert.Equal(t, "avatar.txt", file.FileName)
+	body, err := io.ReadAll(file.Content)
+	require.NoError(t, err)
+	assert.Equal(t, "payload", string(body))
+}
+
+func TestFormEncoder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   any
+		want string
+	}{
+		{name: "url values", in: url.Values{"name": {"Jane Doe"}}, want: "name=Jane+Doe"},
+		{name: "string slice map", in: map[string][]string{"tag": {"go", "http"}}, want: "tag=go&tag=http"},
+		{name: "string map", in: map[string]string{"name": "Jane Doe"}, want: "name=Jane+Doe"},
+		{name: "struct", in: struct {
+			Name string `url:"name"`
+		}{Name: "Jane Doe"}, want: "name=Jane+Doe"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reader, err := DefaultFormEncoder.Encode(tc.in)
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(reader)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, string(body))
+		})
+	}
+}
+
+func TestFormEncoderUnsupportedType(t *testing.T) {
+	t.Parallel()
+
+	_, err := DefaultFormEncoder.Encode(make(chan string))
+	assert.ErrorIs(t, err, ErrEncodingFailed)
+}
+
 func TestFiles(t *testing.T) {
+	t.Parallel()
+
 	server := startFileUploadServer()
 	defer server.Close()
 
@@ -86,6 +143,8 @@ func TestFiles(t *testing.T) {
 	// Optionally check for specific file content snippets
 }
 func TestFile(t *testing.T) {
+	t.Parallel()
+
 	server := startFileUploadServer() // Start the mock file upload server
 	defer server.Close()
 
@@ -111,6 +170,8 @@ func TestFile(t *testing.T) {
 }
 
 func TestDelFile(t *testing.T) {
+	t.Parallel()
+
 	server := startFileUploadServer() // Start the mock file upload server
 	defer server.Close()
 

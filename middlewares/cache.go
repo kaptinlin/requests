@@ -42,11 +42,12 @@ func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) re
 				return nil, err
 			}
 
-			if resp.StatusCode == http.StatusOK {
-				if data, err := cacheResponse(resp); err == nil {
-					cache.Set(cacheKey, data, ttl)
-					logger.Debugf("Cached response: url=%s key=%s", req.URL.String(), cacheKey)
-				}
+			if resp.StatusCode != http.StatusOK {
+				return resp, nil
+			}
+			if data, err := cacheResponse(resp); err == nil {
+				cache.Set(cacheKey, data, ttl)
+				logger.Debugf("Cached response: url=%s key=%s", req.URL.String(), cacheKey)
 			}
 			return resp, nil
 		}
@@ -134,13 +135,14 @@ func (c *MemoryCache) Get(key string) ([]byte, bool) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	if item, exists := c.data[key]; exists {
-		if time.Now().Before(item.expiration) {
-			return item.value, true
-		}
-		// Item is expired; let the cleanup goroutine handle deletion.
+	item, exists := c.data[key]
+	if !exists {
+		return nil, false
 	}
-	return nil, false
+	if time.Now().After(item.expiration) {
+		return nil, false
+	}
+	return item.value, true
 }
 
 // Set stores a value in the cache with the specified TTL.

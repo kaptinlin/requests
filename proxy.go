@@ -75,17 +75,15 @@ func (np *NoProxy) matches(host string) bool {
 	}
 
 	for _, domain := range np.domains {
-		d := domain
-		if strings.HasPrefix(d, ".") {
+		if strings.HasPrefix(domain, ".") {
 			// .example.com matches any subdomain of example.com
-			if strings.HasSuffix(hostname, d) {
+			if strings.HasSuffix(hostname, domain) {
 				return true
 			}
-		} else {
-			// Exact match or subdomain match
-			if hostname == d || strings.HasSuffix(hostname, "."+d) {
-				return true
-			}
+			continue
+		}
+		if hostname == domain || strings.HasSuffix(hostname, "."+domain) {
+			return true
 		}
 	}
 

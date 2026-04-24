@@ -21,38 +21,38 @@ import (
 	"github.com/test-go/testify/require"
 )
 
+func TestRequestNilResponseError(t *testing.T) {
+	t.Parallel()
+
+	client := Create(&Config{BaseURL: "https://example.com"})
+	client.AddMiddleware(func(MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(*http.Request) (*http.Response, error) {
+			return nil, nil
+		}
+	})
+
+	_, err := client.Get("/").Send(context.Background())
+	assert.ErrorIs(t, err, ErrResponseNil)
+}
+
 func TestRequestCancellation(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second) // Simulate a long-running operation
+		<-release
 		_, _ = fmt.Fprintln(w, "This response may never be sent")
 	}))
 	defer server.Close()
+	defer close(release)
 
 	client := Create(&Config{BaseURL: server.URL})
-
-	// Use WithCancelCause for better debugging (Go 1.20+)
 	ctx, cancel := context.WithCancelCause(context.Background())
-	defer cancel(nil) // Ensure resources are cleaned up
+	cancel(ErrTestTimeout)
 
-	// Cancel the request after 1 second
-	go func() {
-		time.Sleep(1 * time.Second)
-		cancel(ErrTestTimeout)
-	}()
-
-	// Attempt to make a request that will be canceled
 	_, err := client.Get("/").Send(ctx)
-	if err == nil {
-		t.Errorf("Expected an error due to cancellation, but got none")
-	}
-
-	// Verify the cancellation cause (Go 1.20+)
-	cause := context.Cause(ctx)
-	if cause == nil {
-		t.Errorf("Expected a cancellation cause, got nil")
-	} else if !strings.Contains(cause.Error(), "test timeout") {
-		t.Errorf("Expected cause to contain 'test timeout', got %v", cause)
-	}
+	require.Error(t, err)
+	assert.ErrorIs(t, context.Cause(ctx), ErrTestTimeout)
 }
 
 // TestSendMethodQuery checks the Send method for handling query parameters.
@@ -634,15 +634,19 @@ func TestDelQuery(t *testing.T) {
 }
 
 func TestRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(200 * time.Millisecond)
+		<-release
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
+	defer close(release)
 
 	client := Create(&Config{BaseURL: server.URL})
 	_, err := client.Get("/").Timeout(50 * time.Millisecond).Send(context.Background())
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.True(t, IsTimeout(err))
 }
 

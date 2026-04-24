@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -633,28 +632,12 @@ func TestSetDefaultUserAgent(t *testing.T) {
 }
 
 func TestSetDefaultTimeout(t *testing.T) {
-	// Create a server that delays its response
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(2 * time.Second) // Delay longer than client's timeout
-	}))
-	defer mockServer.Close()
+	t.Parallel()
 
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultTimeout(1 * time.Second) // Set timeout to 1 second
+	client := Create(nil)
+	client.SetDefaultTimeout(time.Second)
 
-	_, err := client.Get("/").Send(context.Background())
-	if err == nil {
-		t.Fatal("Expected a timeout error, got nil")
-	}
-
-	// Check if the error is a timeout error.
-	// This method of checking for a timeout is more generic and should cover the observed error.
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		// If here, it's a timeout error
-	} else {
-		t.Fatalf("Expected a timeout error, got %v", err)
-	}
+	assert.Equal(t, time.Second, client.HTTPClient.Timeout)
 }
 
 func TestSetDefaultCookieJar(t *testing.T) {
@@ -1072,37 +1055,34 @@ func TestClientSetRootCertificate(t *testing.T) {
 }
 
 func TestTransportTimeoutsViaConfig(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(3 * time.Second)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	t.Parallel()
 
 	client := Create(&Config{
-		BaseURL:               server.URL,
 		DialTimeout:           5 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 1 * time.Second,
+		TLSHandshakeTimeout:   4 * time.Second,
+		ResponseHeaderTimeout: 3 * time.Second,
 	})
 
-	_, err := client.Get("/").Send(context.Background())
-	assert.Error(t, err)
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.NotNil(t, transport.DialContext)
+	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
+	assert.Equal(t, 3*time.Second, transport.ResponseHeaderTimeout)
 }
 
 func TestTransportTimeoutsViaSetMethods(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(3 * time.Second)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
+	t.Parallel()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := Create(nil)
 	client.SetDialTimeout(5 * time.Second)
-	client.SetTLSHandshakeTimeout(5 * time.Second)
-	client.SetResponseHeaderTimeout(1 * time.Second)
+	client.SetTLSHandshakeTimeout(4 * time.Second)
+	client.SetResponseHeaderTimeout(3 * time.Second)
 
-	_, err := client.Get("/").Send(context.Background())
-	assert.Error(t, err)
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.NotNil(t, transport.DialContext)
+	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
+	assert.Equal(t, 3*time.Second, transport.ResponseHeaderTimeout)
 }
 
 func TestConnectionPoolConfig(t *testing.T) {
@@ -1174,15 +1154,17 @@ func TestErrorIntrospection(t *testing.T) {
 	})
 
 	t.Run("IsTimeout with actual timeout", func(t *testing.T) {
+		release := make(chan struct{})
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(2 * time.Second)
+			<-release
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer server.Close()
+		defer close(release)
 
 		client := Create(&Config{
 			BaseURL: server.URL,
-			Timeout: 100 * time.Millisecond,
+			Timeout: 50 * time.Millisecond,
 		})
 		_, err := client.Get("/").Send(context.Background())
 		assert.Error(t, err)

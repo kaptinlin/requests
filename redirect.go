@@ -78,22 +78,24 @@ func (s *SmartRedirectPolicy) Apply(req *http.Request, via []*http.Request) erro
 	prev := via[len(via)-1]
 	checkHostAndAddHeaders(req, prev)
 
-	if prev.Response != nil {
-		switch prev.Response.StatusCode {
-		case http.StatusMovedPermanently, http.StatusFound: // 301, 302
-			if req.Method == http.MethodPost {
-				req.Method = http.MethodGet
-				req.Body = nil
-				req.ContentLength = 0
-				dropPayloadHeaders(req.Header)
-			}
-		case http.StatusSeeOther: // 303
-			if req.Method != http.MethodHead {
-				req.Method = http.MethodGet
-				req.Body = nil
-				req.ContentLength = 0
-				dropPayloadHeaders(req.Header)
-			}
+	if prev.Response == nil {
+		return nil
+	}
+
+	switch prev.Response.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound: // 301, 302
+		if req.Method == http.MethodPost {
+			req.Method = http.MethodGet
+			req.Body = nil
+			req.ContentLength = 0
+			dropPayloadHeaders(req.Header)
+		}
+	case http.StatusSeeOther: // 303
+		if req.Method != http.MethodHead {
+			req.Method = http.MethodGet
+			req.Body = nil
+			req.ContentLength = 0
+			dropPayloadHeaders(req.Header)
 		}
 	}
 
