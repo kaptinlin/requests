@@ -49,6 +49,12 @@ build/
 TODO.md
 
 # Scratch/planning docs
+.workspace
+task.md
+.cov.before
+.cov.after
+.fix.before*
+.fix.after*
 .plans/
 reports/
 PLAN*.md
