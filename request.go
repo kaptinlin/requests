@@ -72,7 +72,6 @@ func (b *RequestBuilder) Path(path string) *RequestBuilder {
 // PathParams sets multiple path params fields and their values at one go in the RequestBuilder instance.
 func (b *RequestBuilder) PathParams(params map[string]string) *RequestBuilder {
 	if b.pathParams == nil {
-		// Pre-allocate with expected size for better performance (Go 1.24+ Swiss Tables)
 		b.pathParams = make(map[string]string, len(params))
 	}
 	maps.Copy(b.pathParams, params)
@@ -184,7 +183,7 @@ func (b *RequestBuilder) DelHeader(key ...string) *RequestBuilder {
 	return b
 }
 
-// Cookies method for map.
+// Cookies adds cookies from a map.
 func (b *RequestBuilder) Cookies(cookies map[string]string) *RequestBuilder {
 	for key, value := range cookies {
 		b.Cookie(key, value)
@@ -628,10 +627,18 @@ func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, er
 	if len(b.formFields) > 0 {
 		return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded", nil
 	}
-	if b.bodyData != nil {
-		return b.prepareBodyBasedOnContentType(snap)
+	if b.bodyData == nil {
+		return nil, "", nil
 	}
-	return nil, "", nil
+
+	contentType := b.headers.Get("Content-Type")
+	if contentType == "" {
+		contentType = b.inferContentType()
+		b.headers.Set("Content-Type", contentType)
+	}
+
+	body, err := b.encodeBody(contentType, snap)
+	return body, contentType, err
 }
 
 func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -713,18 +720,6 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 	}
 
 	return &buf, writer.FormDataContentType(), nil
-}
-
-func (b *RequestBuilder) prepareBodyBasedOnContentType(snap clientSnapshot) (io.Reader, string, error) {
-	contentType := b.headers.Get("Content-Type")
-
-	if contentType == "" && b.bodyData != nil {
-		contentType = b.inferContentType()
-		b.headers.Set("Content-Type", contentType)
-	}
-
-	body, err := b.encodeBody(contentType, snap)
-	return body, contentType, err
 }
 
 func (b *RequestBuilder) inferContentType() string {

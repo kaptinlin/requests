@@ -259,7 +259,7 @@ func (c *Client) RemoveProxy() {
 
 	transport, ok := c.HTTPClient.Transport.(*http.Transport)
 	if !ok {
-		return // If it's not *http.Transport, it doesn't have a proxy to remove
+		return
 	}
 
 	transport.Proxy = nil

@@ -3,11 +3,11 @@ package requests
 // MaxStreamBufferSize is the maximum size of the buffer used for streaming.
 const MaxStreamBufferSize = 512 * 1024
 
-// StreamCallback is a callback function that is called when data is received.
+// StreamCallback handles a streamed response chunk.
 type StreamCallback func([]byte) error
 
-// StreamErrCallback is a callback function that is called when an error occurs.
+// StreamErrCallback handles a streaming read error.
 type StreamErrCallback func(error)
 
-// StreamDoneCallback is a callback function that is called when the stream is done.
+// StreamDoneCallback runs after streaming finishes.
 type StreamDoneCallback func()

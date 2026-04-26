@@ -308,12 +308,7 @@ func (r *Response) saveToWriter(w io.Writer) error {
 	return nil
 }
 
-// Lines returns an iterator that yields each line of the response body as []byte.
-// This method is available in Go 1.23+ and provides a convenient way to iterate
-// over response lines without loading the entire body into memory.
-// The iterator will automatically handle the scanning and yield each line.
-// Note: This method is designed for non-streaming responses and will return
-// an empty iterator for streaming responses.
+// Lines returns an iterator over the buffered response body lines.
 func (r *Response) Lines() iter.Seq[[]byte] {
 	return func(yield func([]byte) bool) {
 		if r.BodyBytes == nil {

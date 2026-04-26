@@ -222,7 +222,6 @@ func Create(config *Config) *Client {
 		client.HTTPClient.Transport = &http2.Transport{}
 	}
 
-	// Apply transport-level timeouts and connection pool settings
 	applyTransportConfig(client, config)
 
 	if config.Middlewares != nil {
