@@ -32,8 +32,7 @@ func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) re
 				return next(req)
 			}
 			cacheKey := generateCacheKey(req)
-			cachedData, ok := cache.Get(cacheKey)
-			if ok {
+			if cachedData, ok := cache.Get(cacheKey); ok {
 				logger.Debugf("Cache hit: url=%s key=%s", req.URL.String(), cacheKey)
 				return buildResponseFromCache(cachedData)
 			}
@@ -61,17 +60,14 @@ func cacheResponse(resp *http.Response) ([]byte, error) {
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 
-	cacheData := &CachedResponse{
+	return json.Marshal(&CachedResponse{
 		Status:     resp.Status,
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       body,
-	}
-
-	return json.Marshal(cacheData)
+	})
 }
 
-// generateCacheKey creates a cache key from the request URL path and query string.
 func generateCacheKey(req *http.Request) string {
 	key := req.URL.Path
 	if req.URL.RawQuery != "" {
@@ -80,7 +76,6 @@ func generateCacheKey(req *http.Request) string {
 	return key
 }
 
-// buildResponseFromCache reconstructs an HTTP response from cached data.
 func buildResponseFromCache(data []byte) (*http.Response, error) {
 	var cached CachedResponse
 	if err := json.Unmarshal(data, &cached); err != nil {
@@ -135,8 +130,8 @@ func (c *MemoryCache) Get(key string) ([]byte, bool) {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	item, exists := c.data[key]
-	if !exists || time.Now().After(item.expiration) {
+	item, ok := c.data[key]
+	if !ok || time.Now().After(item.expiration) {
 		return nil, false
 	}
 	return item.value, true
@@ -160,7 +155,6 @@ func (c *MemoryCache) Delete(key string) {
 	delete(c.data, key)
 }
 
-// cleanExpired periodically removes expired items from the cache.
 func (c *MemoryCache) cleanExpired() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
