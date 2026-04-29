@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-json-experiment/json"
+	"github.com/kaptinlin/orderedobject"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
 )
@@ -33,6 +34,216 @@ func TestRequestNilResponseError(t *testing.T) {
 
 	_, err := client.Get("/").Send(context.Background())
 	assert.ErrorIs(t, err, ErrResponseNil)
+}
+
+func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"1"}).
+		Set(":authority", []string{"metadata-only"}).
+		Set("X-Second", []string{"2a", "2b"})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "1", r.Header.Get("X-First"))
+		assert.Equal(t, []string{"2a", "2b"}, r.Header.Values("X-Second"))
+		assert.Empty(t, r.Header.Values(":authority"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := Create(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-First", ":authority", "X-Second"}, ordered.Keys())
+			first, ok := ordered.Get("X-First")
+			require.True(t, ok)
+			assert.Equal(t, []string{"1"}, first)
+			return next(req)
+		}
+	})
+
+	req := client.Get(server.URL).OrderedHeaders(headers)
+	headers.Set("X-First", []string{"mutated"})
+
+	resp, err := req.Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
+func TestOrderedHeadersCloneIsIndependent(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"1"}).
+		Set("X-Second", []string{"2"})
+
+	builder := Create(nil).Get("/").OrderedHeaders(headers)
+	clone := builder.Clone()
+	builder.Header("X-First", "changed")
+
+	require.NotNil(t, clone.orderedHeaders)
+	assert.Equal(t, []string{"X-First", "X-Second"}, clone.orderedHeaders.Keys())
+	first, ok := clone.orderedHeaders.Get("X-First")
+	require.True(t, ok)
+	assert.Equal(t, []string{"1"}, first)
+}
+
+func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
+	clientHeaders := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"client"}).
+		Set(":authority", []string{"metadata-only"}).
+		Set("X-Shared", []string{"client"})
+	requestHeaders := orderedobject.NewObject[[]string]().
+		Set("X-Shared", []string{"request"}).
+		Set("X-Second", []string{"request"})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "client", r.Header.Get("X-First"))
+		assert.Equal(t, "request", r.Header.Get("X-Shared"))
+		assert.Equal(t, "request", r.Header.Get("X-Second"))
+		assert.Empty(t, r.Header.Values(":authority"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := New(WithOrderedHeaders(clientHeaders))
+	clientHeaders.Set("X-First", []string{"mutated"})
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-First", ":authority", "X-Shared", "X-Second"}, ordered.Keys())
+
+			shared, ok := ordered.Get("X-Shared")
+			require.True(t, ok)
+			assert.Equal(t, []string{"request"}, shared)
+
+			ordered.Set("X-First", []string{"changed"})
+			again, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			first, ok := again.Get("X-First")
+			require.True(t, ok)
+			assert.Equal(t, []string{"client"}, first)
+			return next(req)
+		}
+	})
+
+	req := client.Get(server.URL).OrderedHeaders(requestHeaders)
+	requestHeaders.Set("X-Shared", []string{"mutated"})
+
+	resp, err := req.Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
+func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"1"}).
+		Set("X-Delete", []string{"remove"})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "2", r.Header.Get("X-First"))
+		assert.Equal(t, "3", r.Header.Get("X-Added"))
+		assert.Empty(t, r.Header.Get("X-Delete"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, "application/json", r.Header.Get("Accept"))
+		assert.Equal(t, "agent", r.Header.Get("User-Agent"))
+		assert.Equal(t, "https://example.com", r.Header.Get("Referer"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := Create(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{
+				"X-First",
+				"X-Added",
+				"Content-Type",
+				"Accept",
+				"User-Agent",
+				"Referer",
+			}, ordered.Keys())
+
+			contentType, ok := ordered.Get("Content-Type")
+			require.True(t, ok)
+			assert.Equal(t, []string{"application/json"}, contentType)
+			return next(req)
+		}
+	})
+
+	resp, err := client.Post(server.URL).
+		OrderedHeaders(headers).
+		Header("x-first", "2").
+		AddHeader("X-Added", "3").
+		DelHeader("x-delete").
+		ContentType("text/plain").
+		Accept("application/json").
+		UserAgent("agent").
+		Referer("https://example.com").
+		JSONBody(map[string]string{"hello": "world"}).
+		Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
+func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"1"})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "text/plain", r.Header.Get("Content-Type"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := Create(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-First", "Content-Type"}, ordered.Keys())
+			contentType, ok := ordered.Get("Content-Type")
+			require.True(t, ok)
+			assert.Equal(t, []string{"text/plain"}, contentType)
+			return next(req)
+		}
+	})
+
+	resp, err := client.Post(server.URL).
+		OrderedHeaders(headers).
+		Body("hello").
+		Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
+func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *testing.T) {
+	clientHeaders := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"client"}).
+		Set("X-Shared", []string{"client"})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "client", r.Header.Get("X-First"))
+		assert.Equal(t, "request", r.Header.Get("X-Shared"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := New(WithOrderedHeaders(clientHeaders))
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-First"}, ordered.Keys())
+			return next(req)
+		}
+	})
+
+	resp, err := client.Get(server.URL).Header("X-Shared", "request").Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
 }
 
 func TestRequestCancellation(t *testing.T) {

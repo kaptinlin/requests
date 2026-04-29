@@ -12,6 +12,12 @@ vars:
       {{.GOLANGCI_LINT_BINARY}} version --format short 2>/dev/null || \
       {{.GOLANGCI_LINT_BINARY}} version --short 2>/dev/null || \
       echo "not-installed"
+  MODULES:
+    sh: |
+      find . -mindepth 2 -name go.mod \
+        -not -path '*/vendor/*' \
+        -not -path '*/.*' \
+        -exec dirname {} \; | sed 's|^\./||' | sort
 
 env:
   GOBIN: '{{.GOBIN}}'
@@ -57,11 +63,32 @@ tasks:
       - echo "Running all tests..."
       - go test -race ./...
 
+  test:all:
+    desc: Run tests for root and extension modules
+    cmds:
+      - echo "Running root module tests..."
+      - go test -race ./...
+      - for:
+          var: MODULES
+        cmd: |
+          echo "Running tests in {{.ITEM}}..."
+          cd {{.ITEM}} && go test -race ./...
+
   lint:
     desc: Run all linters
     deps:
       - golangci-lint
       - tidy-lint
+
+  lint:all:
+    desc: Run linters for root and extension modules
+    cmds:
+      - task: lint
+      - for:
+          var: MODULES
+        cmd: |
+          echo "Running linters in {{.ITEM}}..."
+          cd {{.ITEM}} && {{.GOLANGCI_LINT_BINARY}} run --timeout=10m --path-prefix {{.ITEM}}
 
   install-golangci-lint:
     desc: Install golangci-lint with the required version
@@ -69,7 +96,8 @@ tasks:
       - mkdir -p {{.GOBIN}}
       - |
         if [ "{{.GOLANGCI_LINT_VERSION}}" != "{{.REQUIRED_GOLANGCI_LINT_VERSION}}" ]; then
-          echo "Installing golangci-lint v{{.REQUIRED_GOLANGCI_LINT_VERSION}} (current: {{.GOLANGCI_LINT_VERSION}})..."
+          echo "Installing golangci-lint v{{.REQUIRED_GOLANGCI_LINT_VERSION}}"
+          echo "Current golangci-lint: {{.GOLANGCI_LINT_VERSION}}"
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
             | sh -s -- -b {{.GOBIN}} v{{.REQUIRED_GOLANGCI_LINT_VERSION}}
           echo "golangci-lint v{{.REQUIRED_GOLANGCI_LINT_VERSION}} installed successfully"
@@ -92,6 +120,17 @@ tasks:
       - echo "Checking go.mod and go.sum are tidy..."
       - go mod tidy
       - git diff --exit-code -- go.mod go.sum
+
+  tidy:all:
+    desc: Run go mod tidy for root and extension modules
+    cmds:
+      - echo "Tidying root module..."
+      - go mod tidy
+      - for:
+          var: MODULES
+        cmd: |
+          echo "Tidying {{.ITEM}}..."
+          cd {{.ITEM}} && go mod tidy
 
   markdownlint:
     desc: Run markdownlint

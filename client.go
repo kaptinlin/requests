@@ -16,55 +16,58 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kaptinlin/orderedobject"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/publicsuffix"
 )
 
 // Client represents an HTTP client.
 type Client struct {
-	mu            sync.RWMutex
-	BaseURL       string          // BaseURL is prepended to relative request paths.
-	Headers       *http.Header    // Headers contains the default headers sent with each request.
-	Cookies       []*http.Cookie  // Cookies contains the default cookies sent with each request.
-	Middlewares   []Middleware    // Middlewares contains the client-level middleware chain.
-	TLSConfig     *tls.Config     // TLSConfig configures TLS settings for the underlying transport.
-	MaxRetries    int             // MaxRetries is the maximum number of retry attempts.
-	RetryStrategy BackoffStrategy // RetryStrategy computes the delay before the next retry.
-	RetryIf       RetryIfFunc     // RetryIf decides whether a request should be retried.
-	HTTPClient    *http.Client    // HTTPClient is the underlying HTTP client used to send requests.
-	JSONEncoder   Encoder         // JSONEncoder encodes JSON request bodies.
-	JSONDecoder   Decoder         // JSONDecoder decodes JSON response bodies.
-	XMLEncoder    Encoder         // XMLEncoder encodes XML request bodies.
-	XMLDecoder    Decoder         // XMLDecoder decodes XML response bodies.
-	YAMLEncoder   Encoder         // YAMLEncoder encodes YAML request bodies.
-	YAMLDecoder   Decoder         // YAMLDecoder decodes YAML response bodies.
-	Logger        Logger          // Logger receives client log output when configured.
-	dialTimeout   time.Duration
-	resolver      *net.Resolver
-	localAddr     net.Addr
-	dialContext   func(context.Context, string, string) (net.Conn, error)
-	auth          AuthMethod
+	mu             sync.RWMutex
+	BaseURL        string                          // BaseURL is prepended to relative request paths.
+	Headers        *http.Header                    // Headers contains the default headers sent with each request.
+	OrderedHeaders *orderedobject.Object[[]string] // OrderedHeaders contains ordered default headers.
+	Cookies        []*http.Cookie                  // Cookies contains the default cookies sent with each request.
+	Middlewares    []Middleware                    // Middlewares contains the client-level middleware chain.
+	TLSConfig      *tls.Config                     // TLSConfig configures TLS settings for the underlying transport.
+	MaxRetries     int                             // MaxRetries is the maximum number of retry attempts.
+	RetryStrategy  BackoffStrategy                 // RetryStrategy computes the delay before the next retry.
+	RetryIf        RetryIfFunc                     // RetryIf decides whether a request should be retried.
+	HTTPClient     *http.Client                    // HTTPClient is the underlying HTTP client used to send requests.
+	JSONEncoder    Encoder                         // JSONEncoder encodes JSON request bodies.
+	JSONDecoder    Decoder                         // JSONDecoder decodes JSON response bodies.
+	XMLEncoder     Encoder                         // XMLEncoder encodes XML request bodies.
+	XMLDecoder     Decoder                         // XMLDecoder decodes XML response bodies.
+	YAMLEncoder    Encoder                         // YAMLEncoder encodes YAML request bodies.
+	YAMLDecoder    Decoder                         // YAMLDecoder decodes YAML response bodies.
+	Logger         Logger                          // Logger receives client log output when configured.
+	dialTimeout    time.Duration
+	resolver       *net.Resolver
+	localAddr      net.Addr
+	dialContext    func(context.Context, string, string) (net.Conn, error)
+	auth           AuthMethod
 }
 
 // Config sets up the initial configuration for the HTTP client.
 type Config struct {
-	BaseURL           string            // BaseURL is the base URL for requests made by this client.
-	Headers           *http.Header      // Headers contains the default headers sent with each request.
-	Cookies           map[string]string // Cookies contains the default cookies sent with each request.
-	Timeout           time.Duration     // Timeout is the default request timeout.
-	CookieJar         *cookiejar.Jar    // CookieJar stores and sends cookies for the client.
-	Middlewares       []Middleware      // Middlewares contains the middleware stack for request and response handling.
-	TLSConfig         *tls.Config       // TLSConfig configures TLS settings for the client.
-	TLSClientCertFile string            // TLSClientCertFile is the path to the client certificate file.
-	TLSClientKeyFile  string            // TLSClientKeyFile is the path to the client private key file.
-	TLSServerName     string            // TLSServerName is the TLS server name used for SNI.
-	Transport         http.RoundTripper // Transport is the custom transport used by the client.
-	MaxRetries        int               // MaxRetries is the maximum number of retry attempts.
-	RetryStrategy     BackoffStrategy   // RetryStrategy computes the delay before the next retry.
-	RetryIf           RetryIfFunc       // RetryIf decides whether a request should be retried.
-	Logger            Logger            // Logger receives client log output when configured.
-	HTTP2             bool              // HTTP2 enables HTTP/2 when Transport is not provided.
-	Resolver          *net.Resolver     // Resolver customizes name resolution for the default transport dialer.
+	BaseURL           string                          // BaseURL is the base URL for requests made by this client.
+	Headers           *http.Header                    // Headers contains the default headers sent with each request.
+	OrderedHeaders    *orderedobject.Object[[]string] // OrderedHeaders contains ordered default headers.
+	Cookies           map[string]string               // Cookies contains the default cookies sent with each request.
+	Timeout           time.Duration                   // Timeout is the default request timeout.
+	CookieJar         *cookiejar.Jar                  // CookieJar stores and sends cookies for the client.
+	Middlewares       []Middleware                    // Middlewares contains the middleware stack for request and response handling.
+	TLSConfig         *tls.Config                     // TLSConfig configures TLS settings for the client.
+	TLSClientCertFile string                          // TLSClientCertFile is the path to the client certificate file.
+	TLSClientKeyFile  string                          // TLSClientKeyFile is the path to the client private key file.
+	TLSServerName     string                          // TLSServerName is the TLS server name used for SNI.
+	Transport         http.RoundTripper               // Transport is the custom transport used by the client.
+	MaxRetries        int                             // MaxRetries is the maximum number of retry attempts.
+	RetryStrategy     BackoffStrategy                 // RetryStrategy computes the delay before the next retry.
+	RetryIf           RetryIfFunc                     // RetryIf decides whether a request should be retried.
+	Logger            Logger                          // Logger receives client log output when configured.
+	HTTP2             bool                            // HTTP2 enables HTTP/2 on the default HTTP transport.
+	Resolver          *net.Resolver                   // Resolver customizes name resolution for the default transport dialer.
 	// DialContext is the dial function used by the default transport.
 	DialContext func(context.Context, string, string) (net.Conn, error)
 	LocalAddr   net.Addr // LocalAddr is the local address used by the default transport dialer.
@@ -82,19 +85,20 @@ type Config struct {
 }
 
 type clientSnapshot struct {
-	BaseURL       string
-	Headers       http.Header
-	Cookies       []*http.Cookie
-	Middlewares   []Middleware
-	MaxRetries    int
-	RetryStrategy BackoffStrategy
-	RetryIf       RetryIfFunc
-	HTTPClient    *http.Client
-	JSONEncoder   Encoder
-	XMLEncoder    Encoder
-	YAMLEncoder   Encoder
-	Logger        Logger
-	auth          AuthMethod
+	BaseURL        string
+	Headers        http.Header
+	OrderedHeaders *orderedobject.Object[[]string]
+	Cookies        []*http.Cookie
+	Middlewares    []Middleware
+	MaxRetries     int
+	RetryStrategy  BackoffStrategy
+	RetryIf        RetryIfFunc
+	HTTPClient     *http.Client
+	JSONEncoder    Encoder
+	XMLEncoder     Encoder
+	YAMLEncoder    Encoder
+	Logger         Logger
+	auth           AuthMethod
 }
 
 // Validate checks whether the config contains deterministic invalid values.
@@ -185,20 +189,25 @@ func Create(config *Config) *Client {
 	}
 
 	client := &Client{
-		BaseURL:     config.BaseURL,
-		Headers:     config.Headers,
-		HTTPClient:  httpClient,
-		JSONEncoder: DefaultJSONEncoder,
-		JSONDecoder: DefaultJSONDecoder,
-		XMLEncoder:  DefaultXMLEncoder,
-		XMLDecoder:  DefaultXMLDecoder,
-		YAMLEncoder: DefaultYAMLEncoder,
-		YAMLDecoder: DefaultYAMLDecoder,
-		TLSConfig:   config.TLSConfig,
-		dialTimeout: config.DialTimeout,
-		resolver:    config.Resolver,
-		localAddr:   config.LocalAddr,
-		dialContext: config.DialContext,
+		BaseURL:        config.BaseURL,
+		Headers:        config.Headers,
+		OrderedHeaders: cloneOrderedHeaders(config.OrderedHeaders),
+		HTTPClient:     httpClient,
+		JSONEncoder:    DefaultJSONEncoder,
+		JSONDecoder:    DefaultJSONDecoder,
+		XMLEncoder:     DefaultXMLEncoder,
+		XMLDecoder:     DefaultXMLDecoder,
+		YAMLEncoder:    DefaultYAMLEncoder,
+		YAMLDecoder:    DefaultYAMLDecoder,
+		TLSConfig:      config.TLSConfig,
+		dialTimeout:    config.DialTimeout,
+		resolver:       config.Resolver,
+		localAddr:      config.LocalAddr,
+		dialContext:    config.DialContext,
+	}
+	if client.OrderedHeaders != nil {
+		headers := headerFromOrderedHeaders(client.OrderedHeaders)
+		client.Headers = &headers
 	}
 
 	if config.TLSServerName != "" {
@@ -218,12 +227,7 @@ func Create(config *Config) *Client {
 		}
 	}
 
-	switch {
-	case client.TLSConfig != nil && config.HTTP2:
-		client.HTTPClient.Transport = &http2.Transport{
-			TLSClientConfig: client.TLSConfig,
-		}
-	case client.TLSConfig != nil:
+	if client.TLSConfig != nil {
 		if httpClient.Transport != nil {
 			if transport, ok := httpClient.Transport.(*http.Transport); ok {
 				transport.TLSClientConfig = client.TLSConfig
@@ -233,11 +237,12 @@ func Create(config *Config) *Client {
 				TLSClientConfig: client.TLSConfig,
 			}
 		}
-	case config.HTTP2:
-		client.HTTPClient.Transport = &http2.Transport{}
 	}
 
 	applyTransportConfig(client, config)
+	if config.HTTP2 {
+		client.EnableHTTP2()
+	}
 
 	if config.Middlewares != nil {
 		client.Middlewares = config.Middlewares
@@ -295,6 +300,10 @@ func (c *Client) syncTLSConfigLocked() {
 	}
 	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
 		transport.TLSClientConfig = c.TLSConfig
+		if isHTTP2Configured(transport) {
+			ensureHTTP2NextProtos(transport)
+			transport.ForceAttemptHTTP2 = true
+		}
 		return
 	}
 	if transport, ok := c.HTTPClient.Transport.(*http2.Transport); ok {
@@ -441,6 +450,21 @@ func (c *Client) SetDefaultHeaders(headers *http.Header) {
 	defer c.mu.Unlock()
 
 	c.Headers = headers
+	c.OrderedHeaders = nil
+}
+
+// SetDefaultOrderedHeaders sets ordered default headers for the client.
+func (c *Client) SetDefaultOrderedHeaders(headers *orderedobject.Object[[]string]) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.OrderedHeaders = cloneOrderedHeaders(headers)
+	if c.OrderedHeaders == nil {
+		c.Headers = nil
+		return
+	}
+	httpHeaders := headerFromOrderedHeaders(c.OrderedHeaders)
+	c.Headers = &httpHeaders
 }
 
 // SetDefaultHeader adds or updates a default header.
@@ -452,6 +476,9 @@ func (c *Client) SetDefaultHeader(key, value string) {
 		c.Headers = &http.Header{}
 	}
 	c.Headers.Set(key, value)
+	if c.OrderedHeaders != nil {
+		setOrderedHeaderValues(&c.OrderedHeaders, key, []string{value})
+	}
 }
 
 // AddDefaultHeader adds a default header.
@@ -463,6 +490,9 @@ func (c *Client) AddDefaultHeader(key, value string) {
 		c.Headers = &http.Header{}
 	}
 	c.Headers.Add(key, value)
+	if c.OrderedHeaders != nil {
+		addOrderedHeaderValue(&c.OrderedHeaders, key, value)
+	}
 }
 
 // DelDefaultHeader removes a default header.
@@ -474,6 +504,9 @@ func (c *Client) DelDefaultHeader(key string) {
 		return
 	}
 	c.Headers.Del(key)
+	if c.OrderedHeaders != nil {
+		deleteOrderedHeader(c.OrderedHeaders, key)
+	}
 }
 
 // SetDefaultContentType sets the default content type for the client.
@@ -659,19 +692,20 @@ func (c *Client) snapshot() clientSnapshot {
 	middlewares := slices.Clone(c.Middlewares)
 
 	return clientSnapshot{
-		BaseURL:       c.BaseURL,
-		Headers:       headers,
-		Cookies:       cookies,
-		Middlewares:   middlewares,
-		MaxRetries:    c.MaxRetries,
-		RetryStrategy: c.RetryStrategy,
-		RetryIf:       c.RetryIf,
-		HTTPClient:    c.HTTPClient,
-		JSONEncoder:   c.JSONEncoder,
-		XMLEncoder:    c.XMLEncoder,
-		YAMLEncoder:   c.YAMLEncoder,
-		Logger:        c.Logger,
-		auth:          c.auth,
+		BaseURL:        c.BaseURL,
+		Headers:        headers,
+		OrderedHeaders: cloneOrderedHeaders(c.OrderedHeaders),
+		Cookies:        cookies,
+		Middlewares:    middlewares,
+		MaxRetries:     c.MaxRetries,
+		RetryStrategy:  c.RetryStrategy,
+		RetryIf:        c.RetryIf,
+		HTTPClient:     c.HTTPClient,
+		JSONEncoder:    c.JSONEncoder,
+		XMLEncoder:     c.XMLEncoder,
+		YAMLEncoder:    c.YAMLEncoder,
+		Logger:         c.Logger,
+		auth:           c.auth,
 	}
 }
 
@@ -698,17 +732,69 @@ func (c *Client) SetMaxRetries(maxRetries int) *Client {
 	return c
 }
 
-func (c *Client) enableHTTP2() *Client {
+// EnableHTTP2 enables HTTP/2 on the underlying HTTP transport.
+func (c *Client) EnableHTTP2() *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.enableHTTP2Locked()
+	return c
+}
+
+func (c *Client) enableHTTP2Locked() {
 	if c.HTTPClient == nil {
 		c.HTTPClient = &http.Client{}
 	}
-	c.HTTPClient.Transport = &http2.Transport{
-		TLSClientConfig: c.TLSConfig,
+	transport, err := c.ensureTransport()
+	if err != nil {
+		if c.Logger != nil {
+			c.Logger.Errorf("failed to enable HTTP/2: %v", err)
+		}
+		return
 	}
-	return c
+	if c.TLSConfig != nil {
+		transport.TLSClientConfig = c.TLSConfig
+	}
+	if err := configureHTTP2Transport(transport); err != nil && c.Logger != nil {
+		c.Logger.Errorf("failed to enable HTTP/2: %v", err)
+	}
+}
+
+func configureHTTP2Transport(transport *http.Transport) error {
+	if transport == nil {
+		return nil
+	}
+	if isHTTP2Configured(transport) {
+		ensureHTTP2NextProtos(transport)
+		transport.ForceAttemptHTTP2 = true
+		return nil
+	}
+
+	transport.ForceAttemptHTTP2 = true
+	return http2.ConfigureTransport(transport)
+}
+
+func isHTTP2Configured(transport *http.Transport) bool {
+	if transport == nil || transport.TLSNextProto == nil {
+		return false
+	}
+	_, ok := transport.TLSNextProto[http2.NextProtoTLS]
+	return ok
+}
+
+func ensureHTTP2NextProtos(transport *http.Transport) {
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	if !slices.Contains(transport.TLSClientConfig.NextProtos, http2.NextProtoTLS) {
+		transport.TLSClientConfig.NextProtos = append(
+			[]string{http2.NextProtoTLS},
+			transport.TLSClientConfig.NextProtos...,
+		)
+	}
+	if !slices.Contains(transport.TLSClientConfig.NextProtos, "http/1.1") {
+		transport.TLSClientConfig.NextProtos = append(transport.TLSClientConfig.NextProtos, "http/1.1")
+	}
 }
 
 // SetRetryStrategy sets the backoff strategy for retries.
@@ -896,7 +982,7 @@ func (c *Client) SetIdleConnTimeout(d time.Duration) *Client {
 
 // applyTransportConfig applies transport-level timeouts and connection pool settings
 // from Config to the client's transport. Only modifies settings that are explicitly set
-// (non-zero). Skips if the transport is not *http.Transport (e.g., HTTP/2 transport).
+// (non-zero). Skips if the transport is not *http.Transport.
 func applyTransportConfig(c *Client, config *Config) {
 	transport, ok := c.HTTPClient.Transport.(*http.Transport)
 	if !ok && (c.HTTPClient.Transport != nil || !config.hasTransportConfig()) {

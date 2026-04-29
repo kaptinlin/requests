@@ -13,7 +13,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
-	"golang.org/x/net/http2"
 )
 
 func TestNew_NoOptions(t *testing.T) {
@@ -422,8 +421,67 @@ func TestEnableSessionPreservesExistingSessionStores(t *testing.T) {
 
 func TestNew_WithHTTP2(t *testing.T) {
 	c := New(WithHTTP2())
-	_, ok := c.HTTPClient.Transport.(*http2.Transport)
-	assert.True(t, ok)
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assertHTTP2Configured(t, transport)
+}
+
+func TestNew_WithHTTP2PreservesOptionOrder(t *testing.T) {
+	t.Run("proxy before HTTP2", func(t *testing.T) {
+		c := New(WithProxy("http://127.0.0.1:8080"), WithHTTP2())
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.Proxy)
+		assertHTTP2Configured(t, transport)
+	})
+
+	t.Run("proxy after HTTP2", func(t *testing.T) {
+		c := New(WithHTTP2(), WithProxy("http://127.0.0.1:8080"))
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		require.NotNil(t, transport.Proxy)
+		assertHTTP2Configured(t, transport)
+	})
+
+	t.Run("dial timeout before HTTP2", func(t *testing.T) {
+		c := New(WithDialTimeout(5*time.Second), WithHTTP2())
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.NotNil(t, transport.DialContext)
+		assertHTTP2Configured(t, transport)
+	})
+
+	t.Run("dial timeout after HTTP2", func(t *testing.T) {
+		c := New(WithHTTP2(), WithDialTimeout(5*time.Second))
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.NotNil(t, transport.DialContext)
+		assertHTTP2Configured(t, transport)
+	})
+
+	t.Run("TLS config before HTTP2", func(t *testing.T) {
+		tlsConfig := &tls.Config{ServerName: "example.com"}
+		c := New(WithTLSConfig(tlsConfig), WithHTTP2())
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.Same(t, tlsConfig, transport.TLSClientConfig)
+		assertHTTP2Configured(t, transport)
+	})
+
+	t.Run("TLS config after HTTP2", func(t *testing.T) {
+		tlsConfig := &tls.Config{ServerName: "example.com"}
+		c := New(WithHTTP2(), WithTLSConfig(tlsConfig))
+
+		transport, ok := c.HTTPClient.Transport.(*http.Transport)
+		require.True(t, ok)
+		assert.Same(t, tlsConfig, transport.TLSClientConfig)
+		assertHTTP2Configured(t, transport)
+	})
 }
 
 func TestNew_WithDialOptions(t *testing.T) {

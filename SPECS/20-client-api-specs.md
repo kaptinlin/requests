@@ -24,8 +24,10 @@ A `Client` MAY define reusable defaults for:
 
 - base URL
 - headers
+- ordered headers
 - cookies
 - authentication
+- profile-applied identity defaults
 - retry policy
 - codecs for JSON, XML, and YAML
 - logger
@@ -33,24 +35,30 @@ A `Client` MAY define reusable defaults for:
 
 These defaults apply to every request created from the client unless the request supplies a request-local value for the same concern.
 
+Ordered headers preserve caller-specified insertion order as request intent. The implementation uses `github.com/kaptinlin/orderedobject` as the ordered storage model. Default `net/http` transports preserve header semantics but do not guarantee wire order; wire-order delivery is only guaranteed by transports that explicitly support ordered-header metadata.
+
 ## Transport and Timeout Policy
 
 `Client` owns the underlying `http.Client` and transport-level configuration:
 
 - `SetDefaultTimeout` sets the default `http.Client.Timeout`.
 - `SetDefaultTransport` and `SetHTTPClient` replace the underlying transport or client.
+- `EnableHTTP2` enables HTTP/2 on the active `*http.Transport`.
 - `SetDialTimeout`, `SetResolver`, `SetDialContext`, `SetLocalAddr`, `SetTLSHandshakeTimeout`, `SetResponseHeaderTimeout`, `SetMaxIdleConns`, `SetMaxIdleConnsPerHost`, `SetMaxConnsPerHost`, and `SetIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
-- Resolver and local-address configuration use standard-library types only.
+- HTTP/2 enablement configures the active `*http.Transport` instead of replacing it, preserving proxy, dialer, resolver, local address, TLS, timeout, and connection-pool settings.
+- Resolver and local-address configuration use `net` package types only.
 - `WithHTTPClient` MUST be applied before transport-mutating options such as `WithProxy` or `WithDialTimeout`, because replacing the client discards earlier transport mutations.
 
 `WithHTTP2()` is the functional-option equivalent of `Config.HTTP2`.
+
+Profiles are applied at the client layer through `ApplyProfile` or `WithProfile`. They may configure headers, ordered headers, and protocol preferences as reusable defaults. Request-local metadata still overrides profile-applied defaults.
 
 ## TLS and HTTP/2
 
 `Client` owns TLS configuration and certificate material:
 
 - `SetTLSConfig`, `InsecureSkipVerify`, `SetCertificates`, `SetClientCertificate`, `SetTLSServerName`, `SetRootCertificate`, `SetRootCertificateFromString`, `SetClientRootCertificate`, and `SetClientRootCertificateFromString` mutate client-level TLS state.
-- `Config.HTTP2` enables `http2.Transport` only during construction.
+- `Config.HTTP2` and `WithHTTP2()` configure HTTP/2 on the existing or default `*http.Transport`; custom non-`*http.Transport` implementations are left unchanged.
 - `WithSession` and `EnableSession` create a cookie jar and TLS client session cache when missing.
 - File-loading helpers such as `SetClientCertificate` and `SetRootCertificate` are best-effort: they log when a logger is configured and keep returning the same client for continued chaining.
 
@@ -82,7 +90,7 @@ The built-in policies are:
 
 Multiple redirect policies MAY be composed in one `SetRedirectPolicy` call. They run in argument order and the first error stops redirect processing.
 
-## Standard Library Adapters
+## `net/http` Adapters
 
 `AsHTTPClient()` returns a new `*http.Client` that snapshots the current underlying timeout, cookie jar, redirect policy, and transport. Its transport applies client-level defaults: headers, cookies, auth, and client middleware.
 
@@ -92,7 +100,7 @@ Adapter boundaries:
 
 - preserve client headers, cookies, auth, middleware, timeout, cookie jar, redirect policy, and the underlying transport
 - do not preserve `RequestBuilder` behavior such as request-local retry, response buffering, streaming callbacks, decoding helpers, `Save`, or `Lines`
-- clone inbound standard-library requests before applying defaults
+- clone inbound `net/http` requests before applying defaults
 - do not change the meaning of `Client.HTTPClient` or `GetHTTPClient`, which remain raw escape hatches
 
 ## Forbidden

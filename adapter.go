@@ -5,13 +5,13 @@ import (
 	"slices"
 )
 
-// AsHTTPClient returns a standard-library client that applies this client's defaults.
+// AsHTTPClient returns a net/http client that applies this client's defaults.
 //
 // The returned client preserves the underlying timeout, cookie jar, redirect
 // policy, and transport at the time AsHTTPClient is called. Its transport applies
 // client headers, cookies, auth, and client-level middleware. RequestBuilder-only
 // behavior such as retries, response buffering, streaming callbacks, and decoding
-// helpers is not part of the standard-library client.
+// helpers is not part of the returned client.
 func (c *Client) AsHTTPClient() *http.Client {
 	snap := c.snapshot()
 	source := snap.HTTPClient
@@ -74,7 +74,8 @@ func cloneWithClientDefaults(req *http.Request, snap clientSnapshot) *http.Reque
 	cloned := req.Clone(req.Context())
 	original := req.Header.Clone()
 
-	cloned.Header = snap.Headers.Clone()
+	cloned.Header = http.Header{}
+	addHeaderValues(cloned.Header, snap.Headers, snap.OrderedHeaders)
 	for _, cookie := range snap.Cookies {
 		if cookie != nil {
 			cloned.AddCookie(cookie)
@@ -84,8 +85,16 @@ func cloneWithClientDefaults(req *http.Request, snap clientSnapshot) *http.Reque
 		snap.auth.Apply(cloned)
 	}
 	for key, values := range original {
+		deleteHeaderValues(cloned.Header, key)
 		cloned.Header[key] = slices.Clone(values)
 	}
 
-	return cloned
+	ordered := cloneOrderedHeaders(snap.OrderedHeaders)
+	for key := range original {
+		deleteOrderedHeader(ordered, key)
+	}
+	if ordered != nil && ordered.Len() == 0 {
+		ordered = nil
+	}
+	return withOrderedHeaders(cloned, ordered)
 }

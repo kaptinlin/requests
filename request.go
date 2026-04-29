@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/go-querystring/query"
+	"github.com/kaptinlin/orderedobject"
 )
 
 // RequestBuilder facilitates building and executing HTTP requests.
@@ -23,6 +24,7 @@ type RequestBuilder struct {
 	method                string
 	path                  string
 	headers               *http.Header
+	orderedHeaders        *orderedobject.Object[[]string]
 	cookies               []*http.Cookie
 	queries               url.Values
 	pathParams            map[string]string
@@ -161,19 +163,40 @@ func (b *RequestBuilder) Headers(headers http.Header) *RequestBuilder {
 		for _, value := range values {
 			b.headers.Set(key, value)
 		}
+		if b.orderedHeaders != nil {
+			setOrderedHeaderValues(&b.orderedHeaders, key, values)
+		}
 	}
+	return b
+}
+
+// OrderedHeaders sets ordered headers for the request.
+func (b *RequestBuilder) OrderedHeaders(headers *orderedobject.Object[[]string]) *RequestBuilder {
+	b.orderedHeaders = cloneOrderedHeaders(headers)
+	if b.orderedHeaders == nil {
+		b.headers = &http.Header{}
+		return b
+	}
+	httpHeaders := headerFromOrderedHeaders(b.orderedHeaders)
+	b.headers = &httpHeaders
 	return b
 }
 
 // Header sets (or replaces) a header in the request.
 func (b *RequestBuilder) Header(key, value string) *RequestBuilder {
 	b.headers.Set(key, value)
+	if b.orderedHeaders != nil {
+		setOrderedHeaderValues(&b.orderedHeaders, key, []string{value})
+	}
 	return b
 }
 
 // AddHeader adds a header to the request.
 func (b *RequestBuilder) AddHeader(key, value string) *RequestBuilder {
 	b.headers.Add(key, value)
+	if b.orderedHeaders != nil {
+		addOrderedHeaderValue(&b.orderedHeaders, key, value)
+	}
 	return b
 }
 
@@ -181,6 +204,9 @@ func (b *RequestBuilder) AddHeader(key, value string) *RequestBuilder {
 func (b *RequestBuilder) DelHeader(key ...string) *RequestBuilder {
 	for _, k := range key {
 		b.headers.Del(k)
+		if b.orderedHeaders != nil {
+			deleteOrderedHeader(b.orderedHeaders, k)
+		}
 	}
 	return b
 }
@@ -220,26 +246,22 @@ func (b *RequestBuilder) DelCookie(key ...string) *RequestBuilder {
 
 // ContentType sets the Content-Type header for the request.
 func (b *RequestBuilder) ContentType(contentType string) *RequestBuilder {
-	b.headers.Set("Content-Type", contentType)
-	return b
+	return b.Header("Content-Type", contentType)
 }
 
 // Accept sets the Accept header for the request.
 func (b *RequestBuilder) Accept(accept string) *RequestBuilder {
-	b.headers.Set("Accept", accept)
-	return b
+	return b.Header("Accept", accept)
 }
 
 // UserAgent sets the User-Agent header for the request.
 func (b *RequestBuilder) UserAgent(userAgent string) *RequestBuilder {
-	b.headers.Set("User-Agent", userAgent)
-	return b
+	return b.Header("User-Agent", userAgent)
 }
 
 // Referer sets the Referer header for the request.
 func (b *RequestBuilder) Referer(referer string) *RequestBuilder {
-	b.headers.Set("Referer", referer)
-	return b
+	return b.Header("Referer", referer)
 }
 
 // Auth applies an authentication method to the request.
@@ -363,29 +385,25 @@ func (b *RequestBuilder) Body(body any) *RequestBuilder {
 // JSONBody sets the request body as JSON.
 func (b *RequestBuilder) JSONBody(v any) *RequestBuilder {
 	b.bodyData = v
-	b.headers.Set("Content-Type", "application/json")
-	return b
+	return b.ContentType("application/json")
 }
 
 // XMLBody sets the request body as XML.
 func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
 	b.bodyData = v
-	b.headers.Set("Content-Type", "application/xml")
-	return b
+	return b.ContentType("application/xml")
 }
 
 // YAMLBody sets the request body as YAML.
 func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
 	b.bodyData = v
-	b.headers.Set("Content-Type", "application/yaml")
-	return b
+	return b.ContentType("application/yaml")
 }
 
 // TextBody sets the request body as plain text.
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 	b.bodyData = v
-	b.headers.Set("Content-Type", "text/plain")
-	return b
+	return b.ContentType("text/plain")
 }
 
 // RawBody sets the request body as raw bytes.
@@ -553,6 +571,7 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 		h := b.headers.Clone()
 		clone.headers = &h
 	}
+	clone.orderedHeaders = cloneOrderedHeaders(b.orderedHeaders)
 
 	if b.cookies != nil {
 		clone.cookies = slices.Clone(b.cookies)
@@ -608,7 +627,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	}
 
 	if contentType != "" {
-		b.headers.Set("Content-Type", contentType)
+		b.Header("Content-Type", contentType)
 	}
 
 	body, getBody, contentLength, err := b.prepareReplayableBody(body, snap)
@@ -631,6 +650,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	b.applyAuth(req, snap)
 	b.applyHeaders(req, snap)
 	b.applyCookies(req, snap)
+	req = withOrderedHeaders(req, b.effectiveOrderedHeaders(snap))
 
 	resp, attempts, err := b.do(ctx, req, snap)
 	if err != nil {
@@ -675,7 +695,7 @@ func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, er
 	contentType := b.headers.Get("Content-Type")
 	if contentType == "" {
 		contentType = b.inferContentType()
-		b.headers.Set("Content-Type", contentType)
+		b.Header("Content-Type", contentType)
 	}
 
 	body, err := b.encodeBody(contentType, snap)
@@ -785,18 +805,27 @@ func (b *RequestBuilder) applyAuth(req *http.Request, snap clientSnapshot) {
 }
 
 func (b *RequestBuilder) applyHeaders(req *http.Request, snap clientSnapshot) {
-	for key, values := range snap.Headers {
-		for _, value := range values {
-			req.Header.Add(key, value)
-		}
-	}
+	addHeaderValues(req.Header, snap.Headers, snap.OrderedHeaders)
 	if b.headers != nil {
-		for key, values := range *b.headers {
-			for _, value := range values {
-				req.Header.Add(key, value)
-			}
-		}
+		overlayHeaderValues(req.Header, *b.headers, b.orderedHeaders)
 	}
+}
+
+func (b *RequestBuilder) effectiveOrderedHeaders(snap clientSnapshot) *orderedobject.Object[[]string] {
+	headers := mergeOrderedHeaders(snap.OrderedHeaders, b.orderedHeaders)
+	if headers == nil || b.headers == nil {
+		return headers
+	}
+	for key := range *b.headers {
+		if _, ok := orderedHeaderKey(b.orderedHeaders, key); ok {
+			continue
+		}
+		deleteOrderedHeader(headers, key)
+	}
+	if headers.Len() == 0 {
+		return nil
+	}
+	return headers
 }
 
 func (b *RequestBuilder) applyCookies(req *http.Request, snap clientSnapshot) {

@@ -3,7 +3,7 @@
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8?style=flat-square&logo=go)](go.mod)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 
-A fluent HTTP client library for Go with middleware, retries, proxy and redirect controls, streaming callbacks, and JSON/XML/YAML helpers
+A fluent HTTP client library for Go with middleware, retries, proxy and redirect controls, streaming callbacks, ordered-header intent, optional client profiles, and JSON/XML/YAML helpers
 
 ## Features
 
@@ -11,7 +11,9 @@ A fluent HTTP client library for Go with middleware, retries, proxy and redirect
 - **Multiple client entry points**: Start with `New(...)`, `URL(...)`, or `Create(&Config{...})` depending on how much control you need.
 - **Retry-aware delivery**: Combine retry counts, backoff strategies, and `Retry-After` handling without wrapping `net/http` yourself.
 - **Transport controls**: Configure TLS, mTLS, HTTP/2, redirect policies, proxies, bypass rules, resolver/dialer hooks, and connection pooling.
-- **Standard-library adapters**: Use configured `requests` clients as `*http.Client` or `http.RoundTripper` in other SDKs.
+- **Ordered headers**: Express header order as request intent with `orderedobject`, while preserving `net/http` header semantics.
+- **Optional profiles**: Apply browser-like headers, TLS ClientHello fingerprints, or HTTP/3 through separate extension modules.
+- **`net/http` adapters**: Use configured `requests` clients as `*http.Client` or `http.RoundTripper` in other SDKs.
 - **Response helpers**: Decode JSON, XML, or YAML, inspect diagnostics, iterate line streams, inspect status helpers, or save to disk.
 - **Composable middleware**: Attach header, cookie, or cache middleware at the client or request level.
 
@@ -22,6 +24,14 @@ go get github.com/kaptinlin/requests
 ```
 
 Requires **Go 1.26+**.
+
+Optional extension modules:
+
+```bash
+go get github.com/kaptinlin/requests/browser
+go get github.com/kaptinlin/requests/fingerprint
+go get github.com/kaptinlin/requests/http3
+```
 
 ## Quick Start
 
@@ -82,6 +92,59 @@ client := requests.New(
 client := requests.URL("https://api.example.com")
 ```
 
+### Optional profiles
+
+Browser-like defaults:
+
+```go
+import (
+	"github.com/kaptinlin/requests"
+	"github.com/kaptinlin/requests/browser"
+)
+
+client := requests.New(
+	requests.WithProfile(browser.Chrome()),
+)
+```
+
+Profiles apply client-level defaults. Request-local headers still override profile headers.
+
+TLS fingerprint profile:
+
+```go
+import (
+	"github.com/kaptinlin/requests"
+	"github.com/kaptinlin/requests/fingerprint"
+)
+
+client := requests.New(
+	requests.WithProfile(fingerprint.Chrome()),
+)
+```
+
+HTTP/3 profile:
+
+```go
+import (
+	"crypto/tls"
+
+	"github.com/kaptinlin/requests"
+	"github.com/kaptinlin/requests/http3"
+)
+
+client := requests.New(
+	requests.WithProfile(http3.Profile(http3.WithTLSConfig(&tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}))),
+)
+```
+
+Optional profile packages keep heavier dependencies out of the core module:
+
+- `github.com/kaptinlin/requests/browser` applies browser-like headers, ordered header metadata, and HTTP/2 preference.
+- `github.com/kaptinlin/requests/fingerprint` applies uTLS ClientHello fingerprints.
+- `github.com/kaptinlin/requests/http3` applies a QUIC HTTP/3 transport.
+
 ### Full config
 
 ```go
@@ -103,6 +166,22 @@ client := requests.Create(cfg)
 ```
 
 ## Making Requests
+
+### Ordered headers
+
+```go
+import "github.com/kaptinlin/orderedobject"
+
+headers := orderedobject.NewObject[[]string]().
+	Set("Accept", []string{"application/json"}).
+	Set("User-Agent", []string{"requests-example/1.0"})
+
+resp, err := client.Get("/articles").
+	OrderedHeaders(headers).
+	Send(context.Background())
+```
+
+Default `net/http` transports preserve header semantics. Transports that explicitly read `requests.OrderedHeaders(req)` can use the metadata for wire-order delivery.
 
 ### JSON request body
 
@@ -189,19 +268,19 @@ Use `MaxRetries(0)` on a request to disable a positive client default. Replayabl
 
 The retry logic automatically honors `Retry-After` on `429` and `503` responses.
 
-## Standard Library Integration
+## `net/http` Integration
 
 Use `AsHTTPClient()` when another SDK accepts `*http.Client`:
 
 ```go
-stdClient := client.AsHTTPClient()
-resp, err := stdClient.Get("https://api.example.com/resource")
+httpClient := client.AsHTTPClient()
+resp, err := httpClient.Get("https://api.example.com/resource")
 ```
 
 Use `AsTransport()` when the caller owns the `http.Client`:
 
 ```go
-stdClient := &http.Client{
+httpClient := &http.Client{
 	Transport: client.AsTransport(),
 }
 ```
@@ -325,21 +404,27 @@ For response caching, use `middlewares.CacheMiddleware` with a `middlewares.Cach
 
 ## Documentation
 
-- Development guidance: [CLAUDE.md](CLAUDE.md)
+- Development guidance: [AGENTS.md](AGENTS.md)
 - API and contract details: [SPECS/](SPECS/)
 - Package docs: [pkg.go.dev/github.com/kaptinlin/requests](https://pkg.go.dev/github.com/kaptinlin/requests)
+- Browser profile docs: [pkg.go.dev/github.com/kaptinlin/requests/browser](https://pkg.go.dev/github.com/kaptinlin/requests/browser)
+- TLS fingerprint profile docs: [pkg.go.dev/github.com/kaptinlin/requests/fingerprint](https://pkg.go.dev/github.com/kaptinlin/requests/fingerprint)
+- HTTP/3 profile docs: [pkg.go.dev/github.com/kaptinlin/requests/http3](https://pkg.go.dev/github.com/kaptinlin/requests/http3)
 
 ## Development
 
 ```bash
-task test      # Run all tests with race detection
-task lint      # Run golangci-lint and tidy checks
-task verify    # Run deps, fmt, vet, lint, test, and vuln checks
+task test       # Run root tests with race detection
+task test:all   # Run root and extension tests with race detection
+task lint       # Run root golangci-lint and tidy checks
+task lint:all   # Run root and extension linters
+task tidy:all   # Tidy root and extension modules
+task verify     # Run deps, fmt, vet, lint, test, and vuln checks for root
 ```
 
 ## Contributing
 
-Contributions are welcome. Open an issue or pull request with a focused change, and run `task test` plus `task lint` before submitting.
+Contributions are welcome. Open an issue or pull request with a focused change, and run `task test:all` plus `task lint:all` before submitting changes that touch extension modules.
 
 ## License
 

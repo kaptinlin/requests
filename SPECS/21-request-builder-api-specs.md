@@ -27,11 +27,20 @@ Path parameters use `{name}` placeholders and MUST be URL-path-escaped before di
 A builder MAY define request-local metadata through:
 
 - `Header`, `Headers`, `AddHeader`, `DelHeader`
+- `OrderedHeaders`
 - `Cookie`, `Cookies`, `DelCookie`
 - `ContentType`, `Accept`, `UserAgent`, `Referer`
 - `Auth`
 
 Request-local auth overrides client auth for that request.
+
+Request-local headers override client default headers with the same header name, using case-insensitive header-name matching. Request-local `AddHeader` adds values within the request-local header set; it does not preserve an older client default value for that same header name.
+
+`OrderedHeaders` accepts an `orderedobject.Object[[]string]` where keys are header names and values are all values for each header. It sets request-local header values and preserves insertion order as request intent. Pseudo-headers are retained in ordered metadata for compatible HTTP/2 or HTTP/3 transports, but are not applied to `net/http` header maps.
+
+When ordered headers are active, all request-local header helpers that mutate headers, including `Header`, `AddHeader`, `DelHeader`, `ContentType`, `Accept`, `UserAgent`, `Referer`, body helpers that set `Content-Type`, and inferred `Content-Type` values during dispatch, MUST keep the ordered metadata in sync with the semantic `http.Header` values.
+
+If a request-local plain header overrides a client ordered default without supplying request-local ordered metadata for that header, the client ordered metadata for that header is removed so compatible transports do not observe stale default values.
 
 ## Body Selection and Encoding
 
@@ -78,7 +87,7 @@ A builder MAY attach request-local middleware with `AddMiddleware` and streaming
 `Clone()` creates a new builder that:
 
 - shares the same client reference
-- deep-copies headers, cookies, queries, path params, and form fields
+- deep-copies headers, ordered headers, cookies, queries, path params, and form fields
 - does not copy body data, form files, middleware, retry policy, or streaming callbacks
 
 Callers MUST reapply non-cloned concerns on the clone when they are required.

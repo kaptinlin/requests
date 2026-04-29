@@ -19,6 +19,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
+	"golang.org/x/net/http2"
 )
 
 // startTestHTTPServer starts a test HTTP server that responds to various endpoints for testing purposes.
@@ -101,6 +102,16 @@ func startTestHTTPServer() *httptest.Server {
 	})
 
 	return httptest.NewServer(handler)
+}
+
+func assertHTTP2Configured(t *testing.T, transport *http.Transport) {
+	t.Helper()
+
+	require.NotNil(t, transport.TLSNextProto)
+	assert.Contains(t, transport.TLSNextProto, http2.NextProtoTLS)
+	require.NotNil(t, transport.TLSClientConfig)
+	assert.Contains(t, transport.TLSClientConfig.NextProtos, http2.NextProtoTLS)
+	assert.Contains(t, transport.TLSClientConfig.NextProtos, "http/1.1")
 }
 
 // testRoundTripperFunc type is an adapter to allow the use of ordinary functions as http.RoundTrippers.
@@ -1116,16 +1127,56 @@ func TestConnectionPoolConfigSetMethods(t *testing.T) {
 	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
 }
 
-func TestTransportConfigSkipsHTTP2Transport(t *testing.T) {
+func TestHTTP2ConfigPreservesHTTPTransportSettings(t *testing.T) {
+	t.Parallel()
+
+	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	client := Create(&Config{
-		HTTP2:               true,
-		TLSConfig:           &tls.Config{InsecureSkipVerify: true},
-		MaxIdleConns:        50,
-		MaxIdleConnsPerHost: 10,
+		HTTP2:                 true,
+		TLSConfig:             tlsConfig,
+		DialTimeout:           5 * time.Second,
+		TLSHandshakeTimeout:   4 * time.Second,
+		ResponseHeaderTimeout: 3 * time.Second,
+		MaxIdleConns:          50,
+		MaxIdleConnsPerHost:   10,
+		MaxConnsPerHost:       20,
+		IdleConnTimeout:       30 * time.Second,
 	})
 
-	_, isHTTPTransport := client.HTTPClient.Transport.(*http.Transport)
-	assert.False(t, isHTTPTransport)
+	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Same(t, tlsConfig, transport.TLSClientConfig)
+	assert.NotNil(t, transport.DialContext)
+	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
+	assert.Equal(t, 3*time.Second, transport.ResponseHeaderTimeout)
+	assert.Equal(t, 50, transport.MaxIdleConns)
+	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
+	assert.Equal(t, 20, transport.MaxConnsPerHost)
+	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
+	assertHTTP2Configured(t, transport)
+}
+
+func TestHTTP2ConfigNegotiatesHTTP2(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+
+	client := Create(&Config{
+		HTTP2: true,
+		TLSConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	})
+
+	resp, err := client.Get(server.URL).Send(context.Background())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+	assert.Equal(t, "HTTP/2.0", resp.Protocol())
 }
 
 func TestTransportConfigNoOpWhenNoSettings(t *testing.T) {

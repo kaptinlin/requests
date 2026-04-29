@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kaptinlin/orderedobject"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
 )
@@ -36,10 +37,10 @@ func TestAsHTTPClientAppliesClientDefaults(t *testing.T) {
 		}
 	})
 
-	stdClient := client.AsHTTPClient()
-	require.Equal(t, 5*time.Second, stdClient.Timeout)
+	httpClient := client.AsHTTPClient()
+	require.Equal(t, 5*time.Second, httpClient.Timeout)
 
-	resp, err := stdClient.Get(server.URL)
+	resp, err := httpClient.Get(server.URL)
 	require.NoError(t, err)
 	defer func() {
 		assert.NoError(t, resp.Body.Close())
@@ -65,5 +66,80 @@ func TestAsTransportDoesNotMutateOriginalRequest(t *testing.T) {
 	}()
 
 	assert.Empty(t, req.Header.Get("X-Default"))
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAsTransportAttachesDefaultOrderedHeaders(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"1"}).
+		Set(":authority", []string{"metadata-only"}).
+		Set("X-Second", []string{"2"})
+
+	client := New(
+		WithOrderedHeaders(headers),
+		WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, "1", req.Header.Get("X-First"))
+			assert.Equal(t, "2", req.Header.Get("X-Second"))
+			assert.Empty(t, req.Header.Get(":authority"))
+
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-First", ":authority", "X-Second"}, ordered.Keys())
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		})),
+	)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	require.NoError(t, err)
+
+	resp, err := client.AsTransport().RoundTrip(req)
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, resp.Body.Close())
+	}()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAsTransportDropsOrderedMetadataForOriginalHeaderOverrides(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"default"}).
+		Set("X-Keep", []string{"default"})
+
+	client := New(
+		WithOrderedHeaders(headers),
+		WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, "request", req.Header.Get("X-First"))
+			assert.Equal(t, "default", req.Header.Get("X-Keep"))
+
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-Keep"}, ordered.Keys())
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		})),
+	)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	require.NoError(t, err)
+	req.Header.Set("X-First", "request")
+
+	resp, err := client.AsTransport().RoundTrip(req)
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, resp.Body.Close())
+	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }

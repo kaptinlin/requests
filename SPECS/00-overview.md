@@ -33,6 +33,7 @@
 - `SPECS/23-streaming-api-specs.md` defines streaming delivery.
 - `SPECS/40-middleware-architecture-specs.md` defines middleware composition.
 - `SPECS/41-retry-and-delivery-specs.md` defines retries and delivery timing.
+- `SPECS/25-profile-api-specs.md` defines coherent client identity profiles.
 
 ## Forbidden
 

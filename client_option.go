@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"time"
+
+	"github.com/kaptinlin/orderedobject"
 )
 
 // ClientOption configures a Client. Use with New().
@@ -30,6 +32,11 @@ func WithHeader(key, value string) ClientOption {
 // WithHeaders sets all default headers on the client.
 func WithHeaders(headers *http.Header) ClientOption {
 	return func(c *Client) { c.SetDefaultHeaders(headers) }
+}
+
+// WithOrderedHeaders sets ordered default headers on the client.
+func WithOrderedHeaders(headers *orderedobject.Object[[]string]) ClientOption {
+	return func(c *Client) { c.SetDefaultOrderedHeaders(headers) }
 }
 
 // WithContentType sets the default Content-Type header.
@@ -104,6 +111,15 @@ func WithMiddleware(middlewares ...Middleware) ClientOption {
 	return func(c *Client) { c.AddMiddleware(middlewares...) }
 }
 
+// WithProfile applies a coherent client identity profile.
+func WithProfile(profile Profile) ClientOption {
+	return func(c *Client) {
+		if err := c.ApplyProfile(profile); err != nil && c.Logger != nil {
+			c.Logger.Errorf("failed to apply profile: %v", err)
+		}
+	}
+}
+
 // WithTLSConfig sets the TLS configuration for the client.
 func WithTLSConfig(config *tls.Config) ClientOption {
 	return func(c *Client) { c.SetTLSConfig(config) }
@@ -146,7 +162,7 @@ func WithTransport(transport http.RoundTripper) ClientOption {
 
 // WithHTTP2 enables HTTP/2 transport support.
 func WithHTTP2() ClientOption {
-	return func(c *Client) { c.enableHTTP2() }
+	return func(c *Client) { c.EnableHTTP2() }
 }
 
 // WithHTTPClient sets the underlying http.Client.
