@@ -200,3 +200,80 @@ func TestDelFile(t *testing.T) {
 	assert.NotContains(t, uploads, "file1", "file1 should have been removed from the uploads")
 	assert.Contains(t, uploads, "file2", "file2 should be present in the uploads")
 }
+
+func TestMultipartBuilder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		fileHeader := r.MultipartForm.File["avatar"][0]
+		assert.Equal(t, "avatar.txt", fileHeader.Filename)
+		assert.Equal(t, "text/plain", fileHeader.Header.Get("Content-Type"))
+		assert.Equal(t, []string{"alice"}, r.MultipartForm.Value["user"])
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	body := NewMultipart().
+		Field("user", "alice").
+		Part(FilePart{
+			Field:       "avatar",
+			Filename:    "avatar.txt",
+			ContentType: "text/plain",
+			Body:        strings.NewReader("hello"),
+		})
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Post("/").Multipart(body).Send(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+}
+
+func TestMultipartReplayableBuffersBody(t *testing.T) {
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		assert.Equal(t, []string{"alice"}, r.MultipartForm.Value["user"])
+		requestCount++
+		if requestCount == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	body := NewMultipart().
+		Field("user", "alice").
+		FileString("avatar", "avatar.txt", "hello").
+		Replayable(1024)
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    1,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	resp, err := client.Post("/").Multipart(body).Send(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+	assert.Equal(t, 2, requestCount)
+	assert.Equal(t, 2, resp.Attempts())
+}
+
+func TestMultipartReplayableLimit(t *testing.T) {
+	body := NewMultipart().
+		FileString("avatar", "avatar.txt", strings.Repeat("x", 20)).
+		Replayable(10)
+
+	_, _, err := body.reader()
+	assert.ErrorIs(t, err, ErrInvalidConfigValue)
+}

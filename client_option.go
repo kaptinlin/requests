@@ -1,7 +1,9 @@
 package requests
 
 import (
+	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"time"
@@ -58,6 +60,11 @@ func WithCookies(cookies map[string]string) ClientOption {
 // WithCookieJar sets the cookie jar for the client.
 func WithCookieJar(jar *cookiejar.Jar) ClientOption {
 	return func(c *Client) { c.SetDefaultCookieJar(jar) }
+}
+
+// WithSession enables cookie and TLS session reuse.
+func WithSession() ClientOption {
+	return func(c *Client) { c.EnableSession() }
 }
 
 // WithAuth sets the authentication method for the client.
@@ -137,6 +144,11 @@ func WithTransport(transport http.RoundTripper) ClientOption {
 	return func(c *Client) { c.SetDefaultTransport(transport) }
 }
 
+// WithHTTP2 enables HTTP/2 transport support.
+func WithHTTP2() ClientOption {
+	return func(c *Client) { c.enableHTTP2() }
+}
+
 // WithHTTPClient sets the underlying http.Client.
 // When combined with transport-modifying options (WithProxy, WithDialTimeout, etc.),
 // place WithHTTPClient first since it replaces the entire http.Client.
@@ -147,6 +159,21 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 // WithDialTimeout sets the TCP connection timeout on the underlying transport.
 func WithDialTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.SetDialTimeout(d) }
+}
+
+// WithResolver sets the resolver used by the default transport dialer.
+func WithResolver(resolver *net.Resolver) ClientOption {
+	return func(c *Client) { c.SetResolver(resolver) }
+}
+
+// WithDialContext sets the dial function on the underlying transport.
+func WithDialContext(dial func(context.Context, string, string) (net.Conn, error)) ClientOption {
+	return func(c *Client) { c.SetDialContext(dial) }
+}
+
+// WithLocalAddr sets the local address used by the default transport dialer.
+func WithLocalAddr(addr net.Addr) ClientOption {
+	return func(c *Client) { c.SetLocalAddr(addr) }
 }
 
 // WithTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.

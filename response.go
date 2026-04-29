@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 )
 
 // Response represents an HTTP response.
@@ -20,6 +23,8 @@ type Response struct {
 	stream      StreamCallback
 	streamErr   StreamErrCallback
 	streamDone  StreamDoneCallback
+	elapsed     time.Duration
+	attempts    int
 	RawResponse *http.Response  // RawResponse is the underlying HTTP response.
 	BodyBytes   []byte          // BodyBytes contains the buffered response body for non-streaming responses.
 	Context     context.Context // Context is the request context associated with the response.
@@ -132,6 +137,52 @@ func (r *Response) Location() (*url.URL, error) {
 // URL returns the request URL that elicited the response.
 func (r *Response) URL() *url.URL {
 	return r.RawResponse.Request.URL
+}
+
+// Elapsed returns the duration from request dispatch through response setup.
+func (r *Response) Elapsed() time.Duration {
+	return r.elapsed
+}
+
+// Attempts returns the total number of transport attempts, including the first request.
+func (r *Response) Attempts() int {
+	return r.attempts
+}
+
+// Protocol returns the response protocol, such as "HTTP/1.1" or "HTTP/2.0".
+func (r *Response) Protocol() string {
+	if r.RawResponse == nil {
+		return ""
+	}
+	return r.RawResponse.Proto
+}
+
+// TLS returns a copy of the response TLS connection state, if any.
+func (r *Response) TLS() *tls.ConnectionState {
+	if r.RawResponse == nil || r.RawResponse.TLS == nil {
+		return nil
+	}
+	state := *r.RawResponse.TLS
+	state.PeerCertificates = slices.Clone(state.PeerCertificates)
+	state.VerifiedChains = slices.Clone(state.VerifiedChains)
+	for i, chain := range state.VerifiedChains {
+		state.VerifiedChains[i] = slices.Clone(chain)
+	}
+	state.SignedCertificateTimestamps = cloneByteSlices(state.SignedCertificateTimestamps)
+	state.OCSPResponse = slices.Clone(state.OCSPResponse)
+	state.TLSUnique = slices.Clone(state.TLSUnique)
+	return &state
+}
+
+func cloneByteSlices(values [][]byte) [][]byte {
+	if values == nil {
+		return nil
+	}
+	cloned := make([][]byte, len(values))
+	for i, value := range values {
+		cloned[i] = slices.Clone(value)
+	}
+	return cloned
 }
 
 // ContentType returns the value of the "Content-Type" header.

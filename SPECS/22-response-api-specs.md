@@ -25,12 +25,20 @@ In streaming mode, body consumption is delegated to asynchronous callbacks. Call
 
 - `StatusCode`, `Status`
 - `Header`, `Cookies`, `Location`, `URL`
+- `Elapsed`, `Attempts`, `Protocol`, `TLS`
 - `ContentType`, `IsContentType`, `IsJSON`, `IsXML`, `IsYAML`
 - `ContentLength`, `IsEmpty`
 - `IsSuccess`, `IsError`, `IsClientError`, `IsServerError`, `IsRedirect`
 - `Body`, `String`, `Close`
 
 These helpers describe response metadata only. They do not change delivery behavior.
+
+Diagnostics:
+
+- `Elapsed()` returns the duration from request dispatch through buffered response setup or stream arming.
+- `Attempts()` returns transport attempts for this response, including the first request.
+- `Protocol()` returns the final `http.Response.Proto` string.
+- `TLS()` returns a copy of the final response TLS connection state, or nil for non-TLS responses.
 
 ## Decoding Contract
 
@@ -65,6 +73,7 @@ When saving to a path, parent directories are created as needed. Any other save 
 
 - [ ] Buffered and streaming response modes are distinct.
 - [ ] The supported decoding paths are explicit.
+- [ ] Response diagnostics are read-only helpers.
 - [ ] Save targets are explicit.
 - [ ] The non-streaming boundary for `Lines()` is explicit.
 

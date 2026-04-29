@@ -37,13 +37,16 @@ Request-local auth overrides client auth for that request.
 
 The outbound body uses the first applicable source in this order:
 
-1. multipart form data when one or more files are attached with `File` or `Files`
-2. URL-encoded form data when form fields exist and no files exist
-3. `bodyData` from `Body`, `JSONBody`, `XMLBody`, `YAMLBody`, `TextBody`, or `RawBody`
+1. explicit multipart form data from `Multipart`
+2. multipart form data when one or more files are attached with `File` or `Files`
+3. URL-encoded form data when form fields exist and no files exist
+4. `bodyData` from `Body`, `JSONBody`, `XMLBody`, `YAMLBody`, `TextBody`, or `RawBody`
 
 `JSONBody`, `XMLBody`, `YAMLBody`, and `TextBody` set the corresponding content type explicitly.
 
 When `Body` is used without an explicit content type, content type inference is limited to the built-in runtime types handled by `request.go`. Callers SHOULD use the explicit body helpers when they need deterministic encoding for structs or custom types.
+
+`Multipart` is the streaming multipart builder. It supports fields, file readers, bytes, strings, explicit file metadata through `FilePart`, custom boundaries, and explicit retry buffering through `Replayable(maxBytes)`. Without `Replayable`, multipart bodies stream and are not replayable after the first transport attempt.
 
 > **Why**: The body source order keeps multipart and form workflows predictable while preserving one explicit fallback for generic body data.
 >
@@ -62,7 +65,7 @@ A builder MAY define request-local delivery policy through:
 
 Request-local retry policy SHOULD override the client retry policy for that request, including `MaxRetries(0)` to disable retries.
 
-> **Status**: not yet implemented in `request.go:415-418`; a builder only overrides the client retry count when `MaxRetries` is greater than zero.
+Request bodies that can be replayed SHOULD be restored before each retry attempt. Non-replayable bodies MUST NOT be retried after the first attempt once delivery has started.
 
 ## Middleware and Streaming Hooks
 
@@ -103,6 +106,6 @@ Client mutations after `Send` starts do not affect that in-flight request.
 - [ ] Builder creation and mutation boundaries are explicit.
 - [ ] Body source precedence is explicit.
 - [ ] The clone contract is explicit.
-- [ ] The intended retry-override rule and current gap are both documented.
+- [ ] The intended retry-override rule and request body replay behavior are documented.
 
 **Origin:** Migrated from `docs/request.md`.

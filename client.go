@@ -1,6 +1,7 @@
 package requests
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
+	"golang.org/x/net/publicsuffix"
 )
 
 // Client represents an HTTP client.
@@ -37,6 +39,10 @@ type Client struct {
 	YAMLEncoder   Encoder         // YAMLEncoder encodes YAML request bodies.
 	YAMLDecoder   Decoder         // YAMLDecoder decodes YAML response bodies.
 	Logger        Logger          // Logger receives client log output when configured.
+	dialTimeout   time.Duration
+	resolver      *net.Resolver
+	localAddr     net.Addr
+	dialContext   func(context.Context, string, string) (net.Conn, error)
 	auth          AuthMethod
 }
 
@@ -58,6 +64,10 @@ type Config struct {
 	RetryIf           RetryIfFunc       // RetryIf decides whether a request should be retried.
 	Logger            Logger            // Logger receives client log output when configured.
 	HTTP2             bool              // HTTP2 enables HTTP/2 when Transport is not provided.
+	Resolver          *net.Resolver     // Resolver customizes name resolution for the default transport dialer.
+	// DialContext is the dial function used by the default transport.
+	DialContext func(context.Context, string, string) (net.Conn, error)
+	LocalAddr   net.Addr // LocalAddr is the local address used by the default transport dialer.
 
 	// Transport-level timeouts.
 	DialTimeout           time.Duration // DialTimeout is the TCP connection timeout.
@@ -134,7 +144,8 @@ func (cfg *Config) hasTransportConfig() bool {
 	return cfg.DialTimeout > 0 || cfg.TLSHandshakeTimeout > 0 ||
 		cfg.ResponseHeaderTimeout > 0 || cfg.MaxIdleConns > 0 ||
 		cfg.MaxIdleConnsPerHost > 0 || cfg.MaxConnsPerHost > 0 ||
-		cfg.IdleConnTimeout > 0
+		cfg.IdleConnTimeout > 0 || cfg.Resolver != nil ||
+		cfg.DialContext != nil || cfg.LocalAddr != nil
 }
 
 // New creates a Client with functional options applied.
@@ -184,6 +195,10 @@ func Create(config *Config) *Client {
 		YAMLEncoder: DefaultYAMLEncoder,
 		YAMLDecoder: DefaultYAMLDecoder,
 		TLSConfig:   config.TLSConfig,
+		dialTimeout: config.DialTimeout,
+		resolver:    config.Resolver,
+		localAddr:   config.LocalAddr,
+		dialContext: config.DialContext,
 	}
 
 	if config.TLSServerName != "" {
@@ -279,6 +294,10 @@ func (c *Client) syncTLSConfigLocked() {
 		return
 	}
 	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
+		transport.TLSClientConfig = c.TLSConfig
+		return
+	}
+	if transport, ok := c.HTTPClient.Transport.(*http2.Transport); ok {
 		transport.TLSClientConfig = c.TLSConfig
 		return
 	}
@@ -501,6 +520,34 @@ func (c *Client) SetDefaultCookieJar(jar *cookiejar.Jar) {
 	c.HTTPClient.Jar = jar
 }
 
+// EnableSession enables cookie and TLS session reuse without replacing existing session stores.
+func (c *Client) EnableSession() *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	if c.HTTPClient.Jar == nil {
+		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+		if err == nil {
+			c.HTTPClient.Jar = jar
+		} else if c.Logger != nil {
+			c.Logger.Errorf("failed to create cookie jar: %v", err)
+		}
+	}
+
+	c.ensureTLSConfig()
+	if c.TLSConfig.ClientSessionCache == nil {
+		c.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(0)
+	}
+	switch c.HTTPClient.Transport.(type) {
+	case nil, *http.Transport, *http2.Transport:
+		c.syncTLSConfigLocked()
+	}
+	return c
+}
+
 // SetDefaultCookies sets the default cookies for the client.
 func (c *Client) SetDefaultCookies(cookies map[string]string) {
 	for name, value := range cookies {
@@ -651,6 +698,19 @@ func (c *Client) SetMaxRetries(maxRetries int) *Client {
 	return c
 }
 
+func (c *Client) enableHTTP2() *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.HTTPClient == nil {
+		c.HTTPClient = &http.Client{}
+	}
+	c.HTTPClient.Transport = &http2.Transport{
+		TLSClientConfig: c.TLSConfig,
+	}
+	return c
+}
+
 // SetRetryStrategy sets the backoff strategy for retries.
 func (c *Client) SetRetryStrategy(strategy BackoffStrategy) *Client {
 	c.mu.Lock()
@@ -718,11 +778,77 @@ func (c *Client) withTransport(fn func(*http.Transport)) *Client {
 	return c
 }
 
+func (c *Client) applyDialContextLocked(transport *http.Transport) {
+	if c.dialContext != nil {
+		transport.DialContext = c.dialContext
+		return
+	}
+	if c.dialTimeout == 0 && c.resolver == nil && c.localAddr == nil {
+		transport.DialContext = nil
+		return
+	}
+	dialer := &net.Dialer{
+		Timeout:   c.dialTimeout,
+		Resolver:  c.resolver,
+		LocalAddr: c.localAddr,
+	}
+	transport.DialContext = dialer.DialContext
+}
+
 // SetDialTimeout sets the TCP connection timeout on the underlying transport.
 func (c *Client) SetDialTimeout(d time.Duration) *Client {
-	return c.withTransport(func(t *http.Transport) {
-		t.DialContext = (&net.Dialer{Timeout: d}).DialContext
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.dialTimeout = d
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return c
+	}
+	c.applyDialContextLocked(transport)
+	return c
+}
+
+// SetResolver sets the resolver used by the default transport dialer.
+func (c *Client) SetResolver(resolver *net.Resolver) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.resolver = resolver
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return c
+	}
+	c.applyDialContextLocked(transport)
+	return c
+}
+
+// SetDialContext sets the dial function on the underlying transport.
+func (c *Client) SetDialContext(dial func(context.Context, string, string) (net.Conn, error)) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.dialContext = dial
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return c
+	}
+	c.applyDialContextLocked(transport)
+	return c
+}
+
+// SetLocalAddr sets the local address used by the default transport dialer.
+func (c *Client) SetLocalAddr(addr net.Addr) *Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.localAddr = addr
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return c
+	}
+	c.applyDialContextLocked(transport)
+	return c
 }
 
 // SetTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
@@ -781,8 +907,14 @@ func applyTransportConfig(c *Client, config *Config) {
 		c.HTTPClient.Transport = transport
 	}
 
-	if config.DialTimeout > 0 {
-		transport.DialContext = (&net.Dialer{Timeout: config.DialTimeout}).DialContext
+	if config.DialContext != nil {
+		transport.DialContext = config.DialContext
+	} else if config.DialTimeout > 0 || config.Resolver != nil || config.LocalAddr != nil {
+		transport.DialContext = (&net.Dialer{
+			Timeout:   config.DialTimeout,
+			Resolver:  config.Resolver,
+			LocalAddr: config.LocalAddr,
+		}).DialContext
 	}
 	if config.TLSHandshakeTimeout > 0 {
 		transport.TLSHandshakeTimeout = config.TLSHandshakeTimeout

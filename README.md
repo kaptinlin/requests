@@ -10,8 +10,9 @@ A fluent HTTP client library for Go with middleware, retries, proxy and redirect
 - **Fluent request builder**: Chain path params, query params, headers, cookies, auth, body encoding, and per-request retry settings.
 - **Multiple client entry points**: Start with `New(...)`, `URL(...)`, or `Create(&Config{...})` depending on how much control you need.
 - **Retry-aware delivery**: Combine retry counts, backoff strategies, and `Retry-After` handling without wrapping `net/http` yourself.
-- **Transport controls**: Configure TLS, mTLS, HTTP/2, redirect policies, proxies, bypass rules, and connection pooling.
-- **Response helpers**: Decode JSON, XML, or YAML, iterate line streams, inspect status helpers, or save to disk.
+- **Transport controls**: Configure TLS, mTLS, HTTP/2, redirect policies, proxies, bypass rules, resolver/dialer hooks, and connection pooling.
+- **Standard-library adapters**: Use configured `requests` clients as `*http.Client` or `http.RoundTripper` in other SDKs.
+- **Response helpers**: Decode JSON, XML, or YAML, inspect diagnostics, iterate line streams, inspect status helpers, or save to disk.
 - **Composable middleware**: Attach header, cookie, or cache middleware at the client or request level.
 
 ## Installation
@@ -136,6 +137,27 @@ resp, err := client.Post("/upload").
 	Send(context.Background())
 ```
 
+For larger multipart bodies, use the streaming multipart builder:
+
+```go
+body := requests.NewMultipart().
+	Field("user", "alice").
+	File("avatar", "avatar.png", file)
+
+resp, err := client.Post("/upload").
+	Multipart(body).
+	Send(context.Background())
+```
+
+Use `Replayable(maxBytes)` when a multipart request must be replayable for retries:
+
+```go
+body := requests.NewMultipart().
+	Field("user", "alice").
+	FileString("note", "note.txt", "hello").
+	Replayable(1 << 20)
+```
+
 ## Retries and Delivery
 
 ### Client-level retries
@@ -163,7 +185,40 @@ resp, err := client.Get("/jobs/{id}").
 	Send(context.Background())
 ```
 
+Use `MaxRetries(0)` on a request to disable a positive client default. Replayable request bodies are restored before retry attempts; non-replayable streaming bodies are attempted once.
+
 The retry logic automatically honors `Retry-After` on `429` and `503` responses.
+
+## Standard Library Integration
+
+Use `AsHTTPClient()` when another SDK accepts `*http.Client`:
+
+```go
+stdClient := client.AsHTTPClient()
+resp, err := stdClient.Get("https://api.example.com/resource")
+```
+
+Use `AsTransport()` when the caller owns the `http.Client`:
+
+```go
+stdClient := &http.Client{
+	Transport: client.AsTransport(),
+}
+```
+
+The adapter applies client headers, cookies, auth, and client middleware. It does not run request-builder retries, response buffering, streaming callbacks, or decoding helpers.
+
+## Session and Dialing
+
+```go
+client := requests.New(
+	requests.WithSession(),
+	requests.WithHTTP2(),
+	requests.WithResolver(net.DefaultResolver),
+)
+```
+
+`WithSession()` creates a cookie jar and TLS session cache when missing. `WithDialContext` and `WithLocalAddr` are available for custom gateway and network binding setups.
 
 ## Proxies and Redirects
 
@@ -226,6 +281,15 @@ if requests.IsTimeout(err) {
 if requests.IsConnectionError(err) {
 	log.Println("connection failed")
 }
+```
+
+### Inspect diagnostics
+
+```go
+fmt.Println(resp.Elapsed())
+fmt.Println(resp.Attempts())
+fmt.Println(resp.Protocol())
+fmt.Println(resp.TLS() != nil)
 ```
 
 ## Streaming

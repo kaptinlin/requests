@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -316,6 +317,37 @@ func TestResponseURL(t *testing.T) {
 
 			assert.Equal(t, expectedURL.String(), resp.URL().String(), "The response URL should match the expected URL.")
 		})
+	}
+}
+
+func TestResponseDiagnostics(t *testing.T) {
+	server := startTestHTTPServer()
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	resp, err := client.Get("/test-get").Send(context.Background())
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, resp.Attempts())
+	assert.Greater(t, resp.Elapsed(), time.Duration(0))
+	assert.Equal(t, resp.RawResponse.Proto, resp.Protocol())
+}
+
+func TestResponseTLSReturnsCopy(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	client.InsecureSkipVerify()
+	resp, err := client.Get("/").Send(context.Background())
+	assert.NoError(t, err)
+
+	state := resp.TLS()
+	if assert.NotNil(t, state) && assert.NotEmpty(t, state.PeerCertificates) {
+		state.PeerCertificates = nil
+		assert.NotEmpty(t, resp.RawResponse.TLS.PeerCertificates)
 	}
 }
 

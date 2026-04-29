@@ -13,6 +13,8 @@ Retry behavior is part of request delivery. This spec defines retry counts, retr
 
 Client defaults come from `Client.SetMaxRetries` or `Config.MaxRetries`. Request-local overrides come from `RequestBuilder.MaxRetries`.
 
+`Response.Attempts()` reports total transport attempts, including the initial attempt.
+
 ## Retry Conditions
 
 `RetryIfFunc` decides whether a request should be retried.
@@ -62,20 +64,27 @@ The retry loop respects the request context.
 
 Request-local retry configuration SHOULD override the client retry configuration completely for that request.
 
-> **Status**: not yet implemented for zero retries in `request.go:415-418`; `RequestBuilder.MaxRetries(0)` does not currently disable a positive client default.
+`RequestBuilder.MaxRetries(0)` disables retries even when the client has a positive default.
+
+## Request Body Replay
+
+Before retrying a request with a replayable body, delivery restores `req.Body` through `req.GetBody`.
+
+Replayable body sources include built-in buffered/string body helpers and multipart builders that explicitly opt into `Replayable(maxBytes)`. Non-replayable streaming bodies are attempted once; if their first attempt returns a retryable response, delivery returns that response instead of sending an empty or partial retry.
 
 ## Forbidden
 
 - Do not count the initial transport attempt as a retry.
 - Do not expect `Retry-After` to apply to status codes other than `429` and `503`.
-- Do not assume request-local `MaxRetries(0)` currently disables a positive client default without verifying the implementation status note.
+- Do not assume streaming request bodies can be retried unless the body source explicitly supports replay.
 
 ## Acceptance Criteria
 
 - [ ] Retry count semantics are explicit.
+- [ ] Attempts reporting includes the initial transport attempt.
 - [ ] Default retry conditions are explicit.
 - [ ] `Retry-After` precedence is explicit.
 - [ ] Context cancellation and retry cleanup rules are explicit.
-- [ ] The current zero-retry override gap is explicit.
+- [ ] Request body replay behavior is explicit.
 
 **Origin:** Migrated from `docs/retry.md`.

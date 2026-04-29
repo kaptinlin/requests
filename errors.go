@@ -19,6 +19,12 @@ var (
 	// ErrRequestCreationFailed is returned when the request cannot be created.
 	ErrRequestCreationFailed = errors.New("failed to create request")
 
+	// ErrRequestBodyNotReplayable is returned when a retry needs a request body that cannot be replayed.
+	ErrRequestBodyNotReplayable = errors.New("request body is not replayable")
+
+	// ErrRequestBodyReadIncomplete is returned when a replayable request body cannot be fully read.
+	ErrRequestBodyReadIncomplete = errors.New("request body read incomplete")
+
 	// ErrResponseReadFailed is returned when the response cannot be read.
 	ErrResponseReadFailed = errors.New("failed to read response")
 

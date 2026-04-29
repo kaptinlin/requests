@@ -821,6 +821,85 @@ func TestRetryAfterHeader(t *testing.T) {
 	assert.Equal(t, int32(2), requestCount)
 }
 
+func TestRequestMaxRetriesZeroOverridesClientDefault(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    2,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	resp, err := client.Get("/").MaxRetries(0).Send(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode())
+	assert.Equal(t, int32(1), requestCount)
+	assert.Equal(t, 1, resp.Attempts())
+}
+
+func TestRetryReplaysJSONBody(t *testing.T) {
+	var requestCount int32
+	var bodies []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		bodies = append(bodies, string(body))
+
+		if atomic.AddInt32(&requestCount, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    1,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	resp, err := client.Post("/").JSONBody(map[string]string{"message": "hello"}).Send(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+	assert.Equal(t, int32(2), requestCount)
+	require.Len(t, bodies, 2)
+	assert.Equal(t, bodies[0], bodies[1])
+	assert.Equal(t, 2, resp.Attempts())
+}
+
+func TestRetrySkipsNonReplayableBody(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    1,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	body := &io.LimitedReader{R: strings.NewReader("payload"), N: int64(len("payload"))}
+	resp, err := client.Post("/").Body(body).ContentType("text/plain").Send(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode())
+	assert.Equal(t, int32(1), requestCount)
+	assert.Equal(t, 1, resp.Attempts())
+}
+
 func TestRequestLevelRetries(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

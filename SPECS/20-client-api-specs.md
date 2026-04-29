@@ -39,8 +39,11 @@ These defaults apply to every request created from the client unless the request
 
 - `SetDefaultTimeout` sets the default `http.Client.Timeout`.
 - `SetDefaultTransport` and `SetHTTPClient` replace the underlying transport or client.
-- `SetDialTimeout`, `SetTLSHandshakeTimeout`, `SetResponseHeaderTimeout`, `SetMaxIdleConns`, `SetMaxIdleConnsPerHost`, `SetMaxConnsPerHost`, and `SetIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
+- `SetDialTimeout`, `SetResolver`, `SetDialContext`, `SetLocalAddr`, `SetTLSHandshakeTimeout`, `SetResponseHeaderTimeout`, `SetMaxIdleConns`, `SetMaxIdleConnsPerHost`, `SetMaxConnsPerHost`, and `SetIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
+- Resolver and local-address configuration use standard-library types only.
 - `WithHTTPClient` MUST be applied before transport-mutating options such as `WithProxy` or `WithDialTimeout`, because replacing the client discards earlier transport mutations.
+
+`WithHTTP2()` is the functional-option equivalent of `Config.HTTP2`.
 
 ## TLS and HTTP/2
 
@@ -48,7 +51,10 @@ These defaults apply to every request created from the client unless the request
 
 - `SetTLSConfig`, `InsecureSkipVerify`, `SetCertificates`, `SetClientCertificate`, `SetTLSServerName`, `SetRootCertificate`, `SetRootCertificateFromString`, `SetClientRootCertificate`, and `SetClientRootCertificateFromString` mutate client-level TLS state.
 - `Config.HTTP2` enables `http2.Transport` only during construction.
+- `WithSession` and `EnableSession` create a cookie jar and TLS client session cache when missing.
 - File-loading helpers such as `SetClientCertificate` and `SetRootCertificate` are best-effort: they log when a logger is configured and keep returning the same client for continued chaining.
+
+`EnableSession` MUST NOT replace an existing cookie jar or `TLSConfig.ClientSessionCache`.
 
 > **Why**: TLS policy is connection-level state, so it belongs on the client instead of on individual builders.
 >
@@ -76,11 +82,25 @@ The built-in policies are:
 
 Multiple redirect policies MAY be composed in one `SetRedirectPolicy` call. They run in argument order and the first error stops redirect processing.
 
+## Standard Library Adapters
+
+`AsHTTPClient()` returns a new `*http.Client` that snapshots the current underlying timeout, cookie jar, redirect policy, and transport. Its transport applies client-level defaults: headers, cookies, auth, and client middleware.
+
+`AsTransport()` returns the same configured transport wrapper for callers that already own an `*http.Client`.
+
+Adapter boundaries:
+
+- preserve client headers, cookies, auth, middleware, timeout, cookie jar, redirect policy, and the underlying transport
+- do not preserve `RequestBuilder` behavior such as request-local retry, response buffering, streaming callbacks, decoding helpers, `Save`, or `Lines`
+- clone inbound standard-library requests before applying defaults
+- do not change the meaning of `Client.HTTPClient` or `GetHTTPClient`, which remain raw escape hatches
+
 ## Forbidden
 
 - Do not chain mutators that return `void`, including `SetDefaultHeader`, `SetDefaultHeaders`, `SetDefaultCookie`, `SetHTTPClient`, and `AddMiddleware`.
 - Do not rely on `WithProxy` to report invalid proxy configuration.
 - Do not expect `*http.Transport`-specific timeout and pool setters to mutate a custom non-`*http.Transport` transport.
+- Do not expect `AsHTTPClient` or `AsTransport` to run the `RequestBuilder` pipeline.
 
 ## Acceptance Criteria
 

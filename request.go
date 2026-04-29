@@ -19,26 +19,28 @@ import (
 
 // RequestBuilder facilitates building and executing HTTP requests.
 type RequestBuilder struct {
-	client        *Client
-	method        string
-	path          string
-	headers       *http.Header
-	cookies       []*http.Cookie
-	queries       url.Values
-	pathParams    map[string]string
-	formFields    url.Values
-	formFiles     []*File
-	boundary      string
-	bodyData      any
-	timeout       time.Duration
-	middlewares   []Middleware
-	maxRetries    int
-	retryStrategy BackoffStrategy
-	retryIf       RetryIfFunc
-	auth          AuthMethod
-	stream        StreamCallback
-	streamErr     StreamErrCallback
-	streamDone    StreamDoneCallback
+	client                *Client
+	method                string
+	path                  string
+	headers               *http.Header
+	cookies               []*http.Cookie
+	queries               url.Values
+	pathParams            map[string]string
+	formFields            url.Values
+	formFiles             []*File
+	multipart             *Multipart
+	boundary              string
+	bodyData              any
+	timeout               time.Duration
+	middlewares           []Middleware
+	maxRetries            int
+	hasMaxRetriesOverride bool
+	retryStrategy         BackoffStrategy
+	retryIf               RetryIfFunc
+	auth                  AuthMethod
+	stream                StreamCallback
+	streamErr             StreamErrCallback
+	streamDone            StreamDoneCallback
 }
 
 // NewRequestBuilder creates a new RequestBuilder with default settings.
@@ -327,6 +329,12 @@ func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *Requ
 	return b
 }
 
+// Multipart sets a multipart/form-data body built by Multipart.
+func (b *RequestBuilder) Multipart(m *Multipart) *RequestBuilder {
+	b.multipart = m
+	return b
+}
+
 // DelFile removes one or more files from the request.
 func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 	if b.formFiles == nil || len(key) == 0 {
@@ -395,6 +403,7 @@ func (b *RequestBuilder) Timeout(timeout time.Duration) *RequestBuilder {
 // MaxRetries sets the maximum number of retry attempts.
 func (b *RequestBuilder) MaxRetries(maxRetries int) *RequestBuilder {
 	b.maxRetries = maxRetries
+	b.hasMaxRetriesOverride = true
 	return b
 }
 
@@ -410,12 +419,11 @@ func (b *RequestBuilder) RetryIf(retryIf RetryIfFunc) *RequestBuilder {
 	return b
 }
 
-func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientSnapshot) (*http.Response, error) {
+func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientSnapshot) (*http.Response, int, error) {
+	attempts := 0
+
 	finalHandler := MiddlewareHandlerFunc(func(req *http.Request) (*http.Response, error) {
-		maxRetries := snap.MaxRetries
-		if b.maxRetries > 0 {
-			maxRetries = b.maxRetries
-		}
+		maxRetries := b.effectiveMaxRetries(snap)
 
 		retryStrategy := snap.RetryStrategy
 		if b.retryStrategy != nil {
@@ -427,14 +435,17 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientS
 			retryIf = b.retryIf
 		}
 
-		if maxRetries < 1 {
-			return snap.HTTPClient.Do(req)
-		}
-
 		var errs []error
 		var resp *http.Response
 		for attempt := range maxRetries + 1 {
+			if attempt > 0 {
+				if err := resetRequestBody(req); err != nil {
+					return resp, err
+				}
+			}
+
 			var err error
+			attempts++
 			resp, err = snap.HTTPClient.Do(req)
 
 			if err != nil {
@@ -450,6 +461,16 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientS
 					if len(errs) > 1 {
 						return resp, errors.Join(errs...)
 					}
+					return resp, err
+				}
+				break
+			}
+
+			if !canReplayRequestBody(req) {
+				if snap.Logger != nil {
+					snap.Logger.Warnf("request body cannot be replayed; skipping retry after attempt %d", attempt+1)
+				}
+				if err != nil {
 					return resp, err
 				}
 				break
@@ -490,7 +511,8 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientS
 		finalHandler = mw(finalHandler)
 	}
 
-	return finalHandler(req)
+	resp, err := finalHandler(req)
+	return resp, attempts, err
 }
 
 // Stream sets the stream callback for the request.
@@ -516,8 +538,8 @@ func (b *RequestBuilder) StreamDone(callback StreamDoneCallback) *RequestBuilder
 // pathParams, and formFields (deep copy). This means configuration changes to the
 // client will affect both the original and clone.
 //
-// Body data, form files, stream callbacks, middlewares, and retry config are not copied
-// as they are not safe to share or clone. Set these on the cloned builder if needed.
+// Body data, multipart bodies, form files, stream callbacks, middlewares, and retry config
+// are not copied as they are not safe to share or clone. Set these on the cloned builder if needed.
 func (b *RequestBuilder) Clone() *RequestBuilder {
 	clone := &RequestBuilder{
 		client:   b.client,
@@ -553,18 +575,8 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 
 // Send executes the HTTP request.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
+	start := time.Now()
 	snap := b.client.snapshot()
-	body, contentType, err := b.prepareBody(snap)
-	if err != nil {
-		if snap.Logger != nil {
-			snap.Logger.Errorf("Error preparing request body: %v", err)
-		}
-		return nil, err
-	}
-
-	if contentType != "" {
-		b.headers.Set("Content-Type", contentType)
-	}
 
 	parsedURL, err := url.Parse(snap.BaseURL + b.preparePath())
 	if err != nil {
@@ -587,6 +599,23 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		defer cancel()
 	}
 
+	body, contentType, err := b.prepareBody(snap)
+	if err != nil {
+		if snap.Logger != nil {
+			snap.Logger.Errorf("Error preparing request body: %v", err)
+		}
+		return nil, err
+	}
+
+	if contentType != "" {
+		b.headers.Set("Content-Type", contentType)
+	}
+
+	body, getBody, contentLength, err := b.prepareReplayableBody(body, snap)
+	if err != nil {
+		return nil, err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, b.method, parsedURL.String(), body)
 	if err != nil {
 		if snap.Logger != nil {
@@ -594,12 +623,16 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		}
 		return nil, fmt.Errorf("%w: %w", ErrRequestCreationFailed, err)
 	}
+	if getBody != nil {
+		req.GetBody = getBody
+		req.ContentLength = contentLength
+	}
 
 	b.applyAuth(req, snap)
 	b.applyHeaders(req, snap)
 	b.applyCookies(req, snap)
 
-	resp, err := b.do(ctx, req, snap)
+	resp, attempts, err := b.do(ctx, req, snap)
 	if err != nil {
 		if snap.Logger != nil {
 			snap.Logger.Errorf("Error executing request: %v", err)
@@ -617,10 +650,18 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		return nil, ErrResponseNil
 	}
 
-	return NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
+	response, err := NewResponse(ctx, resp, b.client, b.stream, b.streamErr, b.streamDone)
+	if response != nil {
+		response.elapsed = time.Since(start)
+		response.attempts = attempts
+	}
+	return response, err
 }
 
 func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, error) {
+	if b.multipart != nil {
+		return b.multipart.reader()
+	}
 	if len(b.formFiles) > 0 {
 		return b.prepareMultipartBody()
 	}
@@ -639,6 +680,91 @@ func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, er
 
 	body, err := b.encodeBody(contentType, snap)
 	return body, contentType, err
+}
+
+func (b *RequestBuilder) effectiveMaxRetries(snap clientSnapshot) int {
+	maxRetries := snap.MaxRetries
+	if b.hasMaxRetriesOverride {
+		maxRetries = b.maxRetries
+	}
+	return max(maxRetries, 0)
+}
+
+func (b *RequestBuilder) prepareReplayableBody(
+	body io.Reader,
+	snap clientSnapshot,
+) (io.Reader, func() (io.ReadCloser, error), int64, error) {
+	if body == nil || b.effectiveMaxRetries(snap) == 0 {
+		return body, nil, 0, nil
+	}
+
+	data, ok, err := snapshotBody(body)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if !ok {
+		return body, nil, 0, nil
+	}
+	if closer, ok := body.(io.Closer); ok {
+		_ = closer.Close()
+	}
+
+	getBody := func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	}
+	return bytes.NewReader(data), getBody, int64(len(data)), nil
+}
+
+type sizedReadSeekerAt interface {
+	ReadAt([]byte, int64) (int, error)
+	Seek(int64, int) (int64, error)
+	Size() int64
+}
+
+func snapshotBody(body io.Reader) ([]byte, bool, error) {
+	switch reader := body.(type) {
+	case *bytes.Buffer:
+		return bytes.Clone(reader.Bytes()), true, nil
+	case sizedReadSeekerAt:
+		data, err := readSizedReaderAt(reader)
+		return data, true, err
+	default:
+		return nil, false, nil
+	}
+}
+
+func readSizedReaderAt(reader sizedReadSeekerAt) ([]byte, error) {
+	data := make([]byte, reader.Size())
+	n, err := reader.ReadAt(data, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("read replayable request body: %w", err)
+	}
+	if n != len(data) {
+		return nil, fmt.Errorf("%w: read %d bytes, want %d", ErrRequestBodyReadIncomplete, n, len(data))
+	}
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("reset replayable request body: %w", err)
+	}
+	return data, nil
+}
+
+func canReplayRequestBody(req *http.Request) bool {
+	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+}
+
+func resetRequestBody(req *http.Request) error {
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	if req.GetBody == nil {
+		return ErrRequestBodyNotReplayable
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return fmt.Errorf("reset request body: %w", err)
+	}
+	req.Body = body
+	return nil
 }
 
 func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, context.CancelFunc) {

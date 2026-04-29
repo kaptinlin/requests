@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
+	"golang.org/x/net/http2"
 )
 
 func TestNew_NoOptions(t *testing.T) {
@@ -394,6 +396,61 @@ func TestNew_WithCookieJar(t *testing.T) {
 	require.NoError(t, err)
 	c := New(WithCookieJar(jar))
 	assert.Equal(t, jar, c.HTTPClient.Jar)
+}
+
+func TestNew_WithSession(t *testing.T) {
+	c := New(WithSession())
+	require.NotNil(t, c.HTTPClient.Jar)
+	require.NotNil(t, c.TLSConfig)
+	assert.NotNil(t, c.TLSConfig.ClientSessionCache)
+}
+
+func TestEnableSessionPreservesExistingSessionStores(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	cache := tls.NewLRUClientSessionCache(1)
+	c := New(
+		WithCookieJar(jar),
+		WithTLSConfig(&tls.Config{ClientSessionCache: cache}),
+	)
+
+	c.EnableSession()
+
+	assert.Equal(t, jar, c.HTTPClient.Jar)
+	assert.Equal(t, cache, c.TLSConfig.ClientSessionCache)
+}
+
+func TestNew_WithHTTP2(t *testing.T) {
+	c := New(WithHTTP2())
+	_, ok := c.HTTPClient.Transport.(*http2.Transport)
+	assert.True(t, ok)
+}
+
+func TestNew_WithDialOptions(t *testing.T) {
+	resolver := &net.Resolver{}
+	localAddr := &net.TCPAddr{IP: net.IPv4zero}
+	c := New(
+		WithResolver(resolver),
+		WithLocalAddr(localAddr),
+	)
+
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.NotNil(t, transport.DialContext)
+}
+
+func TestNew_WithDialContext(t *testing.T) {
+	called := false
+	c := New(WithDialContext(func(context.Context, string, string) (net.Conn, error) {
+		called = true
+		return nil, assert.AnError
+	}))
+
+	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	require.True(t, ok)
+	_, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:1")
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.True(t, called)
 }
 
 func TestNew_WithAuth(t *testing.T) {
