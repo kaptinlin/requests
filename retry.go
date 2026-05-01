@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-const (
-	// minBackoffDelay is the minimum backoff delay to prevent negative durations.
-	minBackoffDelay = 0 * time.Second
-)
-
 // BackoffStrategy defines a function that returns the delay before the next retry.
 type BackoffStrategy func(attempt int) time.Duration
 
@@ -50,7 +45,7 @@ func JitterBackoffStrategy(base BackoffStrategy, fraction float64) BackoffStrate
 		}
 		jitter := float64(delay) * fraction * (2*rand.Float64() - 1)
 		result := time.Duration(float64(delay) + jitter)
-		return max(result, minBackoffDelay)
+		return max(result, 0)
 	}
 }
 

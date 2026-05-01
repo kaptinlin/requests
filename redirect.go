@@ -148,7 +148,8 @@ func checkHostAndAddHeaders(cur *http.Request, pre *http.Request) {
 
 	if sameHost && !schemeDowngrade {
 		maps.Copy(cur.Header, pre.Header)
-	} else {
-		stripSensitiveHeaders(cur.Header)
+		return
 	}
+
+	stripSensitiveHeaders(cur.Header)
 }
