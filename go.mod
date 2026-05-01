@@ -3,11 +3,11 @@ module github.com/kaptinlin/requests
 go 1.26.2
 
 require (
-	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433
+	github.com/go-json-experiment/json v0.0.0-20260430182902-b6187a392ed4
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-querystring v1.2.0
-	github.com/kaptinlin/orderedobject v0.2.12
+	github.com/kaptinlin/orderedobject v0.2.13
 	github.com/stretchr/testify v1.11.1
 	github.com/test-go/testify v1.1.4
 	github.com/valyala/bytebufferpool v1.0.0
