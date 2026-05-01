@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/kaptinlin/orderedobject v0.2.12
-	github.com/kaptinlin/requests v0.5.0
+	github.com/kaptinlin/requests v0.5.1
 	github.com/test-go/testify v1.1.4
 )
 
@@ -13,9 +13,8 @@ require (
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/kr/pretty v0.3.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
