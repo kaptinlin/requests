@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/kaptinlin/requests"
 	"github.com/quic-go/quic-go"
 	qhttp3 "github.com/quic-go/quic-go/http3"
@@ -20,6 +22,7 @@ func TestTransportOptions(t *testing.T) {
 	tlsConfig := &tls.Config{ServerName: "example.com", MinVersion: tls.VersionTLS13}
 	quicConfig := &quic.Config{}
 	settings := map[uint64]uint64{0x21: 1}
+	logger := slog.Default()
 
 	transport := Transport(
 		WithTLSConfig(tlsConfig),
@@ -28,6 +31,7 @@ func TestTransportOptions(t *testing.T) {
 		WithAdditionalSettings(settings),
 		WithMaxResponseHeaderBytes(1024),
 		WithoutCompression(),
+		WithLogger(logger),
 	)
 
 	require.False(t, tlsConfig == transport.TLSClientConfig)
@@ -35,19 +39,30 @@ func TestTransportOptions(t *testing.T) {
 	require.False(t, quicConfig == transport.QUICConfig)
 	require.True(t, transport.QUICConfig.EnableDatagrams)
 	require.True(t, transport.EnableDatagrams)
-	require.Equal(t, map[uint64]uint64{0x21: 1}, transport.AdditionalSettings)
+	if diff := cmp.Diff(map[uint64]uint64{0x21: 1}, transport.AdditionalSettings); diff != "" {
+		t.Errorf("additional settings mismatch (-want +got):\n%s", diff)
+	}
 	require.Equal(t, 1024, transport.MaxResponseHeaderBytes)
 	require.True(t, transport.DisableCompression)
+	require.True(t, logger == transport.Logger)
 
 	settings[0x21] = 2
 	require.Equal(t, uint64(1), transport.AdditionalSettings[0x21])
 }
 
 func TestProfileAppliesHTTP3Transport(t *testing.T) {
-	client := requests.New(requests.WithProfile(Profile()))
+	profile := Profile()
+	client := requests.New(requests.WithProfile(profile))
 
+	require.Equal(t, "HTTP/3", profile.Name())
 	_, ok := client.GetHTTPClient().Transport.(*qhttp3.Transport)
 	require.True(t, ok)
+}
+
+func TestProfileRejectsNilClient(t *testing.T) {
+	err := Profile().Apply(nil)
+
+	require.True(t, errors.Is(err, requests.ErrInvalidConfigValue))
 }
 
 func TestProfileUsesClientTLSConfig(t *testing.T) {

@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/test-go/testify/require"
 )
 
 var errFailingWriter = errors.New("failing writer")
@@ -351,44 +353,20 @@ func TestResponseTLSReturnsCopy(t *testing.T) {
 	}
 }
 
-func TestResponseSaveToFile(t *testing.T) {
-	// Setup a test server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, "Sample response body")
-	}))
-	defer server.Close()
+func TestResponseSaveToFileCreatesParentDirectories(t *testing.T) {
+	t.Parallel()
 
-	// Create client and send request
-	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Get("/").Send(context.Background())
-	if err != nil {
-		t.Fatalf("Failed to send request: %v", err)
+	resp := &Response{
+		Client:    Create(nil),
+		BodyBytes: []byte("Sample response body"),
 	}
+	filePath := filepath.Join(t.TempDir(), "nested", "sample_response.txt")
 
-	// Define the path where to save the response body
-	filePath := ".github/testdata/sample_response.txt"
-	err = resp.Save(filePath)
-	if err != nil {
-		t.Fatalf("Failed to save response to file: %v", err)
-	}
+	require.NoError(t, resp.Save(filePath))
 
-	// Read the saved file
 	savedData, err := os.ReadFile(filePath)
-	if err != nil {
-		t.Fatalf("Failed to read saved file: %v", err)
-	}
-
-	// Verify the file content
-	expected := "Sample response body"
-	if string(savedData) != expected {
-		t.Errorf("Expected file content %q, got %q", expected, string(savedData))
-	}
-
-	// Clean up the saved file
-	err = os.Remove(filePath)
-	if err != nil {
-		t.Fatalf("Failed to remove saved file: %v", err)
-	}
+	require.NoError(t, err)
+	assert.Equal(t, "Sample response body", string(savedData))
 }
 
 func TestResponseLines(t *testing.T) {

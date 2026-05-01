@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -55,13 +56,25 @@ func TestChromeProfile(t *testing.T) {
 }
 
 func TestFirefoxProfile(t *testing.T) {
-	client := requests.New(requests.WithProfile(Firefox()))
+	profile := Firefox()
+	client := requests.New(requests.WithProfile(profile))
 
+	require.Equal(t, "Firefox", profile.Name())
 	require.NotNil(t, client.Headers)
 	require.Contains(t, client.Headers.Get("User-Agent"), "Firefox/148.0")
 	require.Equal(t, "en-US,en;q=0.5", client.Headers.Get("Accept-Language"))
 	require.Empty(t, client.Headers.Get(":authority"))
 	require.True(t, strings.Contains(client.Headers.Get("Accept-Encoding"), "gzip"))
+
+	transport, ok := client.GetHTTPClient().Transport.(*http.Transport)
+	require.True(t, ok)
+	require.True(t, transport.ForceAttemptHTTP2)
+}
+
+func TestProfileRejectsNilClient(t *testing.T) {
+	err := Chrome().Apply(nil)
+
+	require.True(t, errors.Is(err, requests.ErrInvalidConfigValue))
 }
 
 func TestProfileRequestHeadersOverrideDefaults(t *testing.T) {

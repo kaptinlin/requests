@@ -742,10 +742,40 @@ func TestDelDefaultCookie(t *testing.T) {
 }
 
 func TestConfigValidate(t *testing.T) {
+	t.Parallel()
+
 	assert.NoError(t, (&Config{BaseURL: "https://example.com"}).Validate())
-	assert.Error(t, (&Config{BaseURL: "://bad"}).Validate())
-	assert.Error(t, (&Config{MaxRetries: -1}).Validate())
-	assert.Error(t, (&Config{TLSClientCertFile: "cert.pem"}).Validate())
+
+	tests := []struct {
+		name string
+		cfg  Config
+		want error
+	}{
+		{name: "invalid base URL", cfg: Config{BaseURL: "://bad"}},
+		{name: "negative timeout", cfg: Config{Timeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
+		{name: "negative dial timeout", cfg: Config{DialTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
+		{name: "negative TLS handshake timeout", cfg: Config{TLSHandshakeTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
+		{name: "negative response header timeout", cfg: Config{ResponseHeaderTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
+		{name: "negative idle conn timeout", cfg: Config{IdleConnTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
+		{name: "negative max retries", cfg: Config{MaxRetries: -1}, want: ErrInvalidConfigValue},
+		{name: "negative max idle conns", cfg: Config{MaxIdleConns: -1}, want: ErrInvalidConfigValue},
+		{name: "negative max idle conns per host", cfg: Config{MaxIdleConnsPerHost: -1}, want: ErrInvalidConfigValue},
+		{name: "negative max conns per host", cfg: Config{MaxConnsPerHost: -1}, want: ErrInvalidConfigValue},
+		{name: "missing TLS client key", cfg: Config{TLSClientCertFile: "cert.pem"}, want: ErrInvalidTLSClientCertificateConfig},
+		{name: "missing TLS client cert", cfg: Config{TLSClientKeyFile: "key.pem"}, want: ErrInvalidTLSClientCertificateConfig},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cfg.Validate()
+			assert.Error(t, err)
+			if tc.want != nil {
+				assert.ErrorIs(t, err, tc.want)
+			}
+		})
+	}
 }
 
 func TestGettersAndSnapshot(t *testing.T) {
