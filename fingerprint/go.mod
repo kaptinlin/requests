@@ -3,7 +3,7 @@ module github.com/kaptinlin/requests/fingerprint
 go 1.26.2
 
 require (
-	github.com/kaptinlin/requests v0.5.2
+	github.com/kaptinlin/requests v0.5.3
 	github.com/refraction-networking/utls v1.8.2
 	github.com/test-go/testify v1.1.4
 )

@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/kaptinlin/orderedobject v0.2.13
-	github.com/kaptinlin/requests v0.5.2
+	github.com/kaptinlin/requests v0.5.3
 	github.com/test-go/testify v1.1.4
 )
 
