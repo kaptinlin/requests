@@ -870,10 +870,8 @@ func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
 		if _, err = io.Copy(part, file.Content); err != nil {
 			return nil, "", fmt.Errorf("copying file content failed: %w", err)
 		}
-		if closer, ok := file.Content.(io.Closer); ok {
-			if err = closer.Close(); err != nil {
-				return nil, "", fmt.Errorf("closing file content failed: %w", err)
-			}
+		if err = file.Content.Close(); err != nil {
+			return nil, "", fmt.Errorf("closing file content failed: %w", err)
 		}
 	}
 

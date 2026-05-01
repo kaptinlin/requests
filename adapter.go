@@ -44,17 +44,15 @@ type clientDefaultsTransport struct {
 }
 
 func newClientDefaultsTransport(snap clientSnapshot) http.RoundTripper {
+	base := http.DefaultTransport
+	if snap.HTTPClient != nil && snap.HTTPClient.Transport != nil {
+		base = snap.HTTPClient.Transport
+	}
+
 	return &clientDefaultsTransport{
 		snap: snap,
-		base: baseTransport(snap.HTTPClient),
+		base: base,
 	}
-}
-
-func baseTransport(client *http.Client) http.RoundTripper {
-	if client != nil && client.Transport != nil {
-		return client.Transport
-	}
-	return http.DefaultTransport
 }
 
 func (t *clientDefaultsTransport) RoundTrip(req *http.Request) (*http.Response, error) {

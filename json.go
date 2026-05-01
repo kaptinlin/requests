@@ -40,7 +40,6 @@ func (e *JSONEncoder) ContentType() string {
 	return "application/json;charset=utf-8"
 }
 
-// jsonMarshal wraps JSON v2 marshal to match the expected signature.
 func jsonMarshal(v any) ([]byte, error) {
 	return json.Marshal(v)
 }
@@ -73,7 +72,6 @@ func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 	return nil
 }
 
-// jsonUnmarshal wraps JSON v2 unmarshal to match the expected signature.
 func jsonUnmarshal(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }

@@ -18,7 +18,7 @@ type BackoffStrategy func(attempt int) time.Duration
 
 // DefaultBackoffStrategy provides a simple constant delay between retries.
 func DefaultBackoffStrategy(delay time.Duration) func(int) time.Duration {
-	return func(attempt int) time.Duration {
+	return func(_ int) time.Duration {
 		return delay
 	}
 }

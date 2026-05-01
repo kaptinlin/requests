@@ -34,7 +34,7 @@ func NewProhibitRedirectPolicy() *ProhibitRedirectPolicy {
 }
 
 // Apply rejects all redirects by returning ErrAutoRedirectDisabled.
-func (p *ProhibitRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
+func (p *ProhibitRedirectPolicy) Apply(_ *http.Request, _ []*http.Request) error {
 	return ErrAutoRedirectDisabled
 }
 

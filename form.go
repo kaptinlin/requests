@@ -31,7 +31,6 @@ func (f *File) SetName(name string) {
 	f.Name = name
 }
 
-// stringMapToValues converts a map[string]string to url.Values.
 func stringMapToValues(data map[string]string) url.Values {
 	values := make(url.Values, len(data))
 	for key, value := range data {
@@ -40,7 +39,6 @@ func stringMapToValues(data map[string]string) url.Values {
 	return values
 }
 
-// parseFormFields parses the given form fields into url.Values.
 func parseFormFields(fields any) (url.Values, error) {
 	switch data := fields.(type) {
 	case url.Values:
@@ -58,7 +56,6 @@ func parseFormFields(fields any) (url.Values, error) {
 	}
 }
 
-// parseForm parses the given form data into url.Values and []*File.
 func parseForm(v any) (url.Values, []*File, error) {
 	switch data := v.(type) {
 	case url.Values:
