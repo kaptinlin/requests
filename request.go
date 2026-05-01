@@ -33,6 +33,7 @@ type RequestBuilder struct {
 	multipart             *Multipart
 	boundary              string
 	bodyData              any
+	rawBody               bool
 	timeout               time.Duration
 	middlewares           []Middleware
 	maxRetries            int
@@ -379,36 +380,42 @@ func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 // Body sets the request body.
 func (b *RequestBuilder) Body(body any) *RequestBuilder {
 	b.bodyData = body
+	b.rawBody = false
 	return b
 }
 
 // JSONBody sets the request body as JSON.
 func (b *RequestBuilder) JSONBody(v any) *RequestBuilder {
 	b.bodyData = v
+	b.rawBody = false
 	return b.ContentType("application/json")
 }
 
 // XMLBody sets the request body as XML.
 func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
 	b.bodyData = v
+	b.rawBody = false
 	return b.ContentType("application/xml")
 }
 
 // YAMLBody sets the request body as YAML.
 func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
 	b.bodyData = v
+	b.rawBody = false
 	return b.ContentType("application/yaml")
 }
 
 // TextBody sets the request body as plain text.
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 	b.bodyData = v
+	b.rawBody = false
 	return b.ContentType("text/plain")
 }
 
 // RawBody sets the request body as raw bytes.
 func (b *RequestBuilder) RawBody(v []byte) *RequestBuilder {
 	b.bodyData = v
+	b.rawBody = true
 	return b
 }
 
@@ -891,6 +898,10 @@ func (b *RequestBuilder) inferContentType() string {
 }
 
 func (b *RequestBuilder) encodeBody(contentType string, snap clientSnapshot) (io.Reader, error) {
+	if b.rawBody {
+		return b.encodeRawBody()
+	}
+
 	switch contentType {
 	case "application/json":
 		return snap.JSONEncoder.Encode(b.bodyData)

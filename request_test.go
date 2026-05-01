@@ -931,6 +931,27 @@ func TestRawBody(t *testing.T) {
 	assert.Equal(t, "application/octet-stream", response["contentType"], "The content type should be set to application/octet-stream.")
 }
 
+func TestRawBodyPreservesBytesWithJSONContentType(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+	rawData := []byte(`{"event":"created","ok":true}`)
+
+	resp, err := client.Post("/").
+		RawBody(rawData).
+		ContentType("application/json").
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	err = resp.Scan(&response)
+	require.NoError(t, err)
+
+	assert.Equal(t, string(rawData), response["body"])
+	assert.Equal(t, "application/json", response["contentType"])
+}
+
 func TestReaderBody(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
