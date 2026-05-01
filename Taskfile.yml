@@ -132,11 +132,6 @@ tasks:
           echo "Tidying {{.ITEM}}..."
           cd {{.ITEM}} && go mod tidy
 
-  markdownlint:
-    desc: Run markdownlint
-    cmds:
-      - markdownlint-cli2 "**/*.md"
-
   yamllint:
     desc: Run yamllint
     cmds:
