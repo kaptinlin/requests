@@ -3,7 +3,7 @@ module github.com/kaptinlin/requests/http3
 go 1.26.2
 
 require (
-	github.com/kaptinlin/requests v0.4.0
+	github.com/kaptinlin/requests v0.5.0
 	github.com/quic-go/quic-go v0.59.0
 	github.com/test-go/testify v1.1.4
 )
