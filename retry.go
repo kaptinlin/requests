@@ -94,11 +94,7 @@ func retryAfterDelay(resp *http.Response, fallback time.Duration) time.Duration 
 	}
 
 	if when, err := http.ParseTime(header); err == nil {
-		delay := time.Until(when)
-		if delay < 0 {
-			return 0
-		}
-		return delay
+		return max(time.Until(when), 0)
 	}
 
 	return fallback

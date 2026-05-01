@@ -178,8 +178,7 @@ func (b *RequestBuilder) OrderedHeaders(headers *orderedobject.Object[[]string])
 		b.headers = &http.Header{}
 		return b
 	}
-	httpHeaders := headerFromOrderedHeaders(b.orderedHeaders)
-	b.headers = &httpHeaders
+	b.headers = new(headerFromOrderedHeaders(b.orderedHeaders))
 	return b
 }
 
@@ -575,8 +574,7 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 	}
 
 	if b.headers != nil {
-		h := b.headers.Clone()
-		clone.headers = &h
+		clone.headers = new(b.headers.Clone())
 	}
 	clone.orderedHeaders = cloneOrderedHeaders(b.orderedHeaders)
 

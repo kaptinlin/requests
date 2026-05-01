@@ -206,8 +206,7 @@ func Create(config *Config) *Client {
 		dialContext:    config.DialContext,
 	}
 	if client.OrderedHeaders != nil {
-		headers := headerFromOrderedHeaders(client.OrderedHeaders)
-		client.Headers = &headers
+		client.Headers = new(headerFromOrderedHeaders(client.OrderedHeaders))
 	}
 
 	if config.TLSServerName != "" {
@@ -463,8 +462,7 @@ func (c *Client) SetDefaultOrderedHeaders(headers *orderedobject.Object[[]string
 		c.Headers = nil
 		return
 	}
-	httpHeaders := headerFromOrderedHeaders(c.OrderedHeaders)
-	c.Headers = &httpHeaders
+	c.Headers = new(headerFromOrderedHeaders(c.OrderedHeaders))
 }
 
 // SetDefaultHeader adds or updates a default header.
@@ -684,9 +682,9 @@ func (c *Client) snapshot() clientSnapshot {
 		if cookie == nil {
 			continue
 		}
-		clone := *cookie
+		clone := new(*cookie)
 		clone.Unparsed = slices.Clone(cookie.Unparsed)
-		cookies[i] = &clone
+		cookies[i] = clone
 	}
 
 	middlewares := slices.Clone(c.Middlewares)
@@ -787,9 +785,9 @@ func ensureHTTP2NextProtos(transport *http.Transport) {
 		transport.TLSClientConfig = &tls.Config{}
 	}
 	if !slices.Contains(transport.TLSClientConfig.NextProtos, http2.NextProtoTLS) {
-		transport.TLSClientConfig.NextProtos = append(
+		transport.TLSClientConfig.NextProtos = slices.Concat(
 			[]string{http2.NextProtoTLS},
-			transport.TLSClientConfig.NextProtos...,
+			transport.TLSClientConfig.NextProtos,
 		)
 	}
 	if !slices.Contains(transport.TLSClientConfig.NextProtos, "http/1.1") {

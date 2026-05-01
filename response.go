@@ -162,7 +162,7 @@ func (r *Response) TLS() *tls.ConnectionState {
 	if r.RawResponse == nil || r.RawResponse.TLS == nil {
 		return nil
 	}
-	state := *r.RawResponse.TLS
+	state := new(*r.RawResponse.TLS)
 	state.PeerCertificates = slices.Clone(state.PeerCertificates)
 	state.VerifiedChains = slices.Clone(state.VerifiedChains)
 	for i, chain := range state.VerifiedChains {
@@ -171,7 +171,7 @@ func (r *Response) TLS() *tls.ConnectionState {
 	state.SignedCertificateTimestamps = cloneByteSlices(state.SignedCertificateTimestamps)
 	state.OCSPResponse = slices.Clone(state.OCSPResponse)
 	state.TLSUnique = slices.Clone(state.TLSUnique)
-	return &state
+	return state
 }
 
 func cloneByteSlices(values [][]byte) [][]byte {
