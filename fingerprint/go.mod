@@ -11,10 +11,10 @@ require (
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260430182902-b6187a392ed4 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
-	github.com/kaptinlin/orderedobject v0.2.12 // indirect
+	github.com/kaptinlin/orderedobject v0.2.13 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
