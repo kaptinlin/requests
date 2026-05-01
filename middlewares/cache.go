@@ -69,11 +69,10 @@ func cacheResponse(resp *http.Response) ([]byte, error) {
 }
 
 func generateCacheKey(req *http.Request) string {
-	key := req.URL.Path
-	if req.URL.RawQuery != "" {
-		key += "?" + req.URL.RawQuery
+	if req.URL.RawQuery == "" {
+		return req.URL.Path
 	}
-	return key
+	return req.URL.Path + "?" + req.URL.RawQuery
 }
 
 func buildResponseFromCache(data []byte) (*http.Response, error) {

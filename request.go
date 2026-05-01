@@ -150,12 +150,7 @@ func (b *RequestBuilder) QueriesStruct(queryStruct any) *RequestBuilder {
 		}
 		return b
 	}
-	for key, value := range values {
-		for _, v := range value {
-			b.queries.Add(key, v)
-		}
-	}
-	return b
+	return b.Queries(values)
 }
 
 // Headers set headers to the request.
@@ -231,17 +226,21 @@ func (b *RequestBuilder) DelCookie(key ...string) *RequestBuilder {
 		return b
 	}
 
-	deleteKeys := make(map[string]struct{}, len(key))
-	for _, name := range key {
-		deleteKeys[name] = struct{}{}
-	}
-
+	deleteKeys := stringSet(key)
 	b.cookies = slices.DeleteFunc(b.cookies, func(cookie *http.Cookie) bool {
 		_, ok := deleteKeys[cookie.Name]
 		return ok
 	})
 
 	return b
+}
+
+func stringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
 }
 
 // ContentType sets the Content-Type header for the request.
@@ -363,11 +362,7 @@ func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 		return b
 	}
 
-	deleteKeys := make(map[string]struct{}, len(key))
-	for _, name := range key {
-		deleteKeys[name] = struct{}{}
-	}
-
+	deleteKeys := stringSet(key)
 	b.formFiles = slices.DeleteFunc(b.formFiles, func(file *File) bool {
 		_, ok := deleteKeys[file.Name]
 		return ok

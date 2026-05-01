@@ -109,23 +109,20 @@ func utlsCertificates(certs []tls.Certificate) []utls.Certificate {
 }
 
 func utlsSignatureSchemes(schemes []tls.SignatureScheme) []utls.SignatureScheme {
-	if len(schemes) == 0 {
-		return nil
-	}
-	converted := make([]utls.SignatureScheme, len(schemes))
-	for i, scheme := range schemes {
-		converted[i] = utls.SignatureScheme(scheme)
-	}
-	return converted
+	return convertSlice[utls.SignatureScheme](schemes)
 }
 
 func utlsCurvePreferences(curves []tls.CurveID) []utls.CurveID {
-	if len(curves) == 0 {
+	return convertSlice[utls.CurveID](curves)
+}
+
+func convertSlice[To, From ~uint16](values []From) []To {
+	if len(values) == 0 {
 		return nil
 	}
-	converted := make([]utls.CurveID, len(curves))
-	for i, curve := range curves {
-		converted[i] = utls.CurveID(curve)
+	converted := make([]To, len(values))
+	for i, value := range values {
+		converted[i] = To(value)
 	}
 	return converted
 }

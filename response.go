@@ -61,7 +61,6 @@ func NewResponse(
 	return response, nil
 }
 
-// handleStream processes the HTTP response as a stream.
 func (r *Response) handleStream() {
 	defer func() {
 		if err := r.RawResponse.Body.Close(); err != nil {
@@ -90,7 +89,6 @@ func (r *Response) handleStream() {
 	}
 }
 
-// handleNonStream reads the HTTP response body into a buffer for non-streaming responses.
 func (r *Response) handleNonStream() error {
 	buf := GetBuffer()
 	defer PutBuffer(buf)
@@ -274,26 +272,24 @@ func (r *Response) Scan(v any) error {
 
 // ScanJSON unmarshals the response body into a struct via JSON decoding.
 func (r *Response) ScanJSON(v any) error {
-	if r.BodyBytes == nil {
-		return nil
-	}
-	return r.Client.JSONDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
+	return r.scanWith(r.Client.JSONDecoder, v)
 }
 
 // ScanXML unmarshals the response body into a struct via XML decoding.
 func (r *Response) ScanXML(v any) error {
-	if r.BodyBytes == nil {
-		return nil
-	}
-	return r.Client.XMLDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
+	return r.scanWith(r.Client.XMLDecoder, v)
 }
 
 // ScanYAML unmarshals the response body into a struct via YAML decoding.
 func (r *Response) ScanYAML(v any) error {
+	return r.scanWith(r.Client.YAMLDecoder, v)
+}
+
+func (r *Response) scanWith(decoder Decoder, v any) error {
 	if r.BodyBytes == nil {
 		return nil
 	}
-	return r.Client.YAMLDecoder.Decode(bytes.NewReader(r.BodyBytes), v)
+	return decoder.Decode(bytes.NewReader(r.BodyBytes), v)
 }
 
 // DirPermissions is the permission mode used when Save creates parent directories.
