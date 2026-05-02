@@ -164,6 +164,30 @@ func TestSetProxyWithBypass(t *testing.T) {
 	assert.Empty(t, resp.Header().Get("X-Test-Proxy"))
 }
 
+func TestSetProxyWithBypassUsesExampleHost(t *testing.T) {
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Test-Proxy", "true")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer proxyServer.Close()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "api.example.com", r.Host)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL("https://api.example.com"), WithHTTPClient(server.Client()))
+	err := client.SetProxyWithBypass(proxyServer.URL, "example.com")
+	assert.NoError(t, err)
+
+	resp, err := client.Get("/").Send(t.Context())
+	assert.NoError(t, err)
+	assert.NotNil(t, resp)
+	defer resp.Close() //nolint:errcheck
+	assert.Empty(t, resp.Header().Get("X-Test-Proxy"))
+}
+
 func TestSetProxyFromEnv(t *testing.T) {
 	client := Create(nil)
 	err := client.SetProxyFromEnv()

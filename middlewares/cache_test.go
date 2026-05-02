@@ -91,6 +91,38 @@ func TestCacheKeyGeneration(t *testing.T) {
 	}
 }
 
+func TestCacheMiddlewareUsesPathAndQueryAcrossExampleHosts(t *testing.T) {
+	callCount := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprintf(w, "%s:%d", r.Host, callCount)
+	}))
+	defer server.Close()
+
+	cache := NewMemoryCache()
+	defer cache.Close()
+	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
+	client := requests.New(
+		requests.WithHTTPClient(server.Client()),
+		requests.WithMiddleware(CacheMiddleware(cache, time.Minute, logger)),
+	)
+
+	resp1, err := client.Get("https://a.example.com/resource?id=1").Send(t.Context())
+	require.NoError(t, err)
+	defer resp1.Close() //nolint:errcheck
+	body1 := resp1.String()
+
+	resp2, err := client.Get("https://b.example.com/resource?id=1").Send(t.Context())
+	require.NoError(t, err)
+	defer resp2.Close() //nolint:errcheck
+	body2 := resp2.String()
+
+	assert.Equal(t, "a.example.com:1", body1)
+	assert.Equal(t, body1, body2)
+	assert.Equal(t, 1, callCount)
+}
+
 func TestMemoryCache(t *testing.T) {
 	t.Parallel()
 

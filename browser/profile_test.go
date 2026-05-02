@@ -55,6 +55,26 @@ func TestChromeProfile(t *testing.T) {
 	defer resp.Close() //nolint:errcheck
 }
 
+func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "www.example.com", r.Host)
+		require.NotNil(t, r.TLS)
+		require.Contains(t, r.Header.Get("User-Agent"), "Chrome/145.0.0.0")
+		require.Empty(t, r.Header.Get(":authority"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := requests.New(
+		requests.WithHTTPClient(server.Client()),
+		requests.WithProfile(Chrome()),
+	)
+
+	resp, err := client.Get("https://www.example.com").Send(t.Context())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
 func TestFirefoxProfile(t *testing.T) {
 	profile := Firefox()
 	client := requests.New(requests.WithProfile(profile))

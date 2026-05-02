@@ -69,6 +69,62 @@ func TestAsTransportDoesNotMutateOriginalRequest(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+func TestAsHTTPClientAppliesDefaultsToExampleHost(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "api.example.com", r.Host)
+		assert.Equal(t, "value", r.Header.Get("X-Default"))
+		assert.Equal(t, "middleware", r.Header.Get("X-Middleware"))
+		assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
+		cookie, err := r.Cookie("session")
+		require.NoError(t, err)
+		assert.Equal(t, "abc", cookie.Value)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+
+	client := New(
+		WithHTTPClient(server.Client()),
+		WithHeader("X-Default", "value"),
+		WithBearerAuth("token"),
+		WithCookies(map[string]string{"session": "abc"}),
+	)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			req.Header.Set("X-Middleware", "middleware")
+			return next(req)
+		}
+	})
+
+	resp, err := client.AsHTTPClient().Get("https://api.example.com/resource")
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, resp.Body.Close())
+	}()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+func TestAsTransportAppliesDefaultsToExampleHost(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "api.example.com", r.Host)
+		assert.Equal(t, "value", r.Header.Get("X-Default"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := New(WithHTTPClient(server.Client()), WithHeader("X-Default", "value"))
+	req, err := http.NewRequest(http.MethodGet, "https://api.example.com/resource", nil)
+	require.NoError(t, err)
+
+	resp, err := client.AsTransport().RoundTrip(req)
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, resp.Body.Close())
+	}()
+
+	assert.Empty(t, req.Header.Get("X-Default"))
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func TestAsTransportAttachesDefaultOrderedHeaders(t *testing.T) {
 	headers := orderedobject.NewObject[[]string]().
 		Set("X-First", []string{"1"}).

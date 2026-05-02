@@ -14,6 +14,8 @@ github.com/kaptinlin/orderedobject v0.2.13 h1:IqpPklfx84TATZi+FiNAX9Z4tvM3GplFxe
 github.com/kaptinlin/orderedobject v0.2.13/go.mod h1:cGmewrS2p08FmAjTUACBjigOVXwP+FIampHWPEJ5eUc=
 github.com/kaptinlin/requests v0.5.2 h1:2aebkuv6FM5RjyDDYuH4Q2y2g/6XXc4E2punCbOeiJY=
 github.com/kaptinlin/requests v0.5.2/go.mod h1:qnPC6/+QoXWlM403+qgj8ncHf4FHqY3MOpmIHRfYwgQ=
+github.com/kaptinlin/requests v0.5.3 h1:6H6phAdwnEnJ6j4rvn0rWYgztwS8Om8plVGvoN78CMc=
+github.com/kaptinlin/requests v0.5.3/go.mod h1:qnPC6/+QoXWlM403+qgj8ncHf4FHqY3MOpmIHRfYwgQ=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=

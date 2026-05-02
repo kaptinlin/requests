@@ -689,6 +689,40 @@ func TestSetDefaultCookieJar(t *testing.T) {
 	}
 }
 
+func TestCookieJarUsesExampleDomainRules(t *testing.T) {
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/set-cookie":
+			assert.Equal(t, "api.example.com", r.Host)
+			http.SetCookie(w, &http.Cookie{Name: "shared", Value: "1", Domain: ".example.com", Path: "/", Secure: true})
+			http.SetCookie(w, &http.Cookie{Name: "hostonly", Value: "1", Path: "/", Secure: true})
+		case "/check-cookie":
+			assert.Equal(t, "cdn.example.com", r.Host)
+			shared, err := r.Cookie("shared")
+			require.NoError(t, err)
+			assert.Equal(t, "1", shared.Value)
+			_, err = r.Cookie("hostonly")
+			assert.Error(t, err)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := New(WithHTTPClient(server.Client()), WithCookieJar(jar))
+
+	resp, err := client.Get("https://api.example.com/set-cookie").Send(t.Context())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+
+	resp, err = client.Get("https://cdn.example.com/check-cookie").Send(t.Context())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+}
+
 func TestSetDefaultCookies(t *testing.T) {
 	// Create a mock server to check cookies
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -793,6 +827,22 @@ func TestGettersAndSnapshot(t *testing.T) {
 
 	snap.Cookies[0].Value = "changed"
 	assert.Equal(t, "abc", client.Cookies[0].Value)
+}
+
+func TestClientUsesExampleHostWithTLSServer(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "api.example.com", r.Host)
+		require.NotNil(t, r.TLS)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := New(WithBaseURL("https://api.example.com"), WithHTTPClient(server.Client()))
+
+	resp, err := client.Get("/status").Send(t.Context())
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
 
 // Helper function to create a test TLS server.

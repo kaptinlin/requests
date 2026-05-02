@@ -80,6 +80,51 @@ func TestRedirectPolicies(t *testing.T) {
 	})
 }
 
+func TestRedirectPolicyUsesExampleHost(t *testing.T) {
+	var hosts []string
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hosts = append(hosts, r.Host)
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "https://api.example.com/final", http.StatusFound)
+		case "/final":
+			_, _ = w.Write([]byte("done"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	client := New(
+		WithBaseURL("https://api.example.com"),
+		WithHTTPClient(ts.Client()),
+		WithRedirectPolicy(NewRedirectSpecifiedDomainPolicy("api.example.com")),
+	)
+
+	resp, err := client.Get("/redirect").Send(t.Context())
+	assert.NoError(t, err)
+	defer resp.Close() //nolint:errcheck
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+	assert.Equal(t, []string{"api.example.com", "api.example.com"}, hosts)
+}
+
+func TestRedirectPolicyRejectsDifferentExampleHost(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "api.example.com", r.Host)
+		http.Redirect(w, r, "https://login.example.com/final", http.StatusFound)
+	}))
+	defer ts.Close()
+
+	client := New(
+		WithBaseURL("https://api.example.com"),
+		WithHTTPClient(ts.Client()),
+		WithRedirectPolicy(NewRedirectSpecifiedDomainPolicy("api.example.com")),
+	)
+
+	_, err := client.Get("/redirect").Send(t.Context())
+	assert.ErrorIs(t, err, ErrRedirectNotAllowed)
+}
+
 func TestSensitiveHeaderStripping(t *testing.T) {
 	t.Run("CrossHostStripsSensitiveHeaders", func(t *testing.T) {
 		cur := &http.Request{
