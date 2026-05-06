@@ -271,7 +271,8 @@ func (b *RequestBuilder) Auth(auth AuthMethod) *RequestBuilder {
 	return b
 }
 
-// Form sets form fields and files for the request.
+// Form sets form fields and files for the request from a struct, map, or
+// url.Values. The resulting body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) Form(v any) *RequestBuilder {
 	formFields, formFiles, err := parseForm(v)
 
@@ -294,6 +295,7 @@ func (b *RequestBuilder) Form(v any) *RequestBuilder {
 }
 
 // FormFields sets multiple form fields at once.
+// The resulting body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) FormFields(fields any) *RequestBuilder {
 	if b.formFields == nil {
 		b.formFields = url.Values{}
@@ -316,6 +318,7 @@ func (b *RequestBuilder) FormFields(fields any) *RequestBuilder {
 }
 
 // FormField adds or updates a form field.
+// The resulting body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) FormField(key, val string) *RequestBuilder {
 	if b.formFields == nil {
 		b.formFields = url.Values{}
@@ -334,13 +337,17 @@ func (b *RequestBuilder) DelFormField(key ...string) *RequestBuilder {
 	return b
 }
 
-// Files sets multiple files at once.
+// Files sets multiple files at once. The resulting multipart body is buffered
+// in memory and is safe to replay for retries; for streaming uploads use
+// [RequestBuilder.Multipart] instead.
 func (b *RequestBuilder) Files(files ...*File) *RequestBuilder {
 	b.formFiles = append(b.formFiles, files...)
 	return b
 }
 
-// File adds a file to the request.
+// File adds a file to the request. The resulting multipart body is buffered in
+// memory and is safe to replay for retries; for streaming uploads use
+// [RequestBuilder.Multipart] instead.
 func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *RequestBuilder {
 	b.formFiles = append(b.formFiles, &File{
 		Name:     key,
@@ -350,7 +357,12 @@ func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *Requ
 	return b
 }
 
-// Multipart sets a multipart/form-data body built by Multipart.
+// Multipart sets a multipart/form-data body built by [Multipart].
+//
+// By default the body is streamed once via an [io.Pipe] and is not replayable;
+// a retry that needs to resend the body returns [ErrRequestBodyNotReplayable].
+// Call m.Replayable(maxBytes) before passing the builder if retries must
+// resend the body.
 func (b *RequestBuilder) Multipart(m *Multipart) *RequestBuilder {
 	b.multipart = m
 	return b
@@ -371,42 +383,60 @@ func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 	return b
 }
 
-// Body sets the request body.
+// Body sets the request body. The Content-Type header decides how the value
+// is encoded; if no header is set, [RequestBuilder.inferContentType] picks one
+// from the value's Go type.
+//
+// Replay safety depends on the value:
+//   - string, []byte, *bytes.Buffer, *bytes.Reader, *strings.Reader, or any
+//     reader implementing ReadAt/Seek/Size are buffered and safe to replay
+//     for retries.
+//   - A bare [io.Reader] is one-shot. A retry that needs to resend the body
+//     returns [ErrRequestBodyNotReplayable].
+//
+// For typed bodies prefer [RequestBuilder.JSONBody], [RequestBuilder.XMLBody],
+// [RequestBuilder.YAMLBody], [RequestBuilder.TextBody], or
+// [RequestBuilder.RawBody].
 func (b *RequestBuilder) Body(body any) *RequestBuilder {
 	b.bodyData = body
 	b.rawBody = false
 	return b
 }
 
-// JSONBody sets the request body as JSON.
+// JSONBody sets the request body as JSON and Content-Type to application/json.
+// The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) JSONBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("application/json")
 }
 
-// XMLBody sets the request body as XML.
+// XMLBody sets the request body as XML and Content-Type to application/xml.
+// The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("application/xml")
 }
 
-// YAMLBody sets the request body as YAML.
+// YAMLBody sets the request body as YAML and Content-Type to application/yaml.
+// The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("application/yaml")
 }
 
-// TextBody sets the request body as plain text.
+// TextBody sets the request body as plain text and Content-Type to text/plain.
+// The body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("text/plain")
 }
 
-// RawBody sets the request body as raw bytes.
+// RawBody sets the request body as raw bytes without changing Content-Type.
+// The body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) RawBody(v []byte) *RequestBuilder {
 	b.bodyData = v
 	b.rawBody = true
@@ -593,6 +623,20 @@ func (b *RequestBuilder) Clone() *RequestBuilder {
 }
 
 // Send executes the HTTP request.
+//
+// Send takes a snapshot of the client at call time; later mutations on the
+// client do not affect this in-flight request.
+//
+// Cancellation: ctx propagates through dial, TLS handshake, request header
+// read, body read, retry backoff, and stream callbacks. When ctx is canceled
+// before the response arrives, Send returns ctx.Err() and any partial response
+// is closed internally. When ctx is canceled after the response is returned,
+// the caller is still responsible for calling [Response.Close] to release the
+// underlying connection.
+//
+// Retries: if the request body cannot be replayed (see [RequestBuilder.Body]),
+// retries that would need to resend the body return [ErrRequestBodyNotReplayable]
+// instead of silently re-sending or silently skipping.
 func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	start := time.Now()
 	snap := b.client.snapshot()

@@ -353,14 +353,18 @@ for line := range resp.Lines() {
 ### Classify failures
 
 ```go
-_, err := client.Get("/health").Send(context.Background())
-if requests.IsTimeout(err) {
-	log.Println("request timed out")
-}
-if requests.IsConnectionError(err) {
-	log.Println("connection failed")
+_, err := client.Get("/health").Send(ctx)
+switch {
+case requests.IsCanceled(err):
+	log.Println("caller canceled the request")
+case requests.IsTimeout(err):
+	log.Println("request hit a deadline")
+case requests.IsConnectionError(err):
+	log.Println("dial, DNS, or TLS failed")
 }
 ```
+
+`IsCanceled` matches `context.Canceled` only; `IsTimeout` matches `context.DeadlineExceeded` and `net.Error` timeouts. The two are orthogonal so caller-driven cancel can be told apart from a hit deadline. Sentinel errors in [`errors.go`](errors.go) cover non-transport causes (body replay, redirects, decoding, config) — match them with `errors.Is`.
 
 ### Inspect diagnostics
 

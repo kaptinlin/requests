@@ -91,6 +91,8 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 | [`SPECS/23-streaming-api-specs.md`](SPECS/23-streaming-api-specs.md) | Streaming callbacks, delivery rules, and buffer limits |
 | [`SPECS/24-logging-api-specs.md`](SPECS/24-logging-api-specs.md) | Logger interface and default logger behavior |
 | [`SPECS/25-profile-api-specs.md`](SPECS/25-profile-api-specs.md) | Profile contract, package boundaries, and client-level identity rules |
+| [`SPECS/30-defaults.md`](SPECS/30-defaults.md) | Defaults audit: every default value applied by `requests` and the rationale behind it |
+| [`SPECS/31-api-deprecation-candidates.md`](SPECS/31-api-deprecation-candidates.md) | API surface narrowing: candidate symbols proposed for removal in a future major bump |
 | [`SPECS/40-middleware-architecture-specs.md`](SPECS/40-middleware-architecture-specs.md) | Middleware composition, ordering, and built-in middleware rules |
 | [`SPECS/41-retry-and-delivery-specs.md`](SPECS/41-retry-and-delivery-specs.md) | Retry counts, backoff strategies, Retry-After handling, and cancellation |
 
@@ -197,7 +199,7 @@ Optional extension dependencies:
 ## Error Handling
 
 - Sentinel errors live in `errors.go` for unsupported content types, redirects, invalid transport usage, and configuration failures.
-- Use `IsTimeout` and `IsConnectionError` to classify transport failures.
+- Use `IsCanceled`, `IsTimeout`, and `IsConnectionError` to classify transport failures. `IsCanceled` matches `context.Canceled` only; `IsTimeout` matches `context.DeadlineExceeded` and `net.Error` timeouts so caller cancellation stays distinguishable from a deadline hit.
 - Keep configuration validation in `Config.Validate()` and return joined errors for multiple invalid fields.
 - Functional options that cannot return errors may log when a logger is already configured; use direct setters when callers need fail-fast behavior.
 

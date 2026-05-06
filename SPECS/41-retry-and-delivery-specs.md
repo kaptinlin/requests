@@ -56,6 +56,8 @@ The retry loop respects the request context.
 - Before sleeping for a retry, any received response body is closed.
 - When proxy rotation is configured through `SetProxies` or a proxy selector, proxy choice is evaluated per transport attempt, so retries may use different proxies.
 
+Callers classify the failure with the package helpers: `IsCanceled` matches `context.Canceled` only, and `IsTimeout` matches `context.DeadlineExceeded` and `net.Error` timeouts. The two are orthogonal so caller-driven cancellation is distinguishable from a deadline hit.
+
 > **Why**: Delivery policy must be explicit about attempt counts and backoff sources so callers can reason about latency and failure handling.
 >
 > **Rejected**: Ambiguous retry rules that leave attempt counts or `Retry-After` precedence implicit.
@@ -70,7 +72,9 @@ Request-local retry configuration SHOULD override the client retry configuration
 
 Before retrying a request with a replayable body, delivery restores `req.Body` through `req.GetBody`.
 
-Replayable body sources include built-in buffered/string body helpers and multipart builders that explicitly opt into `Replayable(maxBytes)`. Non-replayable streaming bodies are attempted once; if their first attempt returns a retryable response, delivery returns that response instead of sending an empty or partial retry.
+Replayable body sources include built-in buffered/string body helpers (`JSONBody`, `XMLBody`, `YAMLBody`, `TextBody`, `RawBody`, `Form`, `FormField`, `FormFields`, `Files`, `File`) and multipart builders that explicitly opt into `Replayable(maxBytes)`. A bare `io.Reader` passed to `Body` is non-replayable: when a retry would need to resend the body, delivery returns `ErrRequestBodyNotReplayable` instead of silently re-sending or silently skipping.
+
+Non-replayable streaming bodies are attempted once; if their first attempt returns a retryable response, delivery returns that response instead of sending an empty or partial retry.
 
 ## Forbidden
 

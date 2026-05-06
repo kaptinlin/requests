@@ -20,6 +20,8 @@ The package exposes three client constructors:
 
 ## Persistent Defaults
 
+The full audit of every effective default value applied by `Create` (and the rationale behind each) lives in [`SPECS/30-defaults.md`](30-defaults.md). Changes to any default value listed there are a compatibility event.
+
 A `Client` MAY define reusable defaults for:
 
 - base URL
