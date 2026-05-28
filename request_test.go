@@ -71,6 +71,58 @@ func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
 	require.NoError(t, resp.Close())
 }
 
+func TestOrderedHeadersNilClearsRequestHeaders(t *testing.T) {
+	t.Parallel()
+
+	headers := orderedobject.NewObject[[]string]().Set("X-First", []string{"1"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("X-First"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := Create(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			_, ok := OrderedHeaders(req)
+			assert.False(t, ok)
+			return next(req)
+		}
+	})
+
+	resp, err := client.Get(server.URL).
+		OrderedHeaders(headers).
+		OrderedHeaders(nil).
+		Send(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, resp.Close())
+}
+
+func TestSetDefaultOrderedHeadersNilClearsDefaults(t *testing.T) {
+	t.Parallel()
+
+	headers := orderedobject.NewObject[[]string]().Set("X-Default", []string{"1"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Empty(t, r.Header.Get("X-Default"))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	client := New(WithOrderedHeaders(headers))
+	client.SetDefaultOrderedHeaders(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			_, ok := OrderedHeaders(req)
+			assert.False(t, ok)
+			return next(req)
+		}
+	})
+
+	resp, err := client.Get(server.URL).Send(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, resp.Close())
+}
+
 func TestOrderedHeadersCloneIsIndependent(t *testing.T) {
 	headers := orderedobject.NewObject[[]string]().
 		Set("X-First", []string{"1"}).
@@ -141,8 +193,8 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 		Set("X-Delete", []string{"remove"})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "2", r.Header.Get("X-First"))
-		assert.Equal(t, "3", r.Header.Get("X-Added"))
+		assert.Equal(t, []string{"2", "3"}, r.Header.Values("X-First"))
+		assert.Equal(t, "4", r.Header.Get("X-Added"))
 		assert.Empty(t, r.Header.Get("X-Delete"))
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Equal(t, "application/json", r.Header.Get("Accept"))
@@ -166,6 +218,10 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 				"Referer",
 			}, ordered.Keys())
 
+			first, ok := ordered.Get("X-First")
+			require.True(t, ok)
+			assert.Equal(t, []string{"2", "3"}, first)
+
 			contentType, ok := ordered.Get("Content-Type")
 			require.True(t, ok)
 			assert.Equal(t, []string{"application/json"}, contentType)
@@ -176,7 +232,8 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 	resp, err := client.Post(server.URL).
 		OrderedHeaders(headers).
 		Header("x-first", "2").
-		AddHeader("X-Added", "3").
+		AddHeader("X-FIRST", "3").
+		AddHeader("X-Added", "4").
 		DelHeader("x-delete").
 		ContentType("text/plain").
 		Accept("application/json").
