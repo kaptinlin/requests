@@ -42,7 +42,7 @@ func TestMiddleware(t *testing.T) {
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
 	require.NoError(t, err, "Failed to send request")
-	defer resp.Close() //nolint: errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	// Check if the server responded with a 200 OK, indicating the middleware applied the header successfully
 	assert.Equal(t, http.StatusOK, resp.StatusCode(), "Expected status code 200")
@@ -92,7 +92,7 @@ func TestNestedMiddleware(t *testing.T) {
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
 	require.NoError(t, err, "Failed to send request")
-	defer resp.Close() //nolint: errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	expected := "0>>1>>2>>(served)>>2>>1>>0"
 	assert.Equal(t, expected, buf.String(), "Middleware execution order incorrect")

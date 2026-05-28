@@ -17,7 +17,7 @@ func (c *Client) AsHTTPClient() *http.Client {
 	source := snap.HTTPClient
 
 	client := &http.Client{
-		Transport: newClientDefaultsTransport(snap),
+		Transport: newClientDefaultsTransport(&snap),
 	}
 	if source == nil {
 		return client
@@ -35,15 +35,16 @@ func (c *Client) AsHTTPClient() *http.Client {
 // replace http.Client.Transport. The returned transport snapshots client
 // headers, cookies, auth, middleware, and the underlying transport at call time.
 func (c *Client) AsTransport() http.RoundTripper {
-	return newClientDefaultsTransport(c.snapshot())
+	snap := c.snapshot()
+	return newClientDefaultsTransport(&snap)
 }
 
 type clientDefaultsTransport struct {
-	snap clientSnapshot
+	snap *clientSnapshot
 	base http.RoundTripper
 }
 
-func newClientDefaultsTransport(snap clientSnapshot) http.RoundTripper {
+func newClientDefaultsTransport(snap *clientSnapshot) http.RoundTripper {
 	base := http.DefaultTransport
 	if snap.HTTPClient != nil && snap.HTTPClient.Transport != nil {
 		base = snap.HTTPClient.Transport
@@ -68,7 +69,7 @@ func (t *clientDefaultsTransport) RoundTrip(req *http.Request) (*http.Response, 
 	return handler(cloned)
 }
 
-func cloneWithClientDefaults(req *http.Request, snap clientSnapshot) *http.Request {
+func cloneWithClientDefaults(req *http.Request, snap *clientSnapshot) *http.Request {
 	cloned := req.Clone(req.Context())
 	original := req.Header.Clone()
 

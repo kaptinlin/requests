@@ -162,7 +162,7 @@ func TestSetHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close() //nolint: errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	// Verify that the server responded with a 200 OK, indicating the custom cookie was successfully added.
 	if resp.StatusCode() != http.StatusOK {
@@ -519,7 +519,7 @@ func TestSetAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close() //nolint: errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	// Check the response status code.
 	if resp.StatusCode() != http.StatusOK {
@@ -716,11 +716,11 @@ func TestCookieJarUsesExampleDomainRules(t *testing.T) {
 
 	resp, err := client.Get("https://api.example.com/set-cookie").Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	resp, err = client.Get("https://cdn.example.com/check-cookie").Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestSetDefaultCookies(t *testing.T) {
@@ -841,7 +841,7 @@ func TestClientUsesExampleHostWithTLSServer(t *testing.T) {
 
 	resp, err := client.Get("/status").Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
 
@@ -1078,7 +1078,7 @@ func TestClientCertificates(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Failed to send request: %v", err)
 		}
-		defer resp.Close() //nolint:errcheck
+		defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode(), "status code not correct")
 		assert.Equal(t, "certificate verification successful", resp.String(), "response content not correct")
@@ -1255,7 +1255,7 @@ func TestHTTP2ConfigNegotiatesHTTP2(t *testing.T) {
 
 	resp, err := client.Get(server.URL).Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	assert.Equal(t, "HTTP/2.0", resp.Protocol())
 }
 
@@ -1389,7 +1389,7 @@ func TestHttp2Scenarios(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 				return
 			}
-			defer resp.Close() //nolint:errcheck
+			defer resp.Close() //nolint:errcheck // test cleanup closes response body
 			assert.Equal(t, tt.expectedVersion, resp.RawResponse.Proto, "Protocol version mismatch")
 		})
 	}

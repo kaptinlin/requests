@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kaptinlin/requests"
 	"github.com/stretchr/testify/assert"
 	"github.com/test-go/testify/require"
+
+	"github.com/kaptinlin/requests"
 )
 
 func TestCacheMiddleware(t *testing.T) {
@@ -38,12 +39,12 @@ func TestCacheMiddleware(t *testing.T) {
 
 	resp1, err := client.Get("/test").Send(context.Background())
 	require.NoError(t, err)
-	defer resp1.Close() //nolint:errcheck
+	defer resp1.Close() //nolint:errcheck // test cleanup closes response body
 	assert.Equal(t, 1, callCount)
 
 	resp2, err := client.Get("/test").Send(context.Background())
 	require.NoError(t, err)
-	defer resp2.Close() //nolint:errcheck
+	defer resp2.Close() //nolint:errcheck // test cleanup closes response body
 	assert.Equal(t, 1, callCount)
 
 	assert.Eventually(t, func() bool {
@@ -51,7 +52,7 @@ func TestCacheMiddleware(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		defer resp3.Close() //nolint:errcheck
+		defer resp3.Close() //nolint:errcheck // test cleanup closes response body
 		return callCount == 2
 	}, time.Second, 10*time.Millisecond)
 }
@@ -110,12 +111,12 @@ func TestCacheMiddlewareUsesPathAndQueryAcrossExampleHosts(t *testing.T) {
 
 	resp1, err := client.Get("https://a.example.com/resource?id=1").Send(t.Context())
 	require.NoError(t, err)
-	defer resp1.Close() //nolint:errcheck
+	defer resp1.Close() //nolint:errcheck // test cleanup closes response body
 	body1 := resp1.String()
 
 	resp2, err := client.Get("https://b.example.com/resource?id=1").Send(t.Context())
 	require.NoError(t, err)
-	defer resp2.Close() //nolint:errcheck
+	defer resp2.Close() //nolint:errcheck // test cleanup closes response body
 	body2 := resp2.String()
 
 	assert.Equal(t, "a.example.com:1", body1)
@@ -162,7 +163,7 @@ func TestNonGetRequests(t *testing.T) {
 	// Test POST request (should not be cached)
 	resp, err := client.Post("/test").Send(context.Background())
 	assert.NoError(t, err, "POST request failed")
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	// Verify nothing was stored in cache
 	_, ok := cache.Get("/test")

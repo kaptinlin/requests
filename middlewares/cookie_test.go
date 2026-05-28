@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kaptinlin/requests"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kaptinlin/requests"
 )
 
 func TestCookieMiddleware(t *testing.T) {
@@ -94,7 +95,7 @@ func TestCookieMiddleware(t *testing.T) {
 			// Send request
 			resp, err := client.Get("/").Send(context.Background())
 			assert.NoError(t, err, "Failed to send request")
-			defer resp.Close() //nolint:errcheck
+			defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 			// Execute middleware
 			handler := middleware(nextHandler)

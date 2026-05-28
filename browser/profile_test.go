@@ -8,8 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kaptinlin/requests"
 	"github.com/test-go/testify/require"
+
+	"github.com/kaptinlin/requests"
 )
 
 func TestChromeProfile(t *testing.T) {
@@ -52,7 +53,7 @@ func TestChromeProfile(t *testing.T) {
 
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
@@ -72,7 +73,7 @@ func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
 
 	resp, err := client.Get("https://www.example.com").Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestFirefoxProfile(t *testing.T) {
@@ -116,5 +117,5 @@ func TestProfileRequestHeadersOverrideDefaults(t *testing.T) {
 
 	resp, err := client.Get(server.URL).UserAgent("CustomAgent/1.0").Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }

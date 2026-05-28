@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"maps"
 
-	"github.com/kaptinlin/requests"
 	"github.com/quic-go/quic-go"
 	qhttp3 "github.com/quic-go/quic-go/http3"
+
+	"github.com/kaptinlin/requests"
 )
 
 type settings struct {

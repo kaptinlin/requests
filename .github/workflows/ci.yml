@@ -7,19 +7,41 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOPRIVATE: github.com/agentable/*
+      GOWORK: "off"
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        # Do NOT initialize submodules
+
+      - name: Configure Git for private modules
+        env:
+          TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Install Task
         uses: go-task/setup-task@v2
@@ -27,24 +49,38 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Install dependencies
+        run: task deps
 
-      - name: Run unit tests
+      - name: Run tests
         run: task test
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOPRIVATE: github.com/agentable/*
+      GOWORK: "off"
+      GOGC: "50"
+      GOMEMLIMIT: 4GiB
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        # Do NOT initialize submodules
+
+      - name: Configure Git for private modules
+        env:
+          TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Install Task
         uses: go-task/setup-task@v2
@@ -52,29 +88,35 @@ jobs:
           version: 3.x
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Check module graph is tidy
+        run: task tidy-lint
 
-      - name: Read golangci-lint version from .golangci.version
-        id: golangci-version
-        run: echo "GOLANGCI_VERSION=$(cat .golangci.version)" > $GITHUB_OUTPUT
+      - name: Read golangci-lint version
+        id: golangci
+        run: echo "version=v$(cat .golangci.version)" >> "$GITHUB_OUTPUT"
 
-      - uses: golangci/golangci-lint-action@v9
-        name: Install and run golangci-lint
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v${{ steps.golangci-version.outputs.GOLANGCI_VERSION }}
-          args: -h
-
-      - run: task lint
-        name: Lint
-
+          version: ${{ steps.golangci.outputs.version }}
+          args: --timeout=30m --concurrency=1 --path-prefix=.
 
   security:
     name: Security
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOPRIVATE: github.com/agentable/*
+      GOWORK: "off"
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Configure Git for private modules
+        env:
+          TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6

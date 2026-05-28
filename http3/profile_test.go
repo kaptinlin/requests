@@ -12,10 +12,11 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/kaptinlin/requests"
 	"github.com/quic-go/quic-go"
 	qhttp3 "github.com/quic-go/quic-go/http3"
 	"github.com/test-go/testify/require"
+
+	"github.com/kaptinlin/requests"
 )
 
 func TestTransportOptions(t *testing.T) {
@@ -108,14 +109,14 @@ func TestProfileSendsHTTP3Request(t *testing.T) {
 	})
 
 	client := requests.New(requests.WithProfile(Profile(WithTLSConfig(&tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec
+		InsecureSkipVerify: true,
 	}))))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	resp, err := client.Get("https://" + packetConn.LocalAddr().String()).Send(ctx)
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	require.Equal(t, http.StatusOK, resp.StatusCode())
 	require.Equal(t, "HTTP/3.0", resp.Protocol())
 	require.Equal(t, "h3", resp.String())

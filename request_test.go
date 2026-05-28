@@ -68,7 +68,7 @@ func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
 
 	resp, err := req.Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestOrderedHeadersCloneIsIndependent(t *testing.T) {
@@ -132,7 +132,7 @@ func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
 
 	resp, err := req.Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
@@ -185,7 +185,7 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 		JSONBody(map[string]string{"hello": "world"}).
 		Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
@@ -216,7 +216,7 @@ func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
 		Body("hello").
 		Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *testing.T) {
@@ -243,7 +243,7 @@ func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *test
 
 	resp, err := client.Get(server.URL).Header("X-Shared", "request").Send(context.Background())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	require.NoError(t, resp.Close())
 }
 
 func TestRequestCancellation(t *testing.T) {
@@ -819,7 +819,7 @@ func TestPrepareBodyWithFormFields(t *testing.T) {
 		"age":  {"32"},
 	})
 
-	body, contentType, err := builder.prepareBody(clientSnapshot{})
+	body, contentType, err := builder.prepareBody(&clientSnapshot{})
 	require.NoError(t, err)
 	assert.Equal(t, "application/x-www-form-urlencoded", contentType)
 
@@ -1326,7 +1326,7 @@ func TestAuthRequest(t *testing.T) {
 		// If there's an error sending the request, fail the test.
 		t.Fatalf("Failed to send request: %v", err)
 	}
-	defer resp.Close() //nolint: errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
 	// Check if the response status code is 200 OK, which indicates successful authentication.
 	if resp.StatusCode() != http.StatusOK {

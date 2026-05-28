@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/kaptinlin/orderedobject"
+
 	"github.com/kaptinlin/requests"
 )
 

@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/kaptinlin/requests"
 	utls "github.com/refraction-networking/utls"
+
+	"github.com/kaptinlin/requests"
 )
 
 type profile struct {

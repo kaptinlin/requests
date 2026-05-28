@@ -9,8 +9,9 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/kaptinlin/requests"
 	utls "github.com/refraction-networking/utls"
+
+	"github.com/kaptinlin/requests"
 )
 
 // ConfigureTransport configures transport to use helloID for TLS handshakes.

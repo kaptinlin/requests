@@ -35,10 +35,11 @@ func startFileUploadServer() *httptest.Server {
 					http.Error(w, "Failed to open file", http.StatusInternalServerError)
 					return
 				}
-				defer file.Close() //nolint: errcheck
-
 				// Read file content (for demonstration; in real tests, might hash or skip)
 				content, err := io.ReadAll(file)
+				if closeErr := file.Close(); closeErr != nil && err == nil {
+					err = closeErr
+				}
 				if err != nil {
 					http.Error(w, "Failed to read file content", http.StatusInternalServerError)
 					return
@@ -297,7 +298,7 @@ func TestMultipartFileBytesUsesSnapshotAndCustomBoundary(t *testing.T) {
 
 	file, _, err := request.FormFile("avatar")
 	require.NoError(t, err)
-	defer file.Close() //nolint:errcheck
+	defer file.Close() //nolint:errcheck // test cleanup closes temporary file
 
 	got, err := io.ReadAll(file)
 	require.NoError(t, err)

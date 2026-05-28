@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"mime"
 	mimeMultipart "mime/multipart"
 	"net/textproto"
 	"net/url"
@@ -188,11 +189,10 @@ func createFilePart(writer *mimeMultipart.Writer, part FilePart) (io.Writer, err
 	}
 
 	header := textproto.MIMEHeader{}
-	header.Set("Content-Disposition", fmt.Sprintf(
-		`form-data; name="%s"; filename="%s"`,
-		escapeMultipartQuote(part.Field),
-		escapeMultipartQuote(part.Filename),
-	))
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+		"name":     part.Field,
+		"filename": part.Filename,
+	}))
 	header.Set("Content-Type", part.ContentType)
 
 	writerPart, err := writer.CreatePart(header)
@@ -200,10 +200,6 @@ func createFilePart(writer *mimeMultipart.Writer, part FilePart) (io.Writer, err
 		return nil, fmt.Errorf("creating form file failed: %w", err)
 	}
 	return writerPart, nil
-}
-
-func escapeMultipartQuote(s string) string {
-	return strings.NewReplacer("\\", "\\\\", `"`, "\\\"").Replace(s)
 }
 
 type limitWriter struct {

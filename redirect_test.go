@@ -44,7 +44,7 @@ func TestRedirectPolicies(t *testing.T) {
 
 		assert.NoError(t, err, "Expected no errors")
 		assert.Equal(t, http.StatusOK, resp.StatusCode(), "Expected status code to be 200")
-		defer resp.Close() //nolint:errcheck
+		defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	})
 
 	t.Run("AllowRedirectPolicy-ExceedsLimit", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestRedirectPolicies(t *testing.T) {
 
 		assert.NoError(t, err, "Expected no errors")
 		assert.Equal(t, http.StatusOK, resp.StatusCode(), "Expected status code to be 200")
-		defer resp.Close() //nolint:errcheck
+		defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	})
 
 	t.Run("RedirectSpecifiedDomainPolicy-ProhibitDomain", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestRedirectPolicyUsesExampleHost(t *testing.T) {
 
 	resp, err := client.Get("/redirect").Send(t.Context())
 	assert.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 	assert.Equal(t, []string{"api.example.com", "api.example.com"}, hosts)
 }

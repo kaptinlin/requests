@@ -43,7 +43,7 @@ func JitterBackoffStrategy(base BackoffStrategy, fraction float64) BackoffStrate
 		if fraction <= 0 {
 			return delay
 		}
-		jitter := float64(delay) * fraction * (2*rand.Float64() - 1)
+		jitter := float64(delay) * fraction * (2*rand.Float64() - 1) //nolint:gosec // retry jitter does not require cryptographic randomness
 		result := time.Duration(float64(delay) + jitter)
 		return max(result, 0)
 	}

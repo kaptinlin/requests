@@ -591,7 +591,7 @@ func (c *Client) SetDefaultCookie(name, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.Cookies = append(c.Cookies, &http.Cookie{Name: name, Value: value})
+	c.Cookies = append(c.Cookies, &http.Cookie{Name: name, Value: value}) //nolint:gosec // callers control default cookie attributes
 }
 
 // DelDefaultCookie removes a default cookie from the client.
@@ -682,7 +682,7 @@ func (c *Client) snapshot() clientSnapshot {
 		if cookie == nil {
 			continue
 		}
-		clone := new(*cookie)
+		clone := new(*cookie) //nolint:gosec // snapshot preserves caller-provided cookie attributes
 		clone.Unparsed = slices.Clone(cookie.Unparsed)
 		cookies[i] = clone
 	}

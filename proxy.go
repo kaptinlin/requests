@@ -244,7 +244,7 @@ func RandomProxies(proxyURLs ...string) (func(*http.Request) (*url.URL, error), 
 	}
 	n := len(proxies)
 	return func(_ *http.Request) (*url.URL, error) {
-		return proxies[rand.IntN(n)], nil
+		return proxies[rand.IntN(n)], nil //nolint:gosec // proxy rotation does not require cryptographic randomness
 	}, nil
 }
 

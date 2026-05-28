@@ -216,7 +216,7 @@ func (b *RequestBuilder) Cookies(cookies map[string]string) *RequestBuilder {
 
 // Cookie adds a cookie to the request.
 func (b *RequestBuilder) Cookie(key, value string) *RequestBuilder {
-	b.cookies = append(b.cookies, &http.Cookie{Name: key, Value: value})
+	b.cookies = append(b.cookies, &http.Cookie{Name: key, Value: value}) //nolint:gosec // callers control request cookie attributes
 	return b
 }
 
@@ -468,7 +468,7 @@ func (b *RequestBuilder) RetryIf(retryIf RetryIfFunc) *RequestBuilder {
 	return b
 }
 
-func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap clientSnapshot) (*http.Response, int, error) {
+func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap *clientSnapshot) (*http.Response, int, error) {
 	attempts := 0
 
 	finalHandler := MiddlewareHandlerFunc(func(req *http.Request) (*http.Response, error) {
@@ -662,7 +662,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		defer cancel()
 	}
 
-	body, contentType, err := b.prepareBody(snap)
+	body, contentType, err := b.prepareBody(&snap)
 	if err != nil {
 		if snap.Logger != nil {
 			snap.Logger.Errorf("Error preparing request body: %v", err)
@@ -674,7 +674,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		b.Header("Content-Type", contentType)
 	}
 
-	body, getBody, contentLength, err := b.prepareReplayableBody(body, snap)
+	body, getBody, contentLength, err := b.prepareReplayableBody(body, &snap)
 	if err != nil {
 		return nil, err
 	}
@@ -691,12 +691,12 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 		req.ContentLength = contentLength
 	}
 
-	b.applyAuth(req, snap)
-	b.applyHeaders(req, snap)
-	b.applyCookies(req, snap)
-	req = withOrderedHeaders(req, b.effectiveOrderedHeaders(snap))
+	b.applyAuth(req, &snap)
+	b.applyHeaders(req, &snap)
+	b.applyCookies(req, &snap)
+	req = withOrderedHeaders(req, b.effectiveOrderedHeaders(&snap))
 
-	resp, attempts, err := b.do(ctx, req, snap)
+	resp, attempts, err := b.do(ctx, req, &snap)
 	if err != nil {
 		if snap.Logger != nil {
 			snap.Logger.Errorf("Error executing request: %v", err)
@@ -722,7 +722,7 @@ func (b *RequestBuilder) Send(ctx context.Context) (*Response, error) {
 	return response, err
 }
 
-func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, error) {
+func (b *RequestBuilder) prepareBody(snap *clientSnapshot) (io.Reader, string, error) {
 	if b.multipart != nil {
 		return b.multipart.reader()
 	}
@@ -746,7 +746,7 @@ func (b *RequestBuilder) prepareBody(snap clientSnapshot) (io.Reader, string, er
 	return body, contentType, err
 }
 
-func (b *RequestBuilder) effectiveMaxRetries(snap clientSnapshot) int {
+func (b *RequestBuilder) effectiveMaxRetries(snap *clientSnapshot) int {
 	maxRetries := snap.MaxRetries
 	if b.hasMaxRetriesOverride {
 		maxRetries = b.maxRetries
@@ -756,7 +756,7 @@ func (b *RequestBuilder) effectiveMaxRetries(snap clientSnapshot) int {
 
 func (b *RequestBuilder) prepareReplayableBody(
 	body io.Reader,
-	snap clientSnapshot,
+	snap *clientSnapshot,
 ) (io.Reader, func() (io.ReadCloser, error), int64, error) {
 	if body == nil || b.effectiveMaxRetries(snap) == 0 {
 		return body, nil, 0, nil
@@ -838,7 +838,7 @@ func (b *RequestBuilder) prepareContext(ctx context.Context) (context.Context, c
 	return ctx, nil
 }
 
-func (b *RequestBuilder) applyAuth(req *http.Request, snap clientSnapshot) {
+func (b *RequestBuilder) applyAuth(req *http.Request, snap *clientSnapshot) {
 	if b.auth != nil {
 		b.auth.Apply(req)
 		return
@@ -848,14 +848,14 @@ func (b *RequestBuilder) applyAuth(req *http.Request, snap clientSnapshot) {
 	}
 }
 
-func (b *RequestBuilder) applyHeaders(req *http.Request, snap clientSnapshot) {
+func (b *RequestBuilder) applyHeaders(req *http.Request, snap *clientSnapshot) {
 	addHeaderValues(req.Header, snap.Headers, snap.OrderedHeaders)
 	if b.headers != nil {
 		overlayHeaderValues(req.Header, *b.headers, b.orderedHeaders)
 	}
 }
 
-func (b *RequestBuilder) effectiveOrderedHeaders(snap clientSnapshot) *orderedobject.Object[[]string] {
+func (b *RequestBuilder) effectiveOrderedHeaders(snap *clientSnapshot) *orderedobject.Object[[]string] {
 	headers := mergeOrderedHeaders(snap.OrderedHeaders, b.orderedHeaders)
 	if headers == nil || b.headers == nil {
 		return headers
@@ -872,7 +872,7 @@ func (b *RequestBuilder) effectiveOrderedHeaders(snap clientSnapshot) *orderedob
 	return headers
 }
 
-func (b *RequestBuilder) applyCookies(req *http.Request, snap clientSnapshot) {
+func (b *RequestBuilder) applyCookies(req *http.Request, snap *clientSnapshot) {
 	for _, cookie := range snap.Cookies {
 		req.AddCookie(cookie)
 	}
@@ -932,7 +932,7 @@ func (b *RequestBuilder) inferContentType() string {
 	}
 }
 
-func (b *RequestBuilder) encodeBody(contentType string, snap clientSnapshot) (io.Reader, error) {
+func (b *RequestBuilder) encodeBody(contentType string, snap *clientSnapshot) (io.Reader, error) {
 	if b.rawBody {
 		return b.encodeRawBody()
 	}

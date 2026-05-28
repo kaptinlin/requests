@@ -408,7 +408,7 @@ For response caching, use `middlewares.CacheMiddleware` with a `middlewares.Cach
 
 ## Documentation
 
-- Development guidance: [AGENTS.md](AGENTS.md)
+- Development guidance: [CLAUDE.md](CLAUDE.md)
 - API and contract details: [SPECS/](SPECS/)
 - Package docs: [pkg.go.dev/github.com/kaptinlin/requests](https://pkg.go.dev/github.com/kaptinlin/requests)
 - Browser profile docs: [pkg.go.dev/github.com/kaptinlin/requests/browser](https://pkg.go.dev/github.com/kaptinlin/requests/browser)

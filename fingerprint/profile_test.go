@@ -12,9 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/kaptinlin/requests"
 	utls "github.com/refraction-networking/utls"
 	"github.com/test-go/testify/require"
+
+	"github.com/kaptinlin/requests"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -32,13 +33,13 @@ func TestChromeProfileSendsRequest(t *testing.T) {
 	defer server.Close()
 
 	client := requests.New(
-		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}), //nolint:gosec
+		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 		requests.WithProfile(Chrome()),
 	)
 
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	require.Equal(t, http.StatusOK, resp.StatusCode())
 	require.Equal(t, "ok", resp.String())
 }
@@ -52,7 +53,7 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 	var called atomic.Bool
 	dialer := &net.Dialer{}
 	client := requests.New(
-		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}), //nolint:gosec
+		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 		requests.WithProfile(Chrome()),
 		requests.WithDialContext(func(ctx context.Context, network, addr string) (net.Conn, error) {
 			called.Store(true)
@@ -62,7 +63,7 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
-	defer resp.Close() //nolint:errcheck
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 	require.True(t, called.Load())
 }
 
@@ -138,7 +139,7 @@ func TestConfigureTransportUsesTLSConfigForHandshake(t *testing.T) {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			ServerName:            "example.com",
-			InsecureSkipVerify:    true, //nolint:gosec
+			InsecureSkipVerify:    true,
 			ClientSessionCache:    tls.NewLRUClientSessionCache(1),
 			Certificates:          []tls.Certificate{{Certificate: [][]byte{{1, 2, 3}}}},
 			CurvePreferences:      []tls.CurveID{tls.X25519},
