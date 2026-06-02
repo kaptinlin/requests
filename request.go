@@ -156,8 +156,9 @@ func (b *RequestBuilder) QueriesStruct(queryStruct any) *RequestBuilder {
 // Headers set headers to the request.
 func (b *RequestBuilder) Headers(headers http.Header) *RequestBuilder {
 	for key, values := range headers {
+		b.headers.Del(key)
 		for _, value := range values {
-			b.headers.Set(key, value)
+			b.headers.Add(key, value)
 		}
 		if b.orderedHeaders != nil {
 			setOrderedHeaderValues(&b.orderedHeaders, key, values)

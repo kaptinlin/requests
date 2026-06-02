@@ -303,6 +303,38 @@ func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *test
 	require.NoError(t, resp.Close())
 }
 
+func TestHeadersPreserveMultipleValuesWhenOverridingOrderedDefaults(t *testing.T) {
+	clientHeaders := orderedobject.NewObject[[]string]().
+		Set("X-Keep", []string{"default"}).
+		Set("X-Multi", []string{"default"})
+
+	client := New(WithOrderedHeaders(clientHeaders))
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, []string{"default"}, req.Header.Values("X-Keep"))
+			assert.Equal(t, []string{"one", "two"}, req.Header.Values("X-Multi"))
+
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-Keep"}, ordered.Keys())
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		}
+	})
+
+	resp, err := client.Get("https://example.com").
+		Headers(http.Header{"X-Multi": []string{"one", "two"}}).
+		Send(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, resp.Close())
+}
+
 func TestRequestCancellation(t *testing.T) {
 	t.Parallel()
 
