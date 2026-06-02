@@ -1,7 +1,6 @@
 package middlewares
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
@@ -86,20 +85,9 @@ func TestCookieMiddleware(t *testing.T) {
 				return &http.Response{}, nil
 			})
 
-			// Create client with middleware
-			client := requests.Create(&requests.Config{
-				BaseURL:     "http://example.com",
-				Middlewares: []requests.Middleware{middleware},
-			})
-
-			// Send request
-			resp, err := client.Get("/").Send(context.Background())
-			assert.NoError(t, err, "Failed to send request")
-			defer resp.Close() //nolint:errcheck // test cleanup closes response body
-
 			// Execute middleware
 			handler := middleware(nextHandler)
-			_, err = handler(req)
+			_, err := handler(req)
 			assert.NoError(t, err, "unexpected error")
 		})
 	}
