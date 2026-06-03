@@ -162,8 +162,14 @@ tasks:
     desc: Check if go.mod and go.sum are tidy
     cmds:
       - echo "Checking go.mod and go.sum are tidy..."
-      - go mod tidy
-      - git diff --exit-code -- go.mod go.sum
+      - |
+        before="$(git diff -- go.mod go.sum)"
+        go mod tidy
+        after="$(git diff -- go.mod go.sum)"
+        if [ "$before" != "$after" ]; then
+          git diff -- go.mod go.sum
+          exit 1
+        fi
 
   tidy:all:
     desc: Run go mod tidy for root and extension modules

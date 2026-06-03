@@ -4,13 +4,13 @@ go 1.26.3
 
 require (
 	github.com/kaptinlin/orderedobject v0.2.14
-	github.com/kaptinlin/requests v0.6.0
+	github.com/kaptinlin/requests v0.6.1
 	github.com/test-go/testify v1.1.4
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/go-json-experiment/json v0.0.0-20260520185125-572e7c383686 // indirect
+	github.com/go-json-experiment/json v0.0.0-20260601182631-00ed12fed2a6 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
