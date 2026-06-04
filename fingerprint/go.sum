@@ -14,8 +14,8 @@ github.com/google/go-querystring v1.2.0 h1:yhqkPbu2/OH+V9BfpCVPZkNmUXhb2gBxJArfh
 github.com/google/go-querystring v1.2.0/go.mod h1:8IFJqpSRITyJ8QhQ13bmbeMBDfmeEJZD5A0egEOmkqU=
 github.com/kaptinlin/orderedobject v0.2.14 h1:wC7+0WyLCTpjoigOYIp/Suk4HOYis1kyJQ38maa5nRc=
 github.com/kaptinlin/orderedobject v0.2.14/go.mod h1:TMPRDmeQATUvBOJN/exbJTNcirS2QxP0fqQ4zZfhwn0=
-github.com/kaptinlin/requests v0.6.1 h1:xMQFMDpU9hLpJsfp5TbwD4YqBD9hT8DU0SURSd5a/zw=
-github.com/kaptinlin/requests v0.6.1/go.mod h1:ufgRD9IR13yExipSSBoJ95O244VcIPUPcOpKelyqEGw=
+github.com/kaptinlin/requests v0.6.2 h1:CGnA00Dhv7I6XKEv12rI4I4Jn+fI3nkcwLcqHAOfwdw=
+github.com/kaptinlin/requests v0.6.2/go.mod h1:Wfdv/c9SlXHptzu2pvEOD3y0VfejaFP0zMxyFiUuLJ8=
 github.com/klauspost/compress v1.18.6 h1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=
 github.com/klauspost/compress v1.18.6/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
