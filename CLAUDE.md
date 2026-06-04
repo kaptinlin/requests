@@ -116,7 +116,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 
 ### Must Follow
 
-- Go 1.26.3 — use modern Go features already present in this repo when they simplify code.
+- Go 1.26.4 — use modern Go features already present in this repo when they simplify code.
 - Follow [Google Go Best Practices](https://google.github.io/go-style/best-practices).
 - Follow [Google Go Style Decisions](https://google.github.io/go-style/decisions).
 - KISS/DRY/YAGNI — no premature abstractions, no unused features, no duplicated logic.

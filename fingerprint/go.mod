@@ -1,6 +1,6 @@
 module github.com/kaptinlin/requests/fingerprint
 
-go 1.26.3
+go 1.26.4
 
 require (
 	github.com/kaptinlin/requests v0.6.2
