@@ -71,6 +71,36 @@ func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
 	require.NoError(t, resp.Close())
 }
 
+func TestOrderedHeadersCaseInsensitiveDuplicatesDoNotLeakAfterOverride(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-Dupe", []string{"one"}).
+		Set("x-dupe", []string{"two"}).
+		Set("X-Keep", []string{"keep"})
+
+	client := Create(nil)
+	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+		return func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, []string{"request"}, req.Header.Values("X-Dupe"))
+
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-Dupe", "X-Keep"}, ordered.Keys())
+			dupe, ok := ordered.Get("X-Dupe")
+			require.True(t, ok)
+			assert.Equal(t, []string{"request"}, dupe)
+
+			return next(req)
+		}
+	})
+
+	resp, err := client.Get("https://example.com").
+		OrderedHeaders(headers).
+		Header("x-dupe", "request").
+		Send(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, resp.Close())
+}
+
 func TestOrderedHeadersNilClearsRequestHeaders(t *testing.T) {
 	t.Parallel()
 

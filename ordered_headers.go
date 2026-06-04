@@ -18,6 +18,11 @@ func cloneOrderedHeaders(headers *orderedobject.Object[[]string]) *orderedobject
 
 	clone := orderedobject.NewObject[[]string](headers.Len())
 	headers.ForEach(func(key string, values []string) {
+		if existing, ok := orderedHeaderKey(clone, key); ok {
+			existingValues, _ := clone.Get(existing)
+			clone.Set(existing, append(existingValues, values...))
+			return
+		}
 		clone.Set(key, slices.Clone(values))
 	})
 	return clone
