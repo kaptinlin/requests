@@ -47,28 +47,20 @@ var DefaultYAMLEncoder = &YAMLEncoder{
 
 // YAMLDecoder handles decoding of YAML data.
 type YAMLDecoder struct {
-	UnmarshalFunc func(data []byte, v any) error // UnmarshalFunc unmarshals YAML data into a value.
+	DecodeFunc func(r io.Reader, v any) error // DecodeFunc decodes YAML data into a value.
 }
 
-// Decode reads the data from the reader and unmarshals it into the provided value.
+// Decode decodes YAML data from the reader into the provided value.
 func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return fmt.Errorf("failed to read YAML data: %w", err)
+	if d.DecodeFunc != nil {
+		return d.DecodeFunc(r, v)
 	}
 
-	unmarshal := yaml.Unmarshal
-	if d.UnmarshalFunc != nil {
-		unmarshal = d.UnmarshalFunc
-	}
-
-	if err := unmarshal(data, v); err != nil {
-		return fmt.Errorf("failed to unmarshal YAML: %w", err)
+	if err := yaml.NewDecoder(r).Decode(v); err != nil {
+		return fmt.Errorf("failed to decode YAML: %w", err)
 	}
 	return nil
 }
 
-// DefaultYAMLDecoder is the default YAMLDecoder instance using the goccy/go-yaml Unmarshal function.
-var DefaultYAMLDecoder = &YAMLDecoder{
-	UnmarshalFunc: yaml.Unmarshal,
-}
+// DefaultYAMLDecoder is the default YAMLDecoder instance using the goccy/go-yaml streaming decoder.
+var DefaultYAMLDecoder = &YAMLDecoder{}

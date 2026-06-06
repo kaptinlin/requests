@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 )
 
 // JSONEncoder handles encoding of JSON data.
@@ -51,32 +52,20 @@ var DefaultJSONEncoder = &JSONEncoder{
 
 // JSONDecoder handles decoding of JSON data.
 type JSONDecoder struct {
-	UnmarshalFunc func(data []byte, v any) error // UnmarshalFunc unmarshals JSON data into a value.
+	DecodeFunc func(r io.Reader, v any) error // DecodeFunc decodes JSON data into a value.
 }
 
-// Decode reads the data from the reader and unmarshals it into the provided value.
+// Decode decodes JSON data from the reader into the provided value.
 func (d *JSONDecoder) Decode(r io.Reader, v any) error {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return fmt.Errorf("failed to read JSON data: %w", err)
+	if d.DecodeFunc != nil {
+		return d.DecodeFunc(r, v)
 	}
 
-	unmarshal := jsonUnmarshal
-	if d.UnmarshalFunc != nil {
-		unmarshal = d.UnmarshalFunc
-	}
-
-	if err := unmarshal(data, v); err != nil {
-		return fmt.Errorf("failed to unmarshal JSON: %w", err)
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(r), v); err != nil {
+		return fmt.Errorf("failed to decode JSON: %w", err)
 	}
 	return nil
 }
 
-func jsonUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
-}
-
-// DefaultJSONDecoder is the default JSONDecoder instance using the JSON v2 unmarshal function.
-var DefaultJSONDecoder = &JSONDecoder{
-	UnmarshalFunc: jsonUnmarshal,
-}
+// DefaultJSONDecoder is the default JSONDecoder instance using the JSON v2 streaming decoder.
+var DefaultJSONDecoder = &JSONDecoder{}

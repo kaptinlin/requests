@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/go-json-experiment/json"
+	"github.com/go-json-experiment/json/jsontext"
 	"github.com/google/go-querystring/query"
 	"github.com/kaptinlin/orderedobject"
 )
@@ -33,6 +34,7 @@ type RequestBuilder struct {
 	multipart             *Multipart
 	boundary              string
 	bodyData              any
+	bodyReader            func() (io.Reader, error)
 	rawBody               bool
 	timeout               time.Duration
 	middlewares           []Middleware
@@ -319,7 +321,7 @@ func (b *RequestBuilder) FormFields(fields any) *RequestBuilder {
 }
 
 // FormField adds or updates a form field.
-// The resulting body is buffered and is safe to replay for retries.
+// Without files, the resulting form body is buffered and safe to replay for retries.
 func (b *RequestBuilder) FormField(key, val string) *RequestBuilder {
 	if b.formFields == nil {
 		b.formFields = url.Values{}
@@ -338,17 +340,17 @@ func (b *RequestBuilder) DelFormField(key ...string) *RequestBuilder {
 	return b
 }
 
-// Files sets multiple files at once. The resulting multipart body is buffered
-// in memory and is safe to replay for retries; for streaming uploads use
-// [RequestBuilder.Multipart] instead.
+// Files sets multiple files at once. The resulting multipart body is streamed
+// once; use [Multipart.Replayable] with [RequestBuilder.Multipart] when retries
+// must resend the body.
 func (b *RequestBuilder) Files(files ...*File) *RequestBuilder {
 	b.formFiles = append(b.formFiles, files...)
 	return b
 }
 
-// File adds a file to the request. The resulting multipart body is buffered in
-// memory and is safe to replay for retries; for streaming uploads use
-// [RequestBuilder.Multipart] instead.
+// File adds a file to the request. The resulting multipart body is streamed
+// once; use [Multipart.Replayable] with [RequestBuilder.Multipart] when retries
+// must resend the body.
 func (b *RequestBuilder) File(key, filename string, content io.ReadCloser) *RequestBuilder {
 	b.formFiles = append(b.formFiles, &File{
 		Name:     key,
@@ -399,6 +401,7 @@ func (b *RequestBuilder) DelFile(key ...string) *RequestBuilder {
 // [RequestBuilder.YAMLBody], [RequestBuilder.TextBody], or
 // [RequestBuilder.RawBody].
 func (b *RequestBuilder) Body(body any) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = body
 	b.rawBody = false
 	return b
@@ -407,14 +410,33 @@ func (b *RequestBuilder) Body(body any) *RequestBuilder {
 // JSONBody sets the request body as JSON and Content-Type to application/json.
 // The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) JSONBody(v any) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = v
 	b.rawBody = false
+	return b.ContentType("application/json")
+}
+
+// JSONBodyStream sets a one-shot streaming JSON request body.
+// The body is not replayable; a retry that needs to resend it returns
+// [ErrRequestBodyNotReplayable].
+func (b *RequestBuilder) JSONBodyStream(v any) *RequestBuilder {
+	b.bodyData = nil
+	b.bodyReader = func() (io.Reader, error) {
+		pr, pw := io.Pipe()
+		go func() {
+			err := json.MarshalEncode(jsontext.NewEncoder(pw), v)
+			_ = pw.CloseWithError(err)
+		}()
+		return pr, nil
+	}
+	b.rawBody = true
 	return b.ContentType("application/json")
 }
 
 // XMLBody sets the request body as XML and Content-Type to application/xml.
 // The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("application/xml")
@@ -423,6 +445,7 @@ func (b *RequestBuilder) XMLBody(v any) *RequestBuilder {
 // YAMLBody sets the request body as YAML and Content-Type to application/yaml.
 // The encoded body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("application/yaml")
@@ -431,6 +454,7 @@ func (b *RequestBuilder) YAMLBody(v any) *RequestBuilder {
 // TextBody sets the request body as plain text and Content-Type to text/plain.
 // The body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = v
 	b.rawBody = false
 	return b.ContentType("text/plain")
@@ -439,8 +463,21 @@ func (b *RequestBuilder) TextBody(v string) *RequestBuilder {
 // RawBody sets the request body as raw bytes without changing Content-Type.
 // The body is buffered and is safe to replay for retries.
 func (b *RequestBuilder) RawBody(v []byte) *RequestBuilder {
+	b.bodyReader = nil
 	b.bodyData = v
 	b.rawBody = true
+	return b
+}
+
+// StreamBody sets a one-shot raw request body and optional Content-Type.
+// The body is not replayable unless r itself is seekable and sized.
+func (b *RequestBuilder) StreamBody(r io.Reader, contentType string) *RequestBuilder {
+	b.bodyReader = nil
+	b.bodyData = r
+	b.rawBody = true
+	if contentType != "" {
+		return b.ContentType(contentType)
+	}
 	return b
 }
 
@@ -518,12 +555,12 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap *client
 
 			if !canReplayRequestBody(req) {
 				if snap.Logger != nil {
-					snap.Logger.Warnf("request body cannot be replayed; skipping retry after attempt %d", attempt+1)
+					snap.Logger.Warnf("request body cannot be replayed; failing retry after attempt %d", attempt+1)
 				}
 				if err != nil {
-					return resp, err
+					return resp, errors.Join(err, ErrRequestBodyNotReplayable)
 				}
-				break
+				return resp, ErrRequestBodyNotReplayable
 			}
 
 			if resp != nil {
@@ -733,6 +770,13 @@ func (b *RequestBuilder) prepareBody(snap *clientSnapshot) (io.Reader, string, e
 	if len(b.formFields) > 0 {
 		return strings.NewReader(b.formFields.Encode()), "application/x-www-form-urlencoded", nil
 	}
+	if b.bodyReader != nil {
+		body, err := b.bodyReader()
+		if err != nil {
+			return nil, "", err
+		}
+		return body, b.headers.Get("Content-Type"), nil
+	}
 	if b.bodyData == nil {
 		return nil, "", nil
 	}
@@ -883,41 +927,22 @@ func (b *RequestBuilder) applyCookies(req *http.Request, snap *clientSnapshot) {
 }
 
 func (b *RequestBuilder) prepareMultipartBody() (io.Reader, string, error) {
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
+	body := NewMultipart()
 	if b.boundary != "" {
-		if err := writer.SetBoundary(b.boundary); err != nil {
-			return nil, "", fmt.Errorf("setting custom boundary failed: %w", err)
-		}
+		body.Boundary(b.boundary)
 	}
 
 	for key, vals := range b.formFields {
 		for _, val := range vals {
-			if err := writer.WriteField(key, val); err != nil {
-				return nil, "", fmt.Errorf("writing form field failed: %w", err)
-			}
+			body.Field(key, val)
 		}
 	}
 
 	for _, file := range b.formFiles {
-		part, err := writer.CreateFormFile(file.Name, file.FileName)
-		if err != nil {
-			return nil, "", fmt.Errorf("creating form file failed: %w", err)
-		}
-		if _, err = io.Copy(part, file.Content); err != nil {
-			return nil, "", fmt.Errorf("copying file content failed: %w", err)
-		}
-		if err = file.Content.Close(); err != nil {
-			return nil, "", fmt.Errorf("closing file content failed: %w", err)
-		}
+		body.File(file.Name, file.FileName, file.Content)
 	}
 
-	if err := writer.Close(); err != nil {
-		return nil, "", fmt.Errorf("closing multipart writer failed: %w", err)
-	}
-
-	return &buf, writer.FormDataContentType(), nil
+	return body.reader()
 }
 
 func (b *RequestBuilder) inferContentType() string {

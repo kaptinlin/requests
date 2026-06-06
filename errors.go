@@ -35,7 +35,7 @@ var (
 	// ErrRequestBodyNotReplayable is returned when retries are configured but
 	// the body is a one-shot io.Reader (see [RequestBuilder.Body]). Switch to
 	// a buffered body setter such as JSONBody, RawBody, Form, or call
-	// Multipart.Replayable(maxBytes) to opt in to buffering.
+	// Multipart.Replayable(maxBytes) to opt in to buffering for multipart.
 	ErrRequestBodyNotReplayable = errors.New("request body is not replayable")
 
 	// ErrRequestBodyReadIncomplete is returned when a sized request body

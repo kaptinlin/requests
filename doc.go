@@ -47,13 +47,16 @@
 //
 //   - Replayable: [RequestBuilder.JSONBody], [RequestBuilder.XMLBody],
 //     [RequestBuilder.YAMLBody], [RequestBuilder.TextBody], [RequestBuilder.RawBody],
-//     [RequestBuilder.Form], [RequestBuilder.FormField], [RequestBuilder.FormFields],
-//     [RequestBuilder.Files], [RequestBuilder.Multipart]. The body is buffered or
-//     re-readable, so retries are safe.
-//   - One-shot: [RequestBuilder.Body] given a raw [io.Reader] that is not seekable.
+//     [RequestBuilder.Form], [RequestBuilder.FormField], and
+//     [RequestBuilder.FormFields]. The body is buffered or re-readable, so
+//     retries are safe.
+//   - One-shot: [RequestBuilder.Body] or [RequestBuilder.StreamBody] given a
+//     raw [io.Reader] that is not seekable, [RequestBuilder.JSONBodyStream],
+//     [RequestBuilder.Files], and non-replayable [RequestBuilder.Multipart].
 //     Such bodies cannot be replayed; if a retry is required, Send returns
 //     [ErrRequestBodyNotReplayable] instead of silently re-sending or silently
-//     skipping the retry.
+//     skipping the retry. Use [Multipart.Replayable] when a multipart body must
+//     be resent.
 //
 // # Errors
 //

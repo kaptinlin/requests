@@ -878,6 +878,28 @@ func TestJSONBody(t *testing.T) {
 	assert.Equal(t, "application/json", response["contentType"], "The content type should be set to application/json.")
 }
 
+func TestJSONBodyStream(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := Create(&Config{BaseURL: server.URL})
+
+	jsonData := map[string]any{"name": "John Doe", "age": 30}
+	jsonDataStr, _ := json.Marshal(jsonData)
+
+	resp, err := client.Post("/").
+		JSONBodyStream(jsonData).
+		Send(context.Background())
+	require.NoError(t, err)
+
+	var response map[string]string
+	err = resp.Scan(&response)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(jsonDataStr), response["body"])
+	assert.Equal(t, "application/json", response["contentType"])
+}
+
 func TestXMLBody(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
@@ -1225,7 +1247,7 @@ func TestRetryReplaysJSONBody(t *testing.T) {
 	assert.Equal(t, 2, resp.Attempts())
 }
 
-func TestRetrySkipsNonReplayableBody(t *testing.T) {
+func TestRetryRejectsNonReplayableBody(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := io.ReadAll(r.Body)
@@ -1244,11 +1266,34 @@ func TestRetrySkipsNonReplayableBody(t *testing.T) {
 		RetryStrategy: DefaultBackoffStrategy(0),
 	})
 	body := &io.LimitedReader{R: strings.NewReader("payload"), N: int64(len("payload"))}
-	resp, err := client.Post("/").Body(body).ContentType("text/plain").Send(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode())
+	_, err := client.Post("/").Body(body).ContentType("text/plain").Send(context.Background())
+	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
 	assert.Equal(t, int32(1), requestCount)
-	assert.Equal(t, 1, resp.Attempts())
+}
+
+func TestRetryRejectsJSONBodyStream(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    1,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	_, err := client.Post("/").
+		JSONBodyStream(map[string]string{"message": "hello"}).
+		Send(context.Background())
+	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
+	assert.Equal(t, int32(1), requestCount)
 }
 
 func TestRequestLevelRetries(t *testing.T) {

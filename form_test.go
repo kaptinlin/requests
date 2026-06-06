@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/go-json-experiment/json"
@@ -144,6 +145,32 @@ func TestFiles(t *testing.T) {
 	assert.Contains(t, uploads, "file2", "file2 should be present in the uploads")
 	// Optionally check for specific file content snippets
 }
+
+func TestFilesAreNotBufferedForRetry(t *testing.T) {
+	var requestCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := r.ParseMultipartForm(10 << 20)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		atomic.AddInt32(&requestCount, 1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := Create(&Config{
+		BaseURL:       server.URL,
+		MaxRetries:    1,
+		RetryStrategy: DefaultBackoffStrategy(0),
+	})
+	_, err := client.Post("/").
+		File("file", "single.txt", io.NopCloser(strings.NewReader("This is the file content"))).
+		Send(context.Background())
+	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
+	assert.Equal(t, int32(1), requestCount)
+}
+
 func TestFile(t *testing.T) {
 	t.Parallel()
 

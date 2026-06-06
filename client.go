@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -620,11 +621,22 @@ func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
 
 // SetJSONUnmarshal sets the JSON unmarshal function for the client's JSONDecoder.
 func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) {
+	c.SetJSONDecode(func(r io.Reader, v any) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		return unmarshalFunc(data, v)
+	})
+}
+
+// SetJSONDecode sets the JSON decode function for the client's JSONDecoder.
+func (c *Client) SetJSONDecode(decodeFunc func(r io.Reader, v any) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.JSONDecoder = &JSONDecoder{
-		UnmarshalFunc: unmarshalFunc,
+		DecodeFunc: decodeFunc,
 	}
 }
 
@@ -660,11 +672,22 @@ func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
 
 // SetYAMLUnmarshal sets the YAML unmarshal function for the client's YAMLDecoder.
 func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
+	c.SetYAMLDecode(func(r io.Reader, v any) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		return unmarshalFunc(data, v)
+	})
+}
+
+// SetYAMLDecode sets the YAML decode function for the client's YAMLDecoder.
+func (c *Client) SetYAMLDecode(decodeFunc func(r io.Reader, v any) error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.YAMLDecoder = &YAMLDecoder{
-		UnmarshalFunc: unmarshalFunc,
+		DecodeFunc: decodeFunc,
 	}
 }
 

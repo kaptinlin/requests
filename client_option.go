@@ -3,6 +3,7 @@ package requests
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -249,6 +250,11 @@ func WithJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) ClientOptio
 	return func(c *Client) { c.SetJSONUnmarshal(unmarshalFunc) }
 }
 
+// WithJSONDecode sets a custom JSON decode function.
+func WithJSONDecode(decodeFunc func(r io.Reader, v any) error) ClientOption {
+	return func(c *Client) { c.SetJSONDecode(decodeFunc) }
+}
+
 // WithXMLMarshal sets a custom XML marshal function.
 func WithXMLMarshal(marshalFunc func(v any) ([]byte, error)) ClientOption {
 	return func(c *Client) { c.SetXMLMarshal(marshalFunc) }
@@ -267,4 +273,9 @@ func WithYAMLMarshal(marshalFunc func(v any) ([]byte, error)) ClientOption {
 // WithYAMLUnmarshal sets a custom YAML unmarshal function.
 func WithYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) ClientOption {
 	return func(c *Client) { c.SetYAMLUnmarshal(unmarshalFunc) }
+}
+
+// WithYAMLDecode sets a custom YAML decode function.
+func WithYAMLDecode(decodeFunc func(r io.Reader, v any) error) ClientOption {
+	return func(c *Client) { c.SetYAMLDecode(decodeFunc) }
 }
