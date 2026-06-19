@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/google/go-cmp v0.7.0
 	github.com/kaptinlin/requests v0.6.4
-	github.com/quic-go/quic-go v0.59.1
+	github.com/quic-go/quic-go v0.60.0
 	github.com/test-go/testify v1.1.4
 )
 
