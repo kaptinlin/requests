@@ -23,18 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      GOPRIVATE: github.com/agentable/*
       GOWORK: "off"
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
         # Do NOT initialize submodules
-
-      - name: Configure Git for private modules
-        env:
-          TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -60,7 +53,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      GOPRIVATE: github.com/agentable/*
       GOWORK: "off"
       GOGC: "50"
       GOMEMLIMIT: 4GiB
@@ -68,12 +60,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         # Do NOT initialize submodules
-
-      - name: Configure Git for private modules
-        env:
-          TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -101,22 +87,56 @@ jobs:
           version: ${{ steps.golangci.outputs.version }}
           args: --timeout=30m --concurrency=1 --path-prefix=.
 
+  workspace:
+    name: Workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOGC: "50"
+      GOMEMLIMIT: 4GiB
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        # Do NOT initialize submodules
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            browser/go.sum
+            fingerprint/go.sum
+            http3/go.sum
+
+      - name: Install Task
+        uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create local workspace
+        run: go work init . ./browser ./fingerprint ./http3
+
+      - name: Run workspace tests
+        run: task test:all
+
+      - name: Run workspace linters
+        run: task lint:all
+
+      - name: Run workspace vulnerability checks
+        run: task vuln:all
+
   security:
     name: Security
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      GOPRIVATE: github.com/agentable/*
       GOWORK: "off"
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
-
-      - name: Configure Git for private modules
-        env:
-          TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -125,7 +145,11 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Install Task
+        uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+        run: task vuln

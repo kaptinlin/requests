@@ -29,7 +29,7 @@ func TestCancelBeforeSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(ctx)
 
 	require.Error(t, err)
@@ -52,10 +52,11 @@ func TestCancelDuringResponseHeader(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	defer close(gate)
+	var closeGate sync.Once
+	defer closeGate.Do(func() { close(gate) })
 
 	ctx, cancel := context.WithCancel(t.Context())
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -107,7 +108,7 @@ func TestCancelDuringResponseBody(t *testing.T) {
 	}()
 	defer cancel()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(ctx)
 
 	require.Error(t, err, "Send must surface cancellation while buffering the body")
@@ -137,11 +138,10 @@ func TestCancelDuringRetryBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    5,
-		RetryStrategy: DefaultBackoffStrategy(2 * time.Second),
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 5, Backoff: DefaultBackoffStrategy(2 * time.Second)}),
+	)
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -165,9 +165,6 @@ func TestCancelDuringRetryBackoff(t *testing.T) {
 	}
 }
 
-// TestCancelDuringStream covers cancellation while a streaming callback is
-// active. The error callback must observe a context error, the done callback
-// must still fire, and no stream goroutine must outlive the call.
 func TestCancelDuringStream(t *testing.T) {
 	t.Parallel()
 
@@ -186,59 +183,34 @@ func TestCancelDuringStream(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	defer close(gate)
+	var closeGate sync.Once
+	defer closeGate.Do(func() { close(gate) })
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
-	var (
-		dataMu      sync.Mutex
-		gotData     bool
-		streamErr   error
-		streamErrCh = make(chan struct{}, 1)
-		doneCh      = make(chan struct{}, 1)
-	)
+	resp, err := client.Get("/").SendStream(ctx)
+	require.NoError(t, err)
+	defer resp.Close() //nolint:errcheck // test cleanup closes response body
 
-	_, err := client.Get("/").
-		Stream(func(_ []byte) error {
-			dataMu.Lock()
-			gotData = true
-			dataMu.Unlock()
-			cancel()
-			return nil
-		}).
-		StreamErr(func(err error) {
+	var gotData bool
+	var streamErr error
+	for line, err := range resp.Lines() {
+		if err != nil {
 			streamErr = err
-			select {
-			case streamErrCh <- struct{}{}:
-			default:
-			}
-		}).
-		StreamDone(func() {
-			select {
-			case doneCh <- struct{}{}:
-			default:
-			}
-		}).
-		Send(ctx)
-	require.NoError(t, err, "Send returns the streaming response without waiting for callbacks")
-
-	select {
-	case <-streamErrCh:
-	case <-doneCh:
-	case <-time.After(2 * time.Second):
-		t.Fatal("expected StreamErr or StreamDone to fire after cancel")
+			break
+		}
+		assert.Equal(t, "data: tick", string(line))
+		gotData = true
+		cancel()
+		closeGate.Do(func() { close(gate) })
 	}
-
-	dataMu.Lock()
-	defer dataMu.Unlock()
 	assert.True(t, gotData, "first chunk should have reached the callback before cancel")
-	if streamErr != nil {
-		assert.True(t, IsCanceled(streamErr) || errors.Is(streamErr, context.Canceled),
-			"streamErr should reflect cancellation, got %v", streamErr)
-	}
+	require.Error(t, streamErr)
+	assert.True(t, IsCanceled(streamErr) || errors.Is(streamErr, context.Canceled),
+		"streamErr should reflect cancellation, got %v", streamErr)
 }
 
 // TestNoGoroutineLeakAfterCancel runs a batch of canceled requests and
@@ -258,7 +230,7 @@ func TestNoGoroutineLeakAfterCancel(t *testing.T) {
 	defer server.Close()
 	defer close(gate)
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Warm the transport so its background goroutines do not skew the baseline.
 	warmup, cancel := context.WithCancel(t.Context())

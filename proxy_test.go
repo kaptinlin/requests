@@ -1,7 +1,6 @@
 package requests
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,8 +15,8 @@ func createTestServerForProxy() *httptest.Server {
 	}))
 }
 
-// TestSetProxyValidProxy tests setting a valid proxy and making a request through it.
-func TestSetProxyValidProxy(t *testing.T) {
+// TestWithProxyValidProxy tests configuring a valid proxy and making a request through it.
+func TestWithProxyValidProxy(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
 
@@ -28,30 +27,25 @@ func TestSetProxyValidProxy(t *testing.T) {
 	}))
 	defer proxyServer.Close()
 
-	client := URL(server.URL)
+	client := newTestClient(t, WithBaseURL(server.URL), WithProxy(proxyServer.URL))
 
-	err := client.SetProxy(proxyServer.URL)
-	assert.Nil(t, err, "Setting a valid proxy should not result in an error.")
-
-	resp, err := client.Get("/").Send(context.Background())
+	resp, err := client.Get("/").Send(t.Context())
 	assert.Nil(t, err, "Request through a valid proxy should succeed.")
 	assert.NotNil(t, resp, "Response should not be nil.")
 	assert.Equal(t, "true", resp.Header().Get("X-Test-Proxy"), "Request should have passed through the proxy.")
 }
 
-// TestSetProxyInvalidProxy tests handling of invalid proxy URLs.
-func TestSetProxyInvalidProxy(t *testing.T) {
+// TestWithProxyInvalidProxy tests handling of invalid proxy URLs.
+func TestWithProxyInvalidProxy(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
-	client := URL(server.URL)
 
 	invalidProxyURL := "://invalid_url"
-	err := client.SetProxy(invalidProxyURL)
+	_, err := New(WithBaseURL(server.URL), WithProxy(invalidProxyURL))
 	assert.NotNil(t, err, "Setting an invalid proxy URL should result in an error.")
 }
 
-// TestSetProxyRemoveProxy tests removing proxy settings.
-func TestSetProxyRemoveProxy(t *testing.T) {
+func TestWithoutProxyClearsProxyOnClone(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
 
@@ -61,16 +55,12 @@ func TestSetProxyRemoveProxy(t *testing.T) {
 	}))
 	defer proxyServer.Close()
 
-	client := URL(server.URL)
-
-	// Set then remove the proxy
-	err := client.SetProxy(proxyServer.URL)
-	assert.Nil(t, err, "Setting a proxy should not result in an error.")
-
-	client.RemoveProxy()
+	base := newTestClient(t, WithBaseURL(server.URL), WithProxy(proxyServer.URL))
+	client, err := base.Clone(WithoutProxy())
+	assert.NoError(t, err)
 
 	// Make a request and check it doesn't go through the proxy
-	resp, err := client.Get("/").Send(context.Background())
+	resp, err := client.Get("/").Send(t.Context())
 	assert.Nil(t, err, "Request after removing proxy should succeed.")
 	assert.NotNil(t, resp, "Response should not be nil.")
 	assert.NotEqual(t, "true", resp.Header().Get("X-Test-Proxy"), "Request should not have passed through the proxy.")
@@ -138,13 +128,13 @@ func TestNoProxyParsing(t *testing.T) {
 		assert.False(t, np.matches("anything.com"))
 	})
 
-	t.Run("NilNoProxy", func(t *testing.T) {
-		var np *NoProxy
+	t.Run("nil bypass rules", func(t *testing.T) {
+		var np *noProxy
 		assert.False(t, np.matches("anything.com"))
 	})
 }
 
-func TestSetProxyWithBypass(t *testing.T) {
+func TestWithProxyBypass(t *testing.T) {
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Test-Proxy", "true")
 		w.WriteHeader(http.StatusOK)
@@ -154,17 +144,15 @@ func TestSetProxyWithBypass(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
 
-	client := URL(server.URL)
-	err := client.SetProxyWithBypass(proxyServer.URL, "127.0.0.1, localhost")
-	assert.NoError(t, err)
+	client := newTestClient(t, WithBaseURL(server.URL), WithProxyBypass(proxyServer.URL, "127.0.0.1, localhost"))
 
-	resp, err := client.Get("/").Send(context.Background())
+	resp, err := client.Get("/").Send(t.Context())
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Empty(t, resp.Header().Get("X-Test-Proxy"))
 }
 
-func TestSetProxyWithBypassUsesExampleHost(t *testing.T) {
+func TestWithProxyBypassUsesExampleHost(t *testing.T) {
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Test-Proxy", "true")
 		w.WriteHeader(http.StatusOK)
@@ -177,9 +165,11 @@ func TestSetProxyWithBypassUsesExampleHost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithBaseURL("https://api.example.com"), WithHTTPClient(server.Client()))
-	err := client.SetProxyWithBypass(proxyServer.URL, "example.com")
-	assert.NoError(t, err)
+	client := newTestClient(t,
+		WithBaseURL("https://api.example.com"),
+		WithHTTPClient(server.Client()),
+		WithProxyBypass(proxyServer.URL, "example.com"),
+	)
 
 	resp, err := client.Get("/").Send(t.Context())
 	assert.NoError(t, err)
@@ -188,15 +178,13 @@ func TestSetProxyWithBypassUsesExampleHost(t *testing.T) {
 	assert.Empty(t, resp.Header().Get("X-Test-Proxy"))
 }
 
-func TestSetProxyFromEnv(t *testing.T) {
-	client := Create(nil)
-	err := client.SetProxyFromEnv()
-	assert.NoError(t, err)
+func TestWithProxyFromEnv(t *testing.T) {
+	client := newTestClient(t, WithProxyFromEnv())
+	assert.NotNil(t, client)
 }
 
-func TestSetProxyWithBypassInvalidProxy(t *testing.T) {
-	client := Create(nil)
-	err := client.SetProxyWithBypass("://invalid", "localhost")
+func TestWithProxyBypassInvalidProxy(t *testing.T) {
+	_, err := New(WithProxyBypass("://invalid", "localhost"))
 	assert.Error(t, err)
 }
 
@@ -216,14 +204,12 @@ func TestRoundRobinProxies(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
 
-	client := URL(server.URL)
-	err := client.SetProxies(p1.URL, p2.URL)
-	assert.NoError(t, err)
+	client := newTestClient(t, WithBaseURL(server.URL), WithProxies(p1.URL, p2.URL))
 
 	// Send 4 requests and verify round-robin ordering
 	ids := make([]string, 4)
 	for i := range 4 {
-		resp, err := client.Get("/").Send(context.Background())
+		resp, err := client.Get("/").Send(t.Context())
 		assert.NoError(t, err)
 		ids[i] = resp.Header().Get("X-Proxy-ID")
 	}
@@ -253,13 +239,11 @@ func TestRandomProxies(t *testing.T) {
 	selector, err := RandomProxies(p1.URL, p2.URL)
 	assert.NoError(t, err)
 
-	client := URL(server.URL)
-	err = client.SetProxySelector(selector)
-	assert.NoError(t, err)
+	client := newTestClient(t, WithBaseURL(server.URL), WithProxySelector(selector))
 
 	seen := map[string]bool{}
 	for range 20 {
-		resp, err := client.Get("/").Send(context.Background())
+		resp, err := client.Get("/").Send(t.Context())
 		assert.NoError(t, err)
 		seen[resp.Header().Get("X-Proxy-ID")] = true
 	}
@@ -268,25 +252,26 @@ func TestRandomProxies(t *testing.T) {
 	assert.True(t, seen["2"])
 }
 
-func TestSetProxiesValidation(t *testing.T) {
+func TestWithProxiesValidation(t *testing.T) {
 	t.Run("NoProxies", func(t *testing.T) {
-		client := Create(nil)
-		err := client.SetProxies()
+		_, err := New(WithProxies())
 		assert.ErrorIs(t, err, ErrNoProxies)
 	})
 
 	t.Run("InvalidProxy", func(t *testing.T) {
-		client := Create(nil)
-		err := client.SetProxies("http://good:8080", "ftp://bad:21")
+		_, err := New(WithProxies("http://good:8080", "ftp://bad:21"))
 		assert.ErrorIs(t, err, ErrUnsupportedScheme)
 	})
 
 	t.Run("InvalidTransport", func(t *testing.T) {
-		client := Create(nil)
-		client.HTTPClient.Transport = testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
-			return nil, nil
-		})
-		err := client.SetProxies("http://proxy:8080")
+		_, err := New(
+			WithHTTPClient(&http.Client{
+				Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+					return nil, nil
+				}),
+			}),
+			WithProxies("http://proxy:8080"),
+		)
 		assert.ErrorIs(t, err, ErrInvalidTransportType)
 	})
 }
@@ -361,14 +346,13 @@ func TestRetryRotatesProxy(t *testing.T) {
 	server := createTestServerForProxy()
 	defer server.Close()
 
-	client := URL(server.URL)
-	err := client.SetProxies(p1.URL, p2.URL)
-	assert.NoError(t, err)
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithProxies(p1.URL, p2.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
 
-	client.SetMaxRetries(1)
-	client.SetRetryStrategy(DefaultBackoffStrategy(0))
-
-	resp, err := client.Get("/").Send(context.Background())
+	resp, err := client.Get("/").Send(t.Context())
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 
@@ -377,12 +361,14 @@ func TestRetryRotatesProxy(t *testing.T) {
 }
 
 func TestEnsureTransportInvalidType(t *testing.T) {
-	client := Create(nil)
-	client.HTTPClient.Transport = testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
-		return nil, nil
-	})
-
-	err := client.SetProxy("http://proxy.example.com")
+	_, err := New(
+		WithHTTPClient(&http.Client{
+			Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				return nil, nil
+			}),
+		}),
+		WithProxy("http://proxy.example.com"),
+	)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidTransportType)
 }

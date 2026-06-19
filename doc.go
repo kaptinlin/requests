@@ -1,26 +1,28 @@
 // Package requests provides a fluent HTTP client library for Go.
 //
-// # Three-object model
+// # Four-object model
 //
-// The package is built around three public objects:
+// The package is built around four public objects:
 //
 //   - Client owns reusable configuration: base URL, default headers and cookies,
 //     auth, retry policy, codecs, logger, and transport settings.
 //   - RequestBuilder owns one outbound request: method, path, request-local
-//     metadata, body, timeout, retries, middleware, and streaming callbacks.
-//   - Response exposes the result of one Send call, either as a buffered body
-//     or as an asynchronously consumed stream.
+//     metadata, body, timeout, retries, and middleware.
+//   - Response exposes the buffered result of one Send call.
+//   - StreamResponse exposes the unbuffered result of one SendStream call.
 //
-// Once Send starts, later mutations to Client do not affect the in-flight
-// request. State that is reused across requests belongs on Client; state for
-// one request belongs on RequestBuilder.
+// Client defaults are formed during New or Clone. State that is reused across
+// requests belongs on Client; state for one request belongs on RequestBuilder.
 //
 // # Quick start
 //
-//	client := requests.New(
+//	client, err := requests.New(
 //	    requests.WithBaseURL("https://api.example.com"),
 //	    requests.WithTimeout(30*time.Second),
 //	)
+//	if err != nil {
+//	    return err
+//	}
 //
 //	resp, err := client.Get("/users/{id}").
 //	    PathParam("id", "1").
@@ -31,28 +33,27 @@
 //	defer resp.Close()
 //
 //	var user User
-//	if err := resp.ScanJSON(&user); err != nil {
+//	if err := resp.DecodeJSON(&user); err != nil {
 //	    return err
 //	}
 //
 // # Construction
 //
-// Use [New] with functional options for the common path. Use [URL] when only a
-// base URL is needed. Use [Create] with a [Config] when programmatic
-// configuration is preferred. The three entry points produce equivalent clients.
+// Use [New] with functional options. Construction validates option input and
+// returns an error instead of building a partially configured client.
 //
 // # Body lifecycle
 //
 // Request body setters fall into two groups:
 //
-//   - Replayable: [RequestBuilder.JSONBody], [RequestBuilder.XMLBody],
-//     [RequestBuilder.YAMLBody], [RequestBuilder.TextBody], [RequestBuilder.RawBody],
+//   - Replayable: [RequestBuilder.JSON], [RequestBuilder.XML],
+//     [RequestBuilder.YAML], [RequestBuilder.Text], [RequestBuilder.Bytes],
 //     [RequestBuilder.Form], [RequestBuilder.FormField], and
 //     [RequestBuilder.FormFields]. The body is buffered or re-readable, so
 //     retries are safe.
-//   - One-shot: [RequestBuilder.Body] or [RequestBuilder.StreamBody] given a
-//     raw [io.Reader] that is not seekable, [RequestBuilder.JSONBodyStream],
-//     [RequestBuilder.Files], and non-replayable [RequestBuilder.Multipart].
+//   - One-shot: [RequestBuilder.Reader] given a raw [io.Reader] that is not
+//     seekable, [RequestBuilder.Files], and non-replayable
+//     [RequestBuilder.Multipart].
 //     Such bodies cannot be replayed; if a retry is required, Send returns
 //     [ErrRequestBodyNotReplayable] instead of silently re-sending or silently
 //     skipping the retry. Use [Multipart.Replayable] when a multipart body must

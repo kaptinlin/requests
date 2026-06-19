@@ -1,6 +1,7 @@
-# Contributing to the Requests Package
+# Contributing to requests
 
-We warmly welcome contributions to the `requests` Package project! Whether it's through reporting issues, submitting patches, adding documentation, or suggesting new features, we value your input.
+Contributions to `requests` are welcome when they keep the API small, explicit,
+and easy to reason about.
 
 ## How to Contribute
 
@@ -12,26 +13,33 @@ Before submitting an issue, please check the issue tracker to avoid duplicates. 
 
 1. **Fork the repository** on GitHub.
 2. **Clone your fork** to your local machine.
-3. **Create a new branch** for your contributions.
-4. **Make your changes**. Please keep your code clean and well-commented.
-5. **Commit your changes**. Use clear and meaningful commit messages.
+3. **Create a new branch** for your change.
+4. **Make your change**. Keep code clear, tested, and narrowly scoped.
+5. **Commit your change**. Use a clear commit message.
 6. **Push your changes** to your fork on GitHub.
 7. **Submit a pull request**. Include a clear description of the changes and any relevant issue numbers.
 
+Run `task test` plus `task lint` for root-only changes. Run `task test:all`
+plus `task lint:all` when a change touches extension modules or shared
+contracts.
+
 ### Code Style
 
-Please adhere to the coding conventions used throughout the project (indentation, accurate comments, etc.) to ensure your contributions can be easily integrated.
+Follow the conventions used throughout the project. Prefer clear names,
+accurate comments, and small public surfaces.
 
 ### Adding Documentation
 
-Improvements to documentation are as valuable as code contributions. Please feel free to propose changes or add new content to help our users and developers.
+Documentation changes are as valuable as code changes when they clarify real
+behavior for users or maintainers.
 
 ## Conduct
 
-We are committed to providing a welcoming and inclusive environment. All participants are expected to uphold our Code of Conduct, which promotes respect and constructive dialogue.
+Keep discussion respectful, specific, and focused on the code or documentation
+under review.
 
 ## Questions?
 
 If you have any questions about contributing, please reach out by opening an issue or contacting the project maintainers directly.
 
-Thank you for your interest in contributing to the `requests` Package. We look forward to your contributions!
+Thank you for your interest in contributing to `requests`.

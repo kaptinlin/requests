@@ -1,8 +1,6 @@
 package browser
 
 import (
-	"fmt"
-
 	"github.com/kaptinlin/orderedobject"
 
 	"github.com/kaptinlin/requests"
@@ -36,15 +34,12 @@ func (p profile) Name() string {
 	return p.name
 }
 
-func (p profile) Apply(c *requests.Client) error {
-	if c == nil {
-		return fmt.Errorf("%w: client", requests.ErrInvalidConfigValue)
-	}
-	c.SetDefaultOrderedHeaders(p.headers)
+func (p profile) Options() []requests.Option {
+	opts := []requests.Option{requests.WithOrderedHeaders(p.headers)}
 	if p.http2 {
-		c.EnableHTTP2()
+		opts = append(opts, requests.WithHTTP2())
 	}
-	return nil
+	return opts
 }
 
 func chromeHeaders() *orderedobject.Object[[]string] {

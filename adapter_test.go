@@ -24,13 +24,13 @@ func TestAsHTTPClientAppliesClientDefaults(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(
+	client := newTestClient(t,
 		WithTimeout(5*time.Second),
 		WithHeader("X-Default", "value"),
 		WithBasicAuth("user", "pass"),
 		WithCookies(map[string]string{"session": "abc"}),
 	)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			req.Header.Set("X-Middleware", "middleware")
 			return next(req)
@@ -55,7 +55,7 @@ func TestAsTransportDoesNotMutateOriginalRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithHeader("X-Default", "value"))
+	client := newTestClient(t, WithHeader("X-Default", "value"))
 	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
 	require.NoError(t, err)
 
@@ -82,13 +82,13 @@ func TestAsHTTPClientAppliesDefaultsToExampleHost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(
+	client := newTestClient(t,
 		WithHTTPClient(server.Client()),
 		WithHeader("X-Default", "value"),
 		WithBearerAuth("token"),
 		WithCookies(map[string]string{"session": "abc"}),
 	)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			req.Header.Set("X-Middleware", "middleware")
 			return next(req)
@@ -111,7 +111,7 @@ func TestAsTransportAppliesDefaultsToExampleHost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithHTTPClient(server.Client()), WithHeader("X-Default", "value"))
+	client := newTestClient(t, WithHTTPClient(server.Client()), WithHeader("X-Default", "value"))
 	req, err := http.NewRequest(http.MethodGet, "https://api.example.com/resource", nil)
 	require.NoError(t, err)
 
@@ -131,7 +131,7 @@ func TestAsTransportAttachesDefaultOrderedHeaders(t *testing.T) {
 		Set(":authority", []string{"metadata-only"}).
 		Set("X-Second", []string{"2"})
 
-	client := New(
+	client := newTestClient(t,
 		WithOrderedHeaders(headers),
 		WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			assert.Equal(t, "1", req.Header.Get("X-First"))
@@ -168,7 +168,7 @@ func TestAsTransportDropsOrderedMetadataForOriginalHeaderOverrides(t *testing.T)
 		Set("X-First", []string{"default"}).
 		Set("X-Keep", []string{"default"})
 
-	client := New(
+	client := newTestClient(t,
 		WithOrderedHeaders(headers),
 		WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			assert.Equal(t, "request", req.Header.Get("X-First"))

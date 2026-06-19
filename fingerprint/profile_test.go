@@ -32,10 +32,11 @@ func TestChromeProfileSendsRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := requests.New(
+	client, err := requests.New(
 		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 		requests.WithProfile(Chrome()),
 	)
+	require.NoError(t, err)
 
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 
 	var called atomic.Bool
 	dialer := &net.Dialer{}
-	client := requests.New(
+	client, err := requests.New(
 		requests.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
 		requests.WithProfile(Chrome()),
 		requests.WithDialContext(func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -60,6 +61,7 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 			return dialer.DialContext(ctx, network, addr)
 		}),
 	)
+	require.NoError(t, err)
 
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
@@ -68,11 +70,14 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 }
 
 func TestProfileRejectsCustomTransport(t *testing.T) {
-	client := requests.New(requests.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
-		return nil, errUnusedRoundTrip
-	})))
+	client, err := requests.New(
+		requests.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errUnusedRoundTrip
+		})),
+		requests.WithProfile(Chrome()),
+	)
 
-	err := client.ApplyProfile(Chrome())
+	require.Nil(t, client)
 	require.True(t, errors.Is(err, requests.ErrInvalidTransportType))
 }
 
@@ -95,16 +100,9 @@ func TestCustomProfileNameDefaultsToHelloID(t *testing.T) {
 }
 
 func TestCustomProfileRejectsEmptyHelloID(t *testing.T) {
-	client := requests.New()
+	client, err := requests.New(requests.WithProfile(Custom("empty", utls.ClientHelloID{})))
 
-	err := client.ApplyProfile(Custom("empty", utls.ClientHelloID{}))
-
-	require.True(t, errors.Is(err, requests.ErrInvalidConfigValue))
-}
-
-func TestProfileRejectsNilClient(t *testing.T) {
-	err := Chrome().Apply(nil)
-
+	require.Nil(t, client)
 	require.True(t, errors.Is(err, requests.ErrInvalidConfigValue))
 }
 
@@ -119,7 +117,8 @@ func TestProfileWithTLSConfigConfiguresTransport(t *testing.T) {
 	tlsConfig.Certificates[0].OCSPStaple = []byte{4, 5, 6}
 	tlsConfig.Certificates[0].SignedCertificateTimestamps = [][]byte{{7, 8, 9}}
 	tlsConfig.CurvePreferences = []tls.CurveID{tls.X25519}
-	client := requests.New(requests.WithProfile(Custom("custom", utls.HelloChrome_Auto, WithTLSConfig(tlsConfig))))
+	client, err := requests.New(requests.WithProfile(Custom("custom", utls.HelloChrome_Auto, WithTLSConfig(tlsConfig))))
+	require.NoError(t, err)
 
 	transport, ok := client.GetHTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)

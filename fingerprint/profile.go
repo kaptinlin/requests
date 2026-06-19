@@ -58,7 +58,11 @@ func (p profile) Name() string {
 	return p.name
 }
 
-func (p profile) Apply(c *requests.Client) error {
+func (p profile) Options() []requests.Option {
+	return []requests.Option{p.configure}
+}
+
+func (p profile) configure(c *requests.Client) error {
 	if c == nil {
 		return fmt.Errorf("%w: client", requests.ErrInvalidConfigValue)
 	}
@@ -71,7 +75,9 @@ func (p profile) Apply(c *requests.Client) error {
 	switch current := client.Transport.(type) {
 	case nil:
 		transport = &http.Transport{}
-		c.SetDefaultTransport(transport)
+		if err := requests.WithTransport(transport)(c); err != nil {
+			return err
+		}
 	case *http.Transport:
 		transport = current
 	default:
@@ -79,7 +85,9 @@ func (p profile) Apply(c *requests.Client) error {
 	}
 
 	if p.tlsConfig != nil {
-		c.SetTLSConfig(p.tlsConfig)
+		if err := requests.WithTLSConfig(p.tlsConfig)(c); err != nil {
+			return err
+		}
 	}
 	return ConfigureTransport(transport, p.helloID)
 }

@@ -22,10 +22,14 @@ func ExampleClient_Get() {
 		Title string `json:"title"`
 	}
 
-	client := requests.New(
+	client, err := requests.New(
 		requests.WithBaseURL(server.URL),
 		requests.WithTimeout(5*time.Second),
 	)
+	if err != nil {
+		fmt.Println("client error:", err)
+		return
+	}
 
 	resp, err := client.Get("/posts/{id}").PathParam("id", "1").Send(context.Background())
 	if err != nil {
@@ -35,7 +39,7 @@ func ExampleClient_Get() {
 	defer func() { _ = resp.Close() }()
 
 	var p post
-	if err := resp.ScanJSON(&p); err != nil {
+	if err := resp.DecodeJSON(&p); err != nil {
 		fmt.Println("decode error:", err)
 		return
 	}

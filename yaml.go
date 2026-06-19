@@ -25,10 +25,10 @@ func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
 
-	buf := GetBuffer()
+	buf := getBuffer()
 	_, err = buf.Write(data)
 	if err != nil {
-		PutBuffer(buf)
+		putBuffer(buf)
 		return nil, fmt.Errorf("failed to write YAML to buffer: %w", err)
 	}
 

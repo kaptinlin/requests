@@ -123,7 +123,7 @@ func TestFiles(t *testing.T) {
 	server := startFileUploadServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	fileContent1 := strings.NewReader("File content 1")
 	fileContent2 := strings.NewReader("File content 2")
@@ -137,7 +137,7 @@ func TestFiles(t *testing.T) {
 	assert.NoError(t, err, "No error expected on sending request")
 
 	var uploads map[string][]string
-	err = resp.ScanJSON(&uploads)
+	err = resp.DecodeJSON(&uploads)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Validate the file uploads
@@ -159,11 +159,10 @@ func TestFilesAreNotBufferedForRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    1,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
 	_, err := client.Post("/").
 		File("file", "single.txt", io.NopCloser(strings.NewReader("This is the file content"))).
 		Send(context.Background())
@@ -177,7 +176,7 @@ func TestFile(t *testing.T) {
 	server := startFileUploadServer() // Start the mock file upload server
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Simulate a file's content
 	fileContent := strings.NewReader("This is the file content")
@@ -190,7 +189,7 @@ func TestFile(t *testing.T) {
 
 	// Parse the server's JSON response
 	var uploads map[string][]string
-	err = resp.ScanJSON(&uploads)
+	err = resp.DecodeJSON(&uploads)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Check if the server received the file correctly
@@ -204,7 +203,7 @@ func TestDelFile(t *testing.T) {
 	server := startFileUploadServer() // Start the mock file upload server
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Simulate file contents
 	fileContent1 := strings.NewReader("File content 1")
@@ -222,7 +221,7 @@ func TestDelFile(t *testing.T) {
 
 	// Parse the server's JSON response
 	var uploads map[string][]string
-	err = resp.ScanJSON(&uploads)
+	err = resp.DecodeJSON(&uploads)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Validate that only the second file was uploaded
@@ -261,7 +260,7 @@ func TestMultipartBuilder(t *testing.T) {
 			Body:        strings.NewReader("hello"),
 		})
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Post("/").Multipart(body).Send(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
@@ -292,11 +291,10 @@ func TestMultipartReplayableBuffersBody(t *testing.T) {
 		FileString("avatar", "avatar.txt", "hello").
 		Replayable(1024)
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    1,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
 	resp, err := client.Post("/").Multipart(body).Send(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())

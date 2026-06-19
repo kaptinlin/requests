@@ -5,17 +5,21 @@ vars:
     sh: pwd
   GOBIN: '{{.PROJECT_ROOT}}/bin'
   GOLANGCI_LINT_LOCAL_BINARY: '{{.GOBIN}}/golangci-lint'
+  GOVULNCHECK_LOCAL_BINARY: '{{.GOBIN}}/govulncheck'
   REQUIRED_GOLANGCI_LINT_VERSION:
     sh: cat .golangci.version 2>/dev/null || echo "2.12.2"
+  REQUIRED_GOVULNCHECK_VERSION:
+    sh: cat .govulncheck.version 2>/dev/null || echo "v1.4.0"
+  RELEASE_VERSION: v0.7.0
   GOLANGCI_LINT_BINARY:
     sh: |
       required="$(cat .golangci.version 2>/dev/null || echo "2.12.2")"
-      for candidate in "$(command -v golangci-lint 2>/dev/null || true)" "{{.GOLANGCI_LINT_LOCAL_BINARY}}"; do
-        [ -n "$candidate" ] || continue
-        [ -x "$candidate" ] || continue
-        version="$("$candidate" version --format short 2>/dev/null || "$candidate" version --short 2>/dev/null || true)"
+      for tool in "$(command -v golangci-lint 2>/dev/null || true)" "{{.GOLANGCI_LINT_LOCAL_BINARY}}"; do
+        [ -n "$tool" ] || continue
+        [ -x "$tool" ] || continue
+        version="$("$tool" version --format short 2>/dev/null || "$tool" version --short 2>/dev/null || true)"
         if [ "$version" = "$required" ]; then
-          echo "$candidate"
+          echo "$tool"
           exit 0
         fi
       done
@@ -24,6 +28,23 @@ vars:
     sh: |
       {{.GOLANGCI_LINT_BINARY}} version --format short 2>/dev/null ||
       {{.GOLANGCI_LINT_BINARY}} version --short 2>/dev/null ||
+      echo "not-installed"
+  GOVULNCHECK_BINARY:
+    sh: |
+      required="$(cat .govulncheck.version 2>/dev/null || echo "v1.4.0")"
+      for tool in "$(command -v govulncheck 2>/dev/null || true)" "{{.GOVULNCHECK_LOCAL_BINARY}}"; do
+        [ -n "$tool" ] || continue
+        [ -x "$tool" ] || continue
+        version="$("$tool" -version 2>/dev/null | awk '/^Scanner:/ { sub(/^govulncheck@/, "", $2); print $2; exit }')"
+        if [ "$version" = "$required" ]; then
+          echo "$tool"
+          exit 0
+        fi
+      done
+      echo "{{.GOVULNCHECK_LOCAL_BINARY}}"
+  GOVULNCHECK_VERSION:
+    sh: |
+      {{.GOVULNCHECK_BINARY}} -version 2>/dev/null | awk '/^Scanner:/ { sub(/^govulncheck@/, "", $2); print $2; exit }' ||
       echo "not-installed"
   MODULES:
     sh: |
@@ -119,6 +140,27 @@ tasks:
           echo "Running tests in {{.ITEM}}..."
           cd {{.ITEM}} && go test -race ./...
 
+  test:published:
+    desc: Verify extension modules against the published root module
+    cmds:
+      - |
+        set -e
+        root="github.com/kaptinlin/requests@{{.RELEASE_VERSION}}"
+        echo "Checking published root module $root..."
+        GOPROXY=direct GOWORK=off go list -m "$root" >/dev/null
+      - for:
+          var: MODULES
+        cmd: |
+          set -e
+          expected="{{.RELEASE_VERSION}}"
+          required="$(cd {{.ITEM}} && awk '$1 == "github.com/kaptinlin/requests" { print $2 }' go.mod)"
+          if [ "$required" != "$expected" ]; then
+            echo "{{.ITEM}} requires github.com/kaptinlin/requests@$required, expected $expected"
+            exit 1
+          fi
+          echo "Testing {{.ITEM}} outside go.work..."
+          cd {{.ITEM}} && GOWORK=off go test ./...
+
   lint:
     desc: Run all linters
     deps:
@@ -148,6 +190,19 @@ tasks:
         fi
     status:
       - test "{{.GOLANGCI_LINT_VERSION}}" = "{{.REQUIRED_GOLANGCI_LINT_VERSION}}"
+
+  install-govulncheck:
+    desc: Install govulncheck with the required version
+    cmds:
+      - mkdir -p "{{.GOBIN}}"
+      - |
+        if [ "{{.GOVULNCHECK_VERSION}}" != "{{.REQUIRED_GOVULNCHECK_VERSION}}" ]; then
+          echo "Installing govulncheck {{.REQUIRED_GOVULNCHECK_VERSION}}..."
+          go install golang.org/x/vuln/cmd/govulncheck@{{.REQUIRED_GOVULNCHECK_VERSION}}
+          echo "govulncheck {{.REQUIRED_GOVULNCHECK_VERSION}} installed successfully"
+        fi
+    status:
+      - test "{{.GOVULNCHECK_VERSION}}" = "{{.REQUIRED_GOVULNCHECK_VERSION}}"
 
   golangci-lint:
     desc: Run golangci-lint
@@ -189,8 +244,23 @@ tasks:
 
   vuln:
     desc: Run govulncheck
+    deps:
+      - install-govulncheck
     cmds:
-      - govulncheck ./...
+      - '{{.GOVULNCHECK_BINARY}} ./...'
+
+  vuln:all:
+    desc: Run govulncheck for root and extension modules
+    deps:
+      - install-govulncheck
+    cmds:
+      - echo "Running govulncheck for root..."
+      - '{{.GOVULNCHECK_BINARY}} ./...'
+      - for:
+          var: MODULES
+        cmd: |
+          echo "Running govulncheck in {{.ITEM}}..."
+          cd {{.ITEM}} && {{.GOVULNCHECK_BINARY}} ./...
 
   fmt:
     desc: Format Go code
@@ -216,3 +286,15 @@ tasks:
       - task: test
       - task: vuln
       - echo "All verification steps completed successfully ✅"
+
+  verify:all:
+    desc: Run full verification for root and extension modules
+    cmds:
+      - task: deps
+      - task: fmt
+      - task: vet
+      - task: tidy:all
+      - task: lint:all
+      - task: test:all
+      - task: vuln:all
+      - echo "All workspace verification steps completed successfully ✅"

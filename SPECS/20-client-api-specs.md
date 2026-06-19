@@ -6,21 +6,32 @@
 
 ## Construction
 
-The package exposes three client constructors:
+The package construction contract is:
 
-- `New(opts ...ClientOption)` for fluent option-based setup.
-- `URL(baseURL string)` for a short-form client with only a base URL.
-- `Create(config *Config)` for struct-based initialization.
+```go
+func New(opts ...Option) (*Client, error)
+func (c *Client) Clone(opts ...Option) (*Client, error)
+```
 
-`Create` returns `*Client` and does not surface configuration errors directly. Code that assembles a rich `Config` SHOULD call `Config.Validate()` before `Create` when it needs deterministic validation of malformed URLs or invalid numeric values.
+`New` applies options in order and returns the first option error. `Clone` copies
+the current client defaults, applies options through the same validation path,
+and returns a new client. Invalid base URLs, invalid numeric values, invalid
+proxy URLs, profile option errors, and file-loading failures from certificate
+options fail during construction or cloning. A caller that receives a non-nil
+`*Client` receives a validated client.
 
-> **Why**: Construction stays lightweight and allocation-oriented, while explicit validation remains available for callers that need stricter setup guarantees.
+> **Why**: Construction is a trust boundary. A client should either be valid and
+> ready to create requests, or construction should return an error the caller can
+> handle.
 >
-> **Rejected**: A single constructor that forces every caller through an error-returning setup path.
+> **Rejected**: Constructors or fluent options that hide validation failures in
+> logs, best-effort mutation, or later request-time surprises.
 
 ## Persistent Defaults
 
-The full audit of every effective default value applied by `Create` (and the rationale behind each) lives in [`SPECS/30-defaults.md`](30-defaults.md). Changes to any default value listed there are a compatibility event.
+The full audit of every effective default value applied by `New` (and the
+rationale behind each) lives in [`SPECS/30-defaults.md`](30-defaults.md).
+Changes to any default value listed there are contract changes.
 
 A `Client` MAY define reusable defaults for:
 
@@ -35,7 +46,7 @@ A `Client` MAY define reusable defaults for:
 - logger
 - transport and timeout settings
 
-These defaults apply to every request created from the client unless the request supplies a request-local value for the same concern.
+These defaults apply to every request created from the client unless the request supplies a request-local value for the same concern. Client defaults are not mutated through public runtime setters; callers derive a modified client with `Clone(opts...)`.
 
 Ordered headers preserve caller-specified insertion order as request intent. The implementation uses `github.com/kaptinlin/orderedobject` as the ordered storage model. Default `net/http` transports preserve header semantics but do not guarantee wire order; wire-order delivery is only guaranteed by transports that explicitly support ordered-header metadata.
 
@@ -43,28 +54,28 @@ Ordered headers preserve caller-specified insertion order as request intent. The
 
 `Client` owns the underlying `http.Client` and transport-level configuration:
 
-- `SetDefaultTimeout` sets the default `http.Client.Timeout`.
-- `SetDefaultTransport` and `SetHTTPClient` replace the underlying transport or client.
-- `EnableHTTP2` enables HTTP/2 on the active `*http.Transport`.
-- `SetDialTimeout`, `SetResolver`, `SetDialContext`, `SetLocalAddr`, `SetTLSHandshakeTimeout`, `SetResponseHeaderTimeout`, `SetMaxIdleConns`, `SetMaxIdleConnsPerHost`, `SetMaxConnsPerHost`, and `SetIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
+- `WithTimeout` sets the default `http.Client.Timeout`.
+- `WithTransport` and `WithHTTPClient` replace the underlying transport or client.
+- `WithHTTP2` enables HTTP/2 on the active `*http.Transport`.
+- `WithDialTimeout`, `WithResolver`, `WithDialContext`, `WithLocalAddr`, `WithTLSHandshakeTimeout`, `WithResponseHeaderTimeout`, `WithMaxIdleConns`, `WithMaxIdleConnsPerHost`, `WithMaxConnsPerHost`, and `WithIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
 - HTTP/2 enablement configures the active `*http.Transport` instead of replacing it, preserving proxy, dialer, resolver, local address, TLS, timeout, and connection-pool settings.
 - Resolver and local-address configuration use `net` package types only.
 - `WithHTTPClient` MUST be applied before transport-mutating options such as `WithProxy` or `WithDialTimeout`, because replacing the client discards earlier transport mutations.
 
-`WithHTTP2()` is the functional-option equivalent of `Config.HTTP2`.
+`WithHTTP2()` enables explicit HTTP/2 transport configuration during construction.
 
-Profiles are applied at the client layer through `ApplyProfile` or `WithProfile`. They may configure headers, ordered headers, and protocol preferences as reusable defaults. Request-local metadata still overrides profile-applied defaults.
+Profiles are applied at the client layer through `WithProfile`. They contribute construction options such as headers, ordered headers, and protocol preferences as reusable defaults. Request-local metadata still overrides profile-applied defaults.
 
 ## TLS and HTTP/2
 
 `Client` owns TLS configuration and certificate material:
 
-- `SetTLSConfig`, `InsecureSkipVerify`, `SetCertificates`, `SetClientCertificate`, `SetTLSServerName`, `SetRootCertificate`, `SetRootCertificateFromString`, `SetClientRootCertificate`, and `SetClientRootCertificateFromString` mutate client-level TLS state.
-- `Config.HTTP2` and `WithHTTP2()` configure HTTP/2 on the existing or default `*http.Transport`; custom non-`*http.Transport` implementations are left unchanged.
-- `WithSession` and `EnableSession` create a cookie jar and TLS client session cache when missing.
-- File-loading helpers such as `SetClientCertificate` and `SetRootCertificate` are best-effort: they log when a logger is configured and keep returning the same client for continued chaining.
+- `WithTLSConfig`, `WithInsecureSkipVerify`, `WithCertificates`, `WithClientCertificate`, `WithTLSServerName`, `WithRootCertificate`, and `WithRootCertificateFromString` configure client-level TLS state.
+- `WithHTTP2()` configures HTTP/2 on the existing or default `*http.Transport`; custom non-`*http.Transport` implementations are left unchanged.
+- `WithSession` creates a cookie jar and TLS client session cache when missing.
+- File-loading construction options such as `WithClientCertificate` and `WithRootCertificate` return errors from `New` when files cannot be loaded.
 
-`EnableSession` MUST NOT replace an existing cookie jar or `TLSConfig.ClientSessionCache`.
+`WithSession` MUST NOT replace an existing cookie jar or `TLSConfig.ClientSessionCache`.
 
 > **Why**: TLS policy is connection-level state, so it belongs on the client instead of on individual builders.
 >
@@ -74,14 +85,13 @@ Profiles are applied at the client layer through `ApplyProfile` or `WithProfile`
 
 Proxy configuration belongs on `Client`:
 
-- `SetProxy`, `SetProxyWithBypass`, `SetProxyFromEnv`, `SetProxies`, and `SetProxySelector` affect transport delivery and return errors when validation fails.
-- `RemoveProxy` clears any configured proxy.
-- `SetProxies` and selector-based proxy functions apply per transport attempt, including retry attempts.
-- `WithProxy` preserves the fluent option pattern and therefore ignores proxy-parse errors. Use `SetProxy` directly when proxy validation must fail fast.
+- `WithProxy`, `WithProxyBypass`, `WithProxyFromEnv`, `WithProxies`, and `WithProxySelector` affect transport delivery and return errors when validation fails.
+- `WithoutProxy` clears any configured proxy while constructing or cloning a client.
+- `WithProxies` and selector-based proxy functions apply per transport attempt, including retry attempts.
 
 ## Redirect Policy
 
-Redirect policy belongs on `Client` through `SetRedirectPolicy` and the `RedirectPolicy` interface.
+Redirect policy belongs on `Client` through `WithRedirectPolicy` and the `RedirectPolicy` interface.
 
 The built-in policies are:
 
@@ -90,7 +100,7 @@ The built-in policies are:
 - `NewSmartRedirectPolicy`
 - `NewRedirectSpecifiedDomainPolicy`
 
-Multiple redirect policies MAY be composed in one `SetRedirectPolicy` call. They run in argument order and the first error stops redirect processing.
+Multiple redirect policies MAY be composed in one `WithRedirectPolicy` call. They run in argument order and the first error stops redirect processing.
 
 ## `net/http` Adapters
 
@@ -101,22 +111,20 @@ Multiple redirect policies MAY be composed in one `SetRedirectPolicy` call. They
 Adapter boundaries:
 
 - preserve client headers, cookies, auth, middleware, timeout, cookie jar, redirect policy, and the underlying transport
-- do not preserve `RequestBuilder` behavior such as request-local retry, response buffering, streaming callbacks, decoding helpers, `Save`, or `Lines`
+- do not preserve `RequestBuilder` behavior such as request-local retry, response buffering, stream responses, decoding helpers, `Save`, or `Lines`
 - clone inbound `net/http` requests before applying defaults
-- do not change the meaning of `Client.HTTPClient` or `GetHTTPClient`, which remain raw escape hatches
+- do not change the meaning of `GetHTTPClient`, which remains a raw escape hatch
 
 ## Forbidden
 
-- Do not chain mutators that return `void`, including `SetDefaultHeader`, `SetDefaultHeaders`, `SetDefaultCookie`, `SetHTTPClient`, and `AddMiddleware`.
-- Do not rely on `WithProxy` to report invalid proxy configuration.
-- Do not expect `*http.Transport`-specific timeout and pool setters to mutate a custom non-`*http.Transport` transport.
+- Do not ignore errors returned by `New`.
+- Do not add public runtime setters for client defaults; derive modified clients with `Clone(opts...)`.
+- Do not expect `*http.Transport`-specific timeout and pool options to mutate a custom non-`*http.Transport` transport.
 - Do not expect `AsHTTPClient` or `AsTransport` to run the `RequestBuilder` pipeline.
 
-## Acceptance Criteria
+## Contract Invariants
 
-- [ ] All reusable configuration lives on `Client`.
-- [ ] Constructor behavior and validation expectations are explicit.
-- [ ] Proxy and redirect policy are defined as client-level concerns.
-- [ ] The distinction between error-returning proxy setters and fluent `WithProxy` is explicit.
-
-**Origin:** Migrated from `docs/client.md`.
+- All reusable configuration lives on `Client`.
+- Constructor behavior and validation expectations are explicit.
+- Proxy and redirect policy are defined as client-level concerns.
+- `WithProxy` errors surface through `New`.

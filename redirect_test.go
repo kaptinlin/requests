@@ -27,8 +27,8 @@ func TestRedirectPolicies(t *testing.T) {
 	defer ts.Close()
 
 	t.Run("ProhibitRedirectPolicy", func(t *testing.T) {
-		client := Create(nil)
-		client.SetRedirectPolicy(NewProhibitRedirectPolicy())
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewProhibitRedirectPolicy())
 
 		_, err := client.Get(ts.URL + "/redirect-1").Send(context.Background())
 
@@ -37,8 +37,8 @@ func TestRedirectPolicies(t *testing.T) {
 	})
 
 	t.Run("AllowRedirectPolicy", func(t *testing.T) {
-		client := Create(nil)
-		client.SetRedirectPolicy(NewAllowRedirectPolicy(3))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewAllowRedirectPolicy(3))
 
 		resp, err := client.Get(ts.URL + "/redirect-1").Send(context.Background())
 
@@ -48,8 +48,8 @@ func TestRedirectPolicies(t *testing.T) {
 	})
 
 	t.Run("AllowRedirectPolicy-ExceedsLimit", func(t *testing.T) {
-		client := Create(nil)
-		client.SetRedirectPolicy(NewAllowRedirectPolicy(1))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewAllowRedirectPolicy(1))
 
 		_, err := client.Get(ts.URL + "/redirect-1").Send(context.Background())
 
@@ -58,9 +58,9 @@ func TestRedirectPolicies(t *testing.T) {
 	})
 
 	t.Run("RedirectSpecifiedDomainPolicy", func(t *testing.T) {
-		client := Create(&Config{BaseURL: ts.URL})
+		client := newTestClient(t, WithBaseURL(ts.URL))
 		host := "127.0.0.1"
-		client.SetRedirectPolicy(NewRedirectSpecifiedDomainPolicy(host))
+		client.setRedirectPolicy(NewRedirectSpecifiedDomainPolicy(host))
 
 		resp, err := client.Get("/redirect-1").Send(context.Background())
 
@@ -70,8 +70,8 @@ func TestRedirectPolicies(t *testing.T) {
 	})
 
 	t.Run("RedirectSpecifiedDomainPolicy-ProhibitDomain", func(t *testing.T) {
-		client := Create(nil)
-		client.SetRedirectPolicy(NewRedirectSpecifiedDomainPolicy("other.domain.com"))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewRedirectSpecifiedDomainPolicy("other.domain.com"))
 
 		_, err := client.Get(ts.URL + "/redirect-1").Send(context.Background())
 
@@ -95,7 +95,7 @@ func TestRedirectPolicyUsesExampleHost(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New(
+	client := newTestClient(t,
 		WithBaseURL("https://api.example.com"),
 		WithHTTPClient(ts.Client()),
 		WithRedirectPolicy(NewRedirectSpecifiedDomainPolicy("api.example.com")),
@@ -115,7 +115,7 @@ func TestRedirectPolicyRejectsDifferentExampleHost(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client := New(
+	client := newTestClient(t,
 		WithBaseURL("https://api.example.com"),
 		WithHTTPClient(ts.Client()),
 		WithRedirectPolicy(NewRedirectSpecifiedDomainPolicy("api.example.com")),
@@ -186,8 +186,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(5))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(5))
 
 		resp, err := client.Post(ts.URL + "/start").Send(context.Background())
 		assert.NoError(t, err)
@@ -208,8 +208,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(5))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(5))
 
 		resp, err := client.Post(ts.URL + "/start").Send(context.Background())
 		assert.NoError(t, err)
@@ -230,8 +230,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(5))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(5))
 
 		resp, err := client.Post(ts.URL + "/start").Send(context.Background())
 		assert.NoError(t, err)
@@ -252,8 +252,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(5))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(5))
 
 		resp, err := client.Get(ts.URL + "/start").Send(context.Background())
 		assert.NoError(t, err)
@@ -273,8 +273,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(5))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(5))
 
 		_, err := client.Head(ts.URL + "/start").Send(context.Background())
 		assert.NoError(t, err)
@@ -287,8 +287,8 @@ func TestSmartRedirectPolicy(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		client := Create(nil)
-		client.SetRedirectPolicy(NewSmartRedirectPolicy(2))
+		client := newTestClient(t)
+		client.setRedirectPolicy(NewSmartRedirectPolicy(2))
 
 		_, err := client.Get(ts.URL + "/loop").Send(context.Background())
 		assert.Error(t, err)

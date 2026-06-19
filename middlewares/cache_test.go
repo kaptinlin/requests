@@ -30,12 +30,11 @@ func TestCacheMiddleware(t *testing.T) {
 
 	cache := NewMemoryCache()
 	logger := requests.NewDefaultLogger(os.Stdout, requests.LevelDebug)
-	client := requests.Create(&requests.Config{
-		BaseURL: server.URL,
-		Middlewares: []requests.Middleware{
-			CacheMiddleware(cache, time.Millisecond, logger),
-		},
-	})
+	client, err := requests.New(
+		requests.WithBaseURL(server.URL),
+		requests.WithMiddleware(CacheMiddleware(cache, time.Millisecond, logger)),
+	)
+	require.NoError(t, err)
 
 	resp1, err := client.Get("/test").Send(context.Background())
 	require.NoError(t, err)
@@ -104,10 +103,11 @@ func TestCacheMiddlewareUsesPathAndQueryAcrossExampleHosts(t *testing.T) {
 	cache := NewMemoryCache()
 	defer cache.Close()
 	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
-	client := requests.New(
+	client, err := requests.New(
 		requests.WithHTTPClient(server.Client()),
 		requests.WithMiddleware(CacheMiddleware(cache, time.Minute, logger)),
 	)
+	require.NoError(t, err)
 
 	resp1, err := client.Get("https://a.example.com/resource?id=1").Send(t.Context())
 	require.NoError(t, err)
@@ -153,12 +153,11 @@ func TestNonGetRequests(t *testing.T) {
 	cache := NewMemoryCache()
 	logger := requests.NewDefaultLogger(os.Stdout, requests.LevelDebug)
 
-	client := requests.Create(&requests.Config{
-		BaseURL: server.URL,
-		Middlewares: []requests.Middleware{
-			CacheMiddleware(cache, 5*time.Second, logger),
-		},
-	})
+	client, err := requests.New(
+		requests.WithBaseURL(server.URL),
+		requests.WithMiddleware(CacheMiddleware(cache, 5*time.Second, logger)),
+	)
+	require.NoError(t, err)
 
 	// Test POST request (should not be cached)
 	resp, err := client.Post("/test").Send(context.Background())

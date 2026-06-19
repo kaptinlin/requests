@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -139,10 +140,7 @@ func TestSetHTTPClient(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	// Create a new instance of your Client.
-	client := Create(&Config{
-		BaseURL: mockServer.URL, // Use the mock server URL in the client configuration.
-	})
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
 
 	// Define a custom transport that adds a custom cookie to all outgoing requests.
 	customTransport := testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
@@ -153,7 +151,7 @@ func TestSetHTTPClient(t *testing.T) {
 	})
 
 	// Set the custom http.Client with the custom transport to your Client.
-	client.SetHTTPClient(&http.Client{
+	client.setHTTPClient(&http.Client{
 		Transport: customTransport,
 	})
 
@@ -171,16 +169,16 @@ func TestSetHTTPClient(t *testing.T) {
 }
 
 func TestClientURL(t *testing.T) {
-	client := URL("http://localhost:8080")
+	client := newTestClient(t, WithBaseURL("http://localhost:8080"))
 	assert.NotNil(t, client)
-	assert.Equal(t, "http://localhost:8080", client.BaseURL)
+	assert.Equal(t, "http://localhost:8080", client.baseURL)
 }
 
 func TestClientGetRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-get").Send(context.Background())
 
 	assert.NoError(t, err)
@@ -191,8 +189,8 @@ func TestClientPostRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Post("/test-post").Body(map[string]any{"key": "value"}).Send(context.Background())
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Post("/test-post").JSON(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "POST response\n", resp.String())
@@ -202,8 +200,8 @@ func TestClientPutRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Put("/test-put").Body(map[string]any{"key": "value"}).Send(context.Background())
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Put("/test-put").JSON(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "PUT response\n", resp.String())
@@ -213,7 +211,7 @@ func TestClientDeleteRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Delete("/test-delete").Send(context.Background())
 
 	assert.NoError(t, err)
@@ -224,8 +222,8 @@ func TestClientPatchRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-	resp, err := client.Patch("/test-patch").Body(map[string]any{"key": "value"}).Send(context.Background())
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Patch("/test-patch").JSON(map[string]any{"key": "value"}).Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, "PATCH response\n", resp.String())
@@ -235,33 +233,33 @@ func TestClientOptionsRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Options("/test-get").Send(context.Background())
 
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.Raw().StatusCode)
 }
 
 func TestClientHeadRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Head("/test-get").Send(context.Background())
 
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.Raw().StatusCode)
 }
 
 func TestClientTraceRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Trace("/test-get").Send(context.Background())
 
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.Raw().StatusCode)
 }
 
 func TestClientConnectRequest(t *testing.T) {
@@ -273,7 +271,7 @@ func TestClientConnectRequest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Connect("/test-connect").Send(context.Background())
 
 	assert.NoError(t, err)
@@ -285,11 +283,11 @@ func TestClientCustomMethodRequest(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Custom("/test-get", "OPTIONS").Send(context.Background())
 
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.RawResponse.StatusCode)
+	assert.Equal(t, http.StatusOK, resp.Raw().StatusCode)
 }
 
 // testSchema represents the JSON structure for testing.
@@ -298,8 +296,7 @@ type testSchema struct {
 	Age  int    `json:"age"`
 }
 
-// TestSetJSONMarshal tests custom JSON marshal functionality.
-func TestSetJSONMarshal(t *testing.T) {
+func TestWithJSONEncoder(t *testing.T) {
 	// Start a mock HTTP server.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read body from the request
@@ -311,12 +308,14 @@ func TestSetJSONMarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-
-	// Set the custom JSON marshal function using JSON v2
-	client.SetJSONMarshal(func(v any) ([]byte, error) {
-		return json.Marshal(v)
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithJSONEncoder(&JSONEncoder{
+			MarshalFunc: func(v any) ([]byte, error) {
+				return json.Marshal(v)
+			},
+		}),
+	)
 
 	// Create a test data instance.
 	data := testSchema{
@@ -325,13 +324,12 @@ func TestSetJSONMarshal(t *testing.T) {
 	}
 
 	// Send a request with the custom marshaled body.
-	resp, err := client.Post("/").JSONBody(&data).Send(context.Background())
+	resp, err := client.Post("/").JSON(&data).Send(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
 
-// TestSetJSONUnmarshal tests custom JSON unmarshal functionality.
-func TestSetJSONUnmarshal(t *testing.T) {
+func TestWithJSONDecoder(t *testing.T) {
 	// Mock response data.
 	mockResponse := `{"name":"Jane Doe","age":25}`
 
@@ -341,19 +339,25 @@ func TestSetJSONUnmarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-
-	// Set the custom JSON unmarshal function using JSON v2
-	client.SetJSONUnmarshal(func(data []byte, v any) error {
-		return json.Unmarshal(data, v)
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithJSONDecoder(&JSONDecoder{
+			DecodeFunc: func(r io.Reader, v any) error {
+				data, err := io.ReadAll(r)
+				if err != nil {
+					return err
+				}
+				return json.Unmarshal(data, v)
+			},
+		}),
+	)
 
 	// Fetch and unmarshal the response.
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
 	var result testSchema
-	err = resp.Scan(&result)
+	err = resp.Decode(&result)
 	assert.NoError(t, err)
 	assert.Equal(t, "Jane Doe", result.Name)
 	assert.Equal(t, 25, result.Age)
@@ -365,7 +369,7 @@ type xmlTestSchema struct {
 	Status  bool     `xml:"Status"`
 }
 
-func TestSetXMLMarshal(t *testing.T) {
+func TestWithXMLEncoder(t *testing.T) {
 	// Mock server to check the received XML
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var received xmlTestSchema
@@ -376,9 +380,10 @@ func TestSetXMLMarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create your client and set the XML marshal function to use Go's default
-	client := Create(&Config{BaseURL: server.URL})
-	client.SetXMLMarshal(xml.Marshal)
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithXMLEncoder(&XMLEncoder{MarshalFunc: xml.Marshal}),
+	)
 
 	// Data to marshal and send
 	data := xmlTestSchema{
@@ -387,12 +392,12 @@ func TestSetXMLMarshal(t *testing.T) {
 	}
 
 	// Marshal and send the data
-	resp, err := client.Post("/").XMLBody(&data).Send(context.Background())
+	resp, err := client.Post("/").XML(&data).Send(context.Background())
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 }
 
-func TestSetXMLUnmarshal(t *testing.T) {
+func TestWithXMLDecoder(t *testing.T) {
 	// Mock server to send XML data
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
@@ -400,22 +405,23 @@ func TestSetXMLUnmarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create your client and set the XML unmarshal function to use Go's default
-	client := Create(&Config{BaseURL: server.URL})
-	client.SetXMLUnmarshal(xml.Unmarshal)
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithXMLDecoder(&XMLDecoder{UnmarshalFunc: xml.Unmarshal}),
+	)
 
 	// Fetch and attempt to unmarshal the data
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
 	var result xmlTestSchema
-	err = resp.Scan(&result)
+	err = resp.Decode(&result)
 	assert.NoError(t, err)
 	assert.Equal(t, "Response message", result.Message)
 	assert.True(t, result.Status)
 }
 
-func TestSetYAMLMarshal(t *testing.T) {
+func TestWithYAMLEncoder(t *testing.T) {
 	// Define a test schema
 	type yamlTestSchema struct {
 		Message string `yaml:"message"`
@@ -432,9 +438,10 @@ func TestSetYAMLMarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create your client and set the YAML marshal function to use goccy/go-yaml's Marshal
-	client := Create(&Config{BaseURL: server.URL})
-	client.SetYAMLMarshal(yaml.Marshal)
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithYAMLEncoder(&YAMLEncoder{MarshalFunc: yaml.Marshal}),
+	)
 
 	// Data to marshal and send
 	data := yamlTestSchema{
@@ -443,12 +450,12 @@ func TestSetYAMLMarshal(t *testing.T) {
 	}
 
 	// Marshal and send the data
-	resp, err := client.Post("/").YAMLBody(&data).Send(context.Background())
+	resp, err := client.Post("/").YAML(&data).Send(context.Background())
 	assert.NoError(t, err)
 	assert.NotNil(t, resp)
 }
 
-func TestSetYAMLUnmarshal(t *testing.T) {
+func TestWithYAMLDecoder(t *testing.T) {
 	// Define a test schema
 	type yamlTestSchema struct {
 		Message string `yaml:"message"`
@@ -462,16 +469,21 @@ func TestSetYAMLUnmarshal(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create your client and set the YAML unmarshal function to use goccy/go-yaml's Unmarshal
-	client := Create(&Config{BaseURL: server.URL})
-	client.SetYAMLUnmarshal(yaml.Unmarshal)
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithYAMLDecoder(&YAMLDecoder{
+			DecodeFunc: func(r io.Reader, v any) error {
+				return yaml.NewDecoder(r).Decode(v)
+			},
+		}),
+	)
 
 	// Fetch and attempt to unmarshal the data
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
 	var result yamlTestSchema
-	err = resp.Scan(&result)
+	err = resp.Decode(&result)
 	assert.NoError(t, err)
 	assert.Equal(t, "Response message", result.Message)
 	assert.True(t, result.Status)
@@ -503,13 +515,10 @@ func TestSetAuth(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	// Initialize your client.
-	client := Create(&Config{
-		BaseURL: mockServer.URL, // Use the mock server URL.
-	})
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
 
 	// Set basic authentication using the SetBasicAuth method.
-	client.SetAuth(BasicAuth{
+	client.setAuth(BasicAuth{
 		Username: expectedUsername,
 		Password: expectedPassword,
 	})
@@ -537,8 +546,8 @@ func TestSetDefaultHeaders(t *testing.T) {
 	defer mockServer.Close()
 
 	// Initialize the client and set a default header
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultHeader("X-Custom-Header", "HeaderValue")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultHeader("X-Custom-Header", "HeaderValue")
 
 	// Make a request to trigger the header check
 	_, err := client.Get("/").Send(context.Background())
@@ -556,9 +565,9 @@ func TestAddDefaultHeader(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.AddDefaultHeader("X-Custom-Header", "HeaderValue1")
-	client.AddDefaultHeader("X-Custom-Header", "HeaderValue2")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.addDefaultHeader("X-Custom-Header", "HeaderValue1")
+	client.addDefaultHeader("X-Custom-Header", "HeaderValue2")
 
 	_, err := client.Get("/").Send(context.Background())
 	require.NoError(t, err)
@@ -577,9 +586,9 @@ func TestDelDefaultHeader(t *testing.T) {
 	defer mockServer.Close()
 
 	// Initialize the client, set, and then delete a default header
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultHeader("X-Deleted-Header", "ShouldBeDeleted")
-	client.DelDefaultHeader("X-Deleted-Header")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultHeader("X-Deleted-Header", "ShouldBeDeleted")
+	client.delDefaultHeader("X-Deleted-Header")
 
 	// Make a request to check for the absence of the deleted header
 	_, err := client.Get("/").Send(context.Background())
@@ -597,8 +606,8 @@ func TestSetDefaultContentType(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultContentType("application/json")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultContentType("application/json")
 
 	_, err := client.Get("/").Send(context.Background())
 	if err != nil {
@@ -615,8 +624,8 @@ func TestSetDefaultAccept(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultAccept("application/xml")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultAccept("application/xml")
 
 	_, err := client.Get("/").Send(context.Background())
 	if err != nil {
@@ -633,8 +642,8 @@ func TestSetDefaultUserAgent(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultUserAgent("MyCustomAgent/1.0")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultUserAgent("MyCustomAgent/1.0")
 
 	_, err := client.Get("/").Send(context.Background())
 	if err != nil {
@@ -645,18 +654,18 @@ func TestSetDefaultUserAgent(t *testing.T) {
 func TestSetDefaultTimeout(t *testing.T) {
 	t.Parallel()
 
-	client := Create(nil)
-	client.SetDefaultTimeout(time.Second)
+	client := newTestClient(t)
+	client.setDefaultTimeout(time.Second)
 
-	assert.Equal(t, time.Second, client.HTTPClient.Timeout)
+	assert.Equal(t, time.Second, client.httpClient.Timeout)
 }
 
 func TestSetDefaultCookieJar(t *testing.T) {
 	jar, _ := cookiejar.New(nil)
 
 	// Initialize the client and set the default cookie jar
-	client := Create(&Config{})
-	client.SetDefaultCookieJar(jar)
+	client := newTestClient(t)
+	client.setDefaultCookieJar(jar)
 
 	// Start a test HTTP server that sets a cookie
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -712,7 +721,7 @@ func TestCookieJarUsesExampleDomainRules(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithHTTPClient(server.Client()), WithCookieJar(jar))
+	client := newTestClient(t, WithHTTPClient(server.Client()), WithCookieJar(jar))
 
 	resp, err := client.Get("https://api.example.com/set-cookie").Send(t.Context())
 	require.NoError(t, err)
@@ -740,8 +749,8 @@ func TestSetDefaultCookies(t *testing.T) {
 	defer mockServer.Close()
 
 	// Initialize the client and set default cookies
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultCookies(map[string]string{
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultCookies(map[string]string{
 		"session_id": "abcd1234",
 		"auth_token": "token1234",
 	})
@@ -764,9 +773,9 @@ func TestDelDefaultCookie(t *testing.T) {
 	defer mockServer.Close()
 
 	// Initialize the client, set, and then delete a default cookie
-	client := Create(&Config{BaseURL: mockServer.URL})
-	client.SetDefaultCookie("session_id", "abcd1234")
-	client.DelDefaultCookie("session_id")
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
+	client.setDefaultCookie("session_id", "abcd1234")
+	client.delDefaultCookie("session_id")
 
 	// Make a request to check for the absence of the deleted cookie
 	_, err := client.Get("/").Send(context.Background())
@@ -775,58 +784,21 @@ func TestDelDefaultCookie(t *testing.T) {
 	}
 }
 
-func TestConfigValidate(t *testing.T) {
-	t.Parallel()
-
-	assert.NoError(t, (&Config{BaseURL: "https://example.com"}).Validate())
-
-	tests := []struct {
-		name string
-		cfg  Config
-		want error
-	}{
-		{name: "invalid base URL", cfg: Config{BaseURL: "://bad"}},
-		{name: "negative timeout", cfg: Config{Timeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
-		{name: "negative dial timeout", cfg: Config{DialTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
-		{name: "negative TLS handshake timeout", cfg: Config{TLSHandshakeTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
-		{name: "negative response header timeout", cfg: Config{ResponseHeaderTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
-		{name: "negative idle conn timeout", cfg: Config{IdleConnTimeout: -time.Nanosecond}, want: ErrInvalidConfigValue},
-		{name: "negative max retries", cfg: Config{MaxRetries: -1}, want: ErrInvalidConfigValue},
-		{name: "negative max idle conns", cfg: Config{MaxIdleConns: -1}, want: ErrInvalidConfigValue},
-		{name: "negative max idle conns per host", cfg: Config{MaxIdleConnsPerHost: -1}, want: ErrInvalidConfigValue},
-		{name: "negative max conns per host", cfg: Config{MaxConnsPerHost: -1}, want: ErrInvalidConfigValue},
-		{name: "missing TLS client key", cfg: Config{TLSClientCertFile: "cert.pem"}, want: ErrInvalidTLSClientCertificateConfig},
-		{name: "missing TLS client cert", cfg: Config{TLSClientKeyFile: "key.pem"}, want: ErrInvalidTLSClientCertificateConfig},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			err := tc.cfg.Validate()
-			assert.Error(t, err)
-			if tc.want != nil {
-				assert.ErrorIs(t, err, tc.want)
-			}
-		})
-	}
-}
-
 func TestGettersAndSnapshot(t *testing.T) {
-	client := Create(&Config{BaseURL: "https://example.com"})
-	client.SetDefaultHeader("X-Test", "1")
-	client.SetDefaultCookie("session", "abc")
+	client := newTestClient(t, WithBaseURL("https://example.com"))
+	client.setDefaultHeader("X-Test", "1")
+	client.setDefaultCookie("session", "abc")
 
 	assert.Equal(t, "https://example.com", client.GetBaseURL())
 	assert.NotNil(t, client.GetHTTPClient())
 
 	snap := client.snapshot()
-	assert.Equal(t, "https://example.com", snap.BaseURL)
-	assert.Equal(t, "1", snap.Headers.Get("X-Test"))
-	assert.Len(t, snap.Cookies, 1)
+	assert.Equal(t, "https://example.com", snap.baseURL)
+	assert.Equal(t, "1", snap.headers.Get("X-Test"))
+	assert.Len(t, snap.cookies, 1)
 
-	snap.Cookies[0].Value = "changed"
-	assert.Equal(t, "abc", client.Cookies[0].Value)
+	snap.cookies[0].Value = "changed"
+	assert.Equal(t, "abc", client.cookies[0].Value)
 }
 
 func TestClientUsesExampleHostWithTLSServer(t *testing.T) {
@@ -837,7 +809,7 @@ func TestClientUsesExampleHostWithTLSServer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithBaseURL("https://api.example.com"), WithHTTPClient(server.Client()))
+	client := newTestClient(t, WithBaseURL("https://api.example.com"), WithHTTPClient(server.Client()))
 
 	resp, err := client.Get("/status").Send(t.Context())
 	require.NoError(t, err)
@@ -873,14 +845,14 @@ func TestSetTLSConfig(t *testing.T) {
 	defer server.Close()
 
 	// Initialize your client pointing to the test server.
-	client := URL(server.URL)
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Configure TLS to skip certificate verification.
 	// Note: This is for testing with self-signed certificates only.
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
-	client.SetTLSConfig(tlsConfig)
+	client.setTLSConfig(tlsConfig)
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -899,7 +871,7 @@ func TestSetTLSConfigWithCert(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
-	client := URL(server.URL)
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	cert, err := os.ReadFile(".github/testdata/cert.pem")
 	if err != nil {
@@ -915,7 +887,7 @@ func TestSetTLSConfigWithCert(t *testing.T) {
 	tlsConfig := &tls.Config{
 		RootCAs: certPool,
 	}
-	client.SetTLSConfig(tlsConfig)
+	client.setTLSConfig(tlsConfig)
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -936,10 +908,10 @@ func TestInsecureSkipVerify(t *testing.T) {
 	defer server.Close()
 
 	// Initialize your client pointing to the test server.
-	client := URL(server.URL)
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Configure TLS to skip certificate verification.
-	client.InsecureSkipVerify()
+	client.insecureSkipVerify()
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -983,16 +955,21 @@ func createTestRetryServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-func TestSetMaxRetriesAndRetryStrategy(t *testing.T) {
+func TestRetryPolicyBackoff(t *testing.T) {
 	server := createTestRetryServer(t)
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
 	retryCalled := false
-	client.SetMaxRetries(1).SetRetryStrategy(func(attempt int) time.Duration {
-		retryCalled = true
-		return 10 * time.Millisecond // Short delay for testing
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{
+			Max: 1,
+			Backoff: func(attempt int) time.Duration {
+				retryCalled = true
+				return 10 * time.Millisecond // Short delay for testing
+			},
+		}),
+	)
 
 	// Make a request to the test server
 	_, err := client.Get("/").Send(context.Background())
@@ -1005,23 +982,26 @@ func TestSetMaxRetriesAndRetryStrategy(t *testing.T) {
 	}
 }
 
-func TestSetRetryIf(t *testing.T) {
+func TestRetryPolicyCondition(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError) // Always return server error
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-	client.SetMaxRetries(2).SetRetryIf(func(req *http.Request, resp *http.Response, err error) bool {
-		// Only retry for 500 Internal Server Error
-		return resp.StatusCode == http.StatusInternalServerError
-	})
-
 	retryCount := 0
-	client.SetRetryStrategy(func(int) time.Duration {
-		retryCount++
-		return 10 * time.Millisecond // Short delay for testing
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{
+			Max: 2,
+			ShouldRetry: func(req *http.Request, resp *http.Response, err error) bool {
+				return resp.StatusCode == http.StatusInternalServerError
+			},
+			Backoff: func(int) time.Duration {
+				retryCount++
+				return 10 * time.Millisecond // Short delay for testing
+			},
+		}),
+	)
 
 	// Make a request to the test server
 	_, err := client.Get("/").Send(context.Background())
@@ -1051,7 +1031,6 @@ func TestClientCertificates(t *testing.T) {
 	clientCertData, err := os.ReadFile(".github/testdata/cert.pem")
 	require.NoError(t, err, "load client certificate failed")
 	clientCertPool.AppendCertsFromPEM(clientCertData)
-	clientCertPath := ".github/testdata/cert.pem"
 
 	server.TLS = &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
@@ -1061,19 +1040,16 @@ func TestClientCertificates(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL: server.URL,
-	})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	t.Run("use client certificate", func(t *testing.T) {
 		clientCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
 		require.NoError(t, err, "load client certificate failed")
 
-		client.SetTLSConfig(&tls.Config{
+		client.setTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
 		})
-		client.SetCertificates(clientCert)
-		client.SetClientRootCertificate(clientCertPath)
+		client.setCertificates(clientCert)
 		resp, err := client.Get("/").Send(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to send request: %v", err)
@@ -1085,13 +1061,10 @@ func TestClientCertificates(t *testing.T) {
 	})
 
 	t.Run("do not use client certificate", func(t *testing.T) {
-		clientWithoutCert := Create(&Config{
-			BaseURL: server.URL,
-		})
-		clientWithoutCert.SetTLSConfig(&tls.Config{
+		clientWithoutCert := newTestClient(t, WithBaseURL(server.URL))
+		clientWithoutCert.setTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
 		})
-		clientWithoutCert.SetClientRootCertificate(clientCertPath)
 
 		_, err := clientWithoutCert.Get("/").Send(context.Background())
 		assert.Error(t, err, "expect request failed")
@@ -1102,10 +1075,10 @@ func TestClientSetRootCertificate(t *testing.T) {
 	t.Run("root cert", func(t *testing.T) {
 		filePath := ".testdata/sample_root.pem"
 
-		client := Create(nil)
-		client.SetRootCertificate(filePath)
+		client := newTestClient(t)
+		client.setRootCertificate(filePath)
 
-		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
 			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
 		}
 	})
@@ -1113,48 +1086,36 @@ func TestClientSetRootCertificate(t *testing.T) {
 	t.Run("root cert not exists", func(t *testing.T) {
 		filePath := "../.testdata/not-exists-sample-root.pem"
 
-		client := Create(nil)
-		client.SetRootCertificate(filePath)
+		client := newTestClient(t)
+		client.setRootCertificate(filePath)
 
-		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
 			assert.Nil(t, transport.TLSClientConfig)
 		}
 	})
 
 	t.Run("root cert from string", func(t *testing.T) {
-		client := Create(nil)
+		client := newTestClient(t)
 
 		cert := `-----BEGIN CERTIFICATE-----`
 
-		client.SetRootCertificateFromString(cert)
-		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
+		client.setRootCertificateFromString(cert)
+		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
 			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
-		}
-	})
-
-	t.Run("client root cert from string", func(t *testing.T) {
-		client := Create(nil)
-
-		cert := `-----BEGIN CERTIFICATE-----`
-
-		client.SetClientRootCertificateFromString(cert)
-		if transport, ok := client.HTTPClient.Transport.(*http.Transport); ok {
-			require.NotNil(t, transport.TLSClientConfig)
-			assert.NotNil(t, transport.TLSClientConfig.ClientCAs)
 		}
 	})
 }
 
-func TestTransportTimeoutsViaConfig(t *testing.T) {
+func TestTransportTimeoutsViaOptions(t *testing.T) {
 	t.Parallel()
 
-	client := Create(&Config{
-		DialTimeout:           5 * time.Second,
-		TLSHandshakeTimeout:   4 * time.Second,
-		ResponseHeaderTimeout: 3 * time.Second,
-	})
+	client := newTestClient(t,
+		WithDialTimeout(5*time.Second),
+		WithTLSHandshakeTimeout(4*time.Second),
+		WithResponseHeaderTimeout(3*time.Second),
+	)
 
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.NotNil(t, transport.DialContext)
 	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
@@ -1164,27 +1125,27 @@ func TestTransportTimeoutsViaConfig(t *testing.T) {
 func TestTransportTimeoutsViaSetMethods(t *testing.T) {
 	t.Parallel()
 
-	client := Create(nil)
-	client.SetDialTimeout(5 * time.Second)
-	client.SetTLSHandshakeTimeout(4 * time.Second)
-	client.SetResponseHeaderTimeout(3 * time.Second)
+	client := newTestClient(t)
+	client.setDialTimeout(5 * time.Second)
+	client.setTLSHandshakeTimeout(4 * time.Second)
+	client.setResponseHeaderTimeout(3 * time.Second)
 
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.NotNil(t, transport.DialContext)
 	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
 	assert.Equal(t, 3*time.Second, transport.ResponseHeaderTimeout)
 }
 
-func TestConnectionPoolConfig(t *testing.T) {
-	client := Create(&Config{
-		MaxIdleConns:        50,
-		MaxIdleConnsPerHost: 10,
-		MaxConnsPerHost:     20,
-		IdleConnTimeout:     30 * time.Second,
-	})
+func TestConnectionPoolOptions(t *testing.T) {
+	client := newTestClient(t,
+		WithMaxIdleConns(50),
+		WithMaxIdleConnsPerHost(10),
+		WithMaxConnsPerHost(20),
+		WithIdleConnTimeout(30*time.Second),
+	)
 
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.Equal(t, 50, transport.MaxIdleConns)
 	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
@@ -1193,13 +1154,13 @@ func TestConnectionPoolConfig(t *testing.T) {
 }
 
 func TestConnectionPoolConfigSetMethods(t *testing.T) {
-	client := Create(nil)
-	client.SetMaxIdleConns(50).
-		SetMaxIdleConnsPerHost(10).
-		SetMaxConnsPerHost(20).
-		SetIdleConnTimeout(30 * time.Second)
+	client := newTestClient(t)
+	client.setMaxIdleConns(50).
+		setMaxIdleConnsPerHost(10).
+		setMaxConnsPerHost(20).
+		setIdleConnTimeout(30 * time.Second)
 
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.Equal(t, 50, transport.MaxIdleConns)
 	assert.Equal(t, 10, transport.MaxIdleConnsPerHost)
@@ -1207,23 +1168,23 @@ func TestConnectionPoolConfigSetMethods(t *testing.T) {
 	assert.Equal(t, 30*time.Second, transport.IdleConnTimeout)
 }
 
-func TestHTTP2ConfigPreservesHTTPTransportSettings(t *testing.T) {
+func TestHTTP2OptionsPreserveHTTPTransportSettings(t *testing.T) {
 	t.Parallel()
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	client := Create(&Config{
-		HTTP2:                 true,
-		TLSConfig:             tlsConfig,
-		DialTimeout:           5 * time.Second,
-		TLSHandshakeTimeout:   4 * time.Second,
-		ResponseHeaderTimeout: 3 * time.Second,
-		MaxIdleConns:          50,
-		MaxIdleConnsPerHost:   10,
-		MaxConnsPerHost:       20,
-		IdleConnTimeout:       30 * time.Second,
-	})
+	client := newTestClient(t,
+		WithHTTP2(),
+		WithTLSConfig(tlsConfig),
+		WithDialTimeout(5*time.Second),
+		WithTLSHandshakeTimeout(4*time.Second),
+		WithResponseHeaderTimeout(3*time.Second),
+		WithMaxIdleConns(50),
+		WithMaxIdleConnsPerHost(10),
+		WithMaxConnsPerHost(20),
+		WithIdleConnTimeout(30*time.Second),
+	)
 
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assert.Same(t, tlsConfig, transport.TLSClientConfig)
 	assert.NotNil(t, transport.DialContext)
@@ -1236,7 +1197,7 @@ func TestHTTP2ConfigPreservesHTTPTransportSettings(t *testing.T) {
 	assertHTTP2Configured(t, transport)
 }
 
-func TestHTTP2ConfigNegotiatesHTTP2(t *testing.T) {
+func TestHTTP2OptionsNegotiateHTTP2(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -1246,12 +1207,12 @@ func TestHTTP2ConfigNegotiatesHTTP2(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	client := Create(&Config{
-		HTTP2: true,
-		TLSConfig: &tls.Config{
+	client := newTestClient(t,
+		WithHTTP2(),
+		WithTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
-		},
-	})
+		}),
+	)
 
 	resp, err := client.Get(server.URL).Send(context.Background())
 	require.NoError(t, err)
@@ -1260,10 +1221,8 @@ func TestHTTP2ConfigNegotiatesHTTP2(t *testing.T) {
 }
 
 func TestTransportConfigNoOpWhenNoSettings(t *testing.T) {
-	client := Create(&Config{
-		BaseURL: "http://example.com",
-	})
-	assert.Nil(t, client.HTTPClient.Transport)
+	client := newTestClient(t, WithBaseURL("http://example.com"))
+	assert.Nil(t, client.httpClient.Transport)
 }
 
 func TestErrorIntrospection(t *testing.T) {
@@ -1293,10 +1252,10 @@ func TestErrorIntrospection(t *testing.T) {
 		defer server.Close()
 		defer close(release)
 
-		client := Create(&Config{
-			BaseURL: server.URL,
-			Timeout: 50 * time.Millisecond,
-		})
+		client := newTestClient(t,
+			WithBaseURL(server.URL),
+			WithTimeout(50*time.Millisecond),
+		)
 		_, err := client.Get("/").Send(context.Background())
 		assert.Error(t, err)
 		assert.True(t, IsTimeout(err))
@@ -1328,10 +1287,10 @@ func TestErrorIntrospection(t *testing.T) {
 	})
 
 	t.Run("IsConnectionError with real connection failure", func(t *testing.T) {
-		client := Create(&Config{
-			BaseURL: "http://127.0.0.1:1",
-			Timeout: 2 * time.Second,
-		})
+		client := newTestClient(t,
+			WithBaseURL("http://127.0.0.1:1"),
+			WithTimeout(2*time.Second),
+		)
 		_, err := client.Get("/").Send(context.Background())
 		assert.Error(t, err)
 		assert.True(t, IsConnectionError(err))
@@ -1345,32 +1304,31 @@ func TestHttp2Scenarios(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		config          *Config
+		options         []Option
 		url             string
 		expectedVersion string
 		skipOnNetError  bool // Skip test if network error occurs (for external services)
 	}{
 		{
 			name:            "Default HTTP version, request to use http2 version URL",
-			config:          &Config{},
 			url:             "https://tools.scrapfly.io/api/fp/anything",
 			expectedVersion: "HTTP/2.0",
 			skipOnNetError:  true,
 		},
 		{
 			name:            "Explicit HTTP/2, request to use http2 version URL",
-			config:          &Config{HTTP2: true},
+			options:         []Option{WithHTTP2()},
 			url:             "https://tools.scrapfly.io/api/fp/anything",
 			expectedVersion: "HTTP/2.0",
 			skipOnNetError:  true,
 		},
 		{
 			name: "Set Transport, request to use http1.1 version URL",
-			config: &Config{Transport: &http.Transport{
+			options: []Option{WithTransport(&http.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: true,
 				},
-			}},
+			})},
 			url:             "https://www.baidu.com",
 			expectedVersion: "HTTP/1.1",
 			skipOnNetError:  true,
@@ -1379,7 +1337,7 @@ func TestHttp2Scenarios(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := Create(tt.config)
+			client := newTestClient(t, tt.options...)
 
 			resp, err := client.Get(tt.url).Send(context.Background())
 			if err != nil {
@@ -1390,7 +1348,7 @@ func TestHttp2Scenarios(t *testing.T) {
 				return
 			}
 			defer resp.Close() //nolint:errcheck // test cleanup closes response body
-			assert.Equal(t, tt.expectedVersion, resp.RawResponse.Proto, "Protocol version mismatch")
+			assert.Equal(t, tt.expectedVersion, resp.Raw().Proto, "Protocol version mismatch")
 		})
 	}
 }

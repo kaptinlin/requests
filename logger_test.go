@@ -69,12 +69,16 @@ func TestRetryLogMessage(t *testing.T) {
 	defer server.Close()
 
 	mockLogger := &mockLogger{}
-	client := Create(&Config{
-		BaseURL: server.URL,
-		Logger:  mockLogger,
-	}).SetMaxRetries(1).SetRetryStrategy(func(attempt int) time.Duration {
-		return 0 // No delay for testing
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithLogger(mockLogger),
+		WithRetry(RetryPolicy{
+			Max: 1,
+			Backoff: func(attempt int) time.Duration {
+				return 0 // No delay for testing
+			},
+		}),
+	)
 
 	// Making a request that should trigger a retry
 	_, err := client.Get("/test").Send(context.Background())

@@ -8,13 +8,11 @@ import (
 
 var bufferPool bytebufferpool.Pool
 
-// GetBuffer retrieves a buffer from the pool.
-func GetBuffer() *bytebufferpool.ByteBuffer {
+func getBuffer() *bytebufferpool.ByteBuffer {
 	return bufferPool.Get()
 }
 
-// PutBuffer returns a buffer to the pool.
-func PutBuffer(b *bytebufferpool.ByteBuffer) {
+func putBuffer(b *bytebufferpool.ByteBuffer) {
 	bufferPool.Put(b)
 }
 
@@ -25,6 +23,6 @@ type poolReader struct {
 }
 
 func (r *poolReader) Close() error {
-	PutBuffer(r.poolBuf)
+	putBuffer(r.poolBuf)
 	return nil
 }

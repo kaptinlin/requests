@@ -17,65 +17,46 @@ func (p testProfile) Name() string {
 	return p.name
 }
 
-func (p testProfile) Apply(c *Client) error {
-	if p.err != nil {
-		return p.err
+func (p testProfile) Options() []Option {
+	return []Option{
+		func(c *Client) error {
+			if p.err != nil {
+				return p.err
+			}
+			c.setDefaultHeader("X-Profile", p.name)
+			return nil
+		},
 	}
-	c.SetDefaultHeader("X-Profile", p.name)
-	return nil
-}
-
-func TestApplyProfile(t *testing.T) {
-	t.Run("applies profile", func(t *testing.T) {
-		client := Create(nil)
-
-		err := client.ApplyProfile(testProfile{name: "test"})
-
-		require.NoError(t, err)
-		require.NotNil(t, client.Headers)
-		assert.Equal(t, "test", client.Headers.Get("X-Profile"))
-	})
-
-	t.Run("rejects nil profile", func(t *testing.T) {
-		client := Create(nil)
-
-		err := client.ApplyProfile(nil)
-
-		require.Error(t, err)
-		assert.ErrorIs(t, err, ErrInvalidConfigValue)
-	})
-
-	t.Run("wraps profile errors", func(t *testing.T) {
-		client := Create(nil)
-
-		err := client.ApplyProfile(testProfile{name: "broken", err: assert.AnError})
-
-		require.Error(t, err)
-		assert.ErrorIs(t, err, assert.AnError)
-		assert.Contains(t, err.Error(), `apply profile "broken"`)
-	})
 }
 
 func TestWithProfile(t *testing.T) {
-	client := New(WithProfile(testProfile{name: "option"}))
+	client := newTestClient(t, WithProfile(testProfile{name: "option"}))
 
-	require.NotNil(t, client.Headers)
-	assert.Equal(t, "option", client.Headers.Get("X-Profile"))
+	require.NotNil(t, client.headers)
+	assert.Equal(t, "option", client.headers.Get("X-Profile"))
 }
 
-func TestWithProfileIgnoresOptionError(t *testing.T) {
-	client := New(WithProfile(testProfile{name: "broken", err: assert.AnError}))
+func TestWithProfileReturnsOptionError(t *testing.T) {
+	client, err := New(WithProfile(testProfile{name: "broken", err: assert.AnError}))
 
-	assert.NotNil(t, client)
-	assert.Nil(t, client.Headers)
+	require.Error(t, err)
+	assert.Nil(t, client)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Contains(t, err.Error(), `apply profile "broken"`)
+}
+
+func TestWithProfileRejectsNilProfile(t *testing.T) {
+	client, err := New(WithProfile(nil))
+
+	require.Error(t, err)
+	assert.Nil(t, client)
+	assert.ErrorIs(t, err, ErrInvalidConfigValue)
 }
 
 func TestEnableHTTP2(t *testing.T) {
-	client := Create(nil)
+	client := newTestClient(t, WithHTTP2())
 
-	client.EnableHTTP2()
-
-	transport, ok := client.HTTPClient.Transport.(*http.Transport)
+	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
 	assertHTTP2Configured(t, transport)
 }

@@ -45,10 +45,8 @@ The level argument MUST be a `requests.Level`, not a `slog.Level`.
 - Do not implement only part of the `Logger` interface.
 - Do not parse package log messages as a stable machine-readable API.
 
-## Acceptance Criteria
+## Contract Invariants
 
-- [ ] The required logger methods are explicit.
-- [ ] The package level enum is explicit.
-- [ ] The boundary between the public logger contract and `slog` internals is explicit.
-
-**Origin:** Migrated from `docs/logging.md`.
+- The required logger methods are explicit.
+- The package level enum is explicit.
+- The boundary between the public logger contract and `slog` internals is explicit.

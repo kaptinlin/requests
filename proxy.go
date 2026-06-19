@@ -10,19 +10,18 @@ import (
 	"sync/atomic"
 )
 
-// NoProxy holds parsed bypass rules for proxy exclusion.
-type NoProxy struct {
+type noProxy struct {
 	domains  []string // domain names (with optional leading dot for subdomain matching)
 	ips      []net.IP
 	cidrs    []*net.IPNet
 	wildcard bool
 }
 
-// parseNoProxy parses a comma-separated NO_PROXY string into a NoProxy struct.
+// parseNoProxy parses a comma-separated NO_PROXY string into a noProxy struct.
 // Supported entry formats: domain names (with optional leading dot), IP addresses,
 // CIDR subnets, and "*" for wildcard (bypass all).
-func parseNoProxy(bypass string) *NoProxy {
-	np := &NoProxy{}
+func parseNoProxy(bypass string) *noProxy {
+	np := &noProxy{}
 	for entry := range strings.SplitSeq(bypass, ",") {
 		entry = strings.TrimSpace(entry)
 		if entry == "" {
@@ -46,7 +45,7 @@ func parseNoProxy(bypass string) *NoProxy {
 }
 
 // matches checks if a host (hostname or IP, with optional port) matches any bypass rule.
-func (np *NoProxy) matches(host string) bool {
+func (np *noProxy) matches(host string) bool {
 	if np == nil {
 		return false
 	}
@@ -107,18 +106,18 @@ func verifyProxy(proxyURL string) (*url.URL, error) {
 // ensureTransport returns the client's transport as *http.Transport, creating one if needed.
 // Must be called with c.mu held.
 func (c *Client) ensureTransport() (*http.Transport, error) {
-	if c.HTTPClient.Transport == nil {
-		c.HTTPClient.Transport = &http.Transport{}
+	if c.httpClient.Transport == nil {
+		c.httpClient.Transport = &http.Transport{}
 	}
-	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	transport, ok := c.httpClient.Transport.(*http.Transport)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected *http.Transport, got %T", ErrInvalidTransportType, c.HTTPClient.Transport)
+		return nil, fmt.Errorf("%w: expected *http.Transport, got %T", ErrInvalidTransportType, c.httpClient.Transport)
 	}
 	return transport, nil
 }
 
-// SetProxy configures the client to use a proxy. Supports http, https, and socks5 proxies.
-func (c *Client) SetProxy(proxyURL string) error {
+// setProxy configures the client to use a proxy. Supports http, https, and socks5 proxies.
+func (c *Client) setProxy(proxyURL string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -136,10 +135,10 @@ func (c *Client) SetProxy(proxyURL string) error {
 	return nil
 }
 
-// SetProxyWithBypass configures the client to use a proxy with a NO_PROXY bypass list.
+// setProxyWithBypass configures the client to use a proxy with a NO_PROXY bypass list.
 // The bypass parameter is a comma-separated string of hosts that should not use the proxy.
 // Supported formats: domain names, IPs, CIDR subnets, and "*" for wildcard.
-func (c *Client) SetProxyWithBypass(proxyURL, bypass string) error {
+func (c *Client) setProxyWithBypass(proxyURL, bypass string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -165,9 +164,9 @@ func (c *Client) SetProxyWithBypass(proxyURL, bypass string) error {
 	return nil
 }
 
-// SetProxyFromEnv configures the client to use proxy settings from environment variables
+// setProxyFromEnv configures the client to use proxy settings from environment variables
 // (HTTP_PROXY, HTTPS_PROXY, NO_PROXY).
-func (c *Client) SetProxyFromEnv() error {
+func (c *Client) setProxyFromEnv() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -180,19 +179,19 @@ func (c *Client) SetProxyFromEnv() error {
 	return nil
 }
 
-// SetProxies configures multiple proxies with round-robin rotation.
+// setProxies configures multiple proxies with round-robin rotation.
 // Each outgoing request (including retries) picks the next proxy in order.
-func (c *Client) SetProxies(proxyURLs ...string) error {
+func (c *Client) setProxies(proxyURLs ...string) error {
 	selector, err := RoundRobinProxies(proxyURLs...)
 	if err != nil {
 		return err
 	}
-	return c.SetProxySelector(selector)
+	return c.setProxySelector(selector)
 }
 
-// SetProxySelector sets a custom proxy selection function matching the
+// setProxySelector sets a custom proxy selection function matching the
 // http.Transport.Proxy signature. Return nil *url.URL for direct connection.
-func (c *Client) SetProxySelector(selector func(*http.Request) (*url.URL, error)) error {
+func (c *Client) setProxySelector(selector func(*http.Request) (*url.URL, error)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -248,16 +247,16 @@ func RandomProxies(proxyURLs ...string) (func(*http.Request) (*url.URL, error), 
 	}, nil
 }
 
-// RemoveProxy clears any configured proxy, allowing direct connections.
-func (c *Client) RemoveProxy() {
+// removeProxy clears any configured proxy, allowing direct connections.
+func (c *Client) removeProxy() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.HTTPClient.Transport == nil {
+	if c.httpClient.Transport == nil {
 		return
 	}
 
-	transport, ok := c.HTTPClient.Transport.(*http.Transport)
+	transport, ok := c.httpClient.Transport.(*http.Transport)
 	if !ok {
 		return
 	}

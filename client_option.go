@@ -3,279 +3,527 @@ package requests
 import (
 	"context"
 	"crypto/tls"
-	"io"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kaptinlin/orderedobject"
 )
 
-// ClientOption configures a Client. Use with New().
-type ClientOption func(*Client)
+// Option configures a Client during construction.
+type Option func(*Client) error
+
+func invalidOptionValue(name string) error {
+	return fmt.Errorf("%w: %s", ErrInvalidConfigValue, name)
+}
+
+func validateDurationOption(name string, value time.Duration) error {
+	if value < 0 {
+		return invalidOptionValue(name)
+	}
+	return nil
+}
+
+func validateIntOption(name string, value int) error {
+	if value < 0 {
+		return invalidOptionValue(name)
+	}
+	return nil
+}
+
+func validateEncoderOption(name string, encoder Encoder) error {
+	if encoder == nil {
+		return invalidOptionValue(name)
+	}
+	return nil
+}
+
+func validateDecoderOption(name string, decoder Decoder) error {
+	if decoder == nil {
+		return invalidOptionValue(name)
+	}
+	return nil
+}
 
 // WithBaseURL sets the base URL for the client.
-func WithBaseURL(baseURL string) ClientOption {
-	return func(c *Client) { c.SetBaseURL(baseURL) }
+func WithBaseURL(baseURL string) Option {
+	return func(c *Client) error {
+		if baseURL != "" {
+			if _, err := url.Parse(baseURL); err != nil {
+				return fmt.Errorf("invalid BaseURL: %w", err)
+			}
+		}
+		c.setBaseURL(baseURL)
+		return nil
+	}
 }
 
 // WithTimeout sets the default timeout for the client.
-func WithTimeout(timeout time.Duration) ClientOption {
-	return func(c *Client) { c.SetDefaultTimeout(timeout) }
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *Client) error {
+		if err := validateDurationOption("Timeout", timeout); err != nil {
+			return err
+		}
+		c.setDefaultTimeout(timeout)
+		return nil
+	}
 }
 
 // WithHeader sets a default header on the client.
-func WithHeader(key, value string) ClientOption {
-	return func(c *Client) { c.SetDefaultHeader(key, value) }
+func WithHeader(key, value string) Option {
+	return func(c *Client) error {
+		c.setDefaultHeader(key, value)
+		return nil
+	}
 }
 
 // WithHeaders sets all default headers on the client.
-func WithHeaders(headers *http.Header) ClientOption {
-	return func(c *Client) { c.SetDefaultHeaders(headers) }
+func WithHeaders(headers *http.Header) Option {
+	return func(c *Client) error {
+		c.setDefaultHeaders(headers)
+		return nil
+	}
 }
 
 // WithOrderedHeaders sets ordered default headers on the client.
-func WithOrderedHeaders(headers *orderedobject.Object[[]string]) ClientOption {
-	return func(c *Client) { c.SetDefaultOrderedHeaders(headers) }
+func WithOrderedHeaders(headers *orderedobject.Object[[]string]) Option {
+	return func(c *Client) error {
+		c.setDefaultOrderedHeaders(headers)
+		return nil
+	}
 }
 
 // WithContentType sets the default Content-Type header.
-func WithContentType(contentType string) ClientOption {
-	return func(c *Client) { c.SetDefaultContentType(contentType) }
+func WithContentType(contentType string) Option {
+	return func(c *Client) error {
+		c.setDefaultContentType(contentType)
+		return nil
+	}
 }
 
 // WithAccept sets the default Accept header.
-func WithAccept(accept string) ClientOption {
-	return func(c *Client) { c.SetDefaultAccept(accept) }
+func WithAccept(accept string) Option {
+	return func(c *Client) error {
+		c.setDefaultAccept(accept)
+		return nil
+	}
 }
 
 // WithUserAgent sets the default User-Agent header.
-func WithUserAgent(userAgent string) ClientOption {
-	return func(c *Client) { c.SetDefaultUserAgent(userAgent) }
+func WithUserAgent(userAgent string) Option {
+	return func(c *Client) error {
+		c.setDefaultUserAgent(userAgent)
+		return nil
+	}
 }
 
 // WithReferer sets the default Referer header.
-func WithReferer(referer string) ClientOption {
-	return func(c *Client) { c.SetDefaultReferer(referer) }
+func WithReferer(referer string) Option {
+	return func(c *Client) error {
+		c.setDefaultReferer(referer)
+		return nil
+	}
 }
 
 // WithCookies sets default cookies on the client.
-func WithCookies(cookies map[string]string) ClientOption {
-	return func(c *Client) { c.SetDefaultCookies(cookies) }
+func WithCookies(cookies map[string]string) Option {
+	return func(c *Client) error {
+		c.setDefaultCookies(cookies)
+		return nil
+	}
 }
 
 // WithCookieJar sets the cookie jar for the client.
-func WithCookieJar(jar *cookiejar.Jar) ClientOption {
-	return func(c *Client) { c.SetDefaultCookieJar(jar) }
+func WithCookieJar(jar *cookiejar.Jar) Option {
+	return func(c *Client) error {
+		c.setDefaultCookieJar(jar)
+		return nil
+	}
 }
 
 // WithSession enables cookie and TLS session reuse.
-func WithSession() ClientOption {
-	return func(c *Client) { c.EnableSession() }
+func WithSession() Option {
+	return func(c *Client) error {
+		c.enableSession()
+		return nil
+	}
 }
 
 // WithAuth sets the authentication method for the client.
-func WithAuth(auth AuthMethod) ClientOption {
-	return func(c *Client) { c.SetAuth(auth) }
+func WithAuth(auth AuthMethod) Option {
+	return func(c *Client) error {
+		c.setAuth(auth)
+		return nil
+	}
 }
 
 // WithBasicAuth sets HTTP Basic Authentication credentials.
-func WithBasicAuth(username, password string) ClientOption {
-	return func(c *Client) {
-		c.SetAuth(BasicAuth{Username: username, Password: password})
+func WithBasicAuth(username, password string) Option {
+	return func(c *Client) error {
+		c.setAuth(BasicAuth{Username: username, Password: password})
+		return nil
 	}
 }
 
 // WithBearerAuth sets a Bearer token for authentication.
-func WithBearerAuth(token string) ClientOption {
-	return func(c *Client) { c.SetAuth(BearerAuth{Token: token}) }
+func WithBearerAuth(token string) Option {
+	return func(c *Client) error {
+		c.setAuth(BearerAuth{Token: token})
+		return nil
+	}
 }
 
-// WithMaxRetries sets the maximum number of retry attempts.
-func WithMaxRetries(maxRetries int) ClientOption {
-	return func(c *Client) { c.SetMaxRetries(maxRetries) }
+// WithRetry sets the default retry policy.
+func WithRetry(policy RetryPolicy) Option {
+	return func(c *Client) error {
+		if err := validateIntOption("Retry.Max", policy.Max); err != nil {
+			return err
+		}
+		c.setRetry(policy)
+		return nil
+	}
 }
 
-// WithRetryStrategy sets the backoff strategy for retries.
-func WithRetryStrategy(strategy BackoffStrategy) ClientOption {
-	return func(c *Client) { c.SetRetryStrategy(strategy) }
-}
-
-// WithRetryIf sets the custom retry condition function.
-func WithRetryIf(retryIf RetryIfFunc) ClientOption {
-	return func(c *Client) { c.SetRetryIf(retryIf) }
+// WithoutRetry disables retry attempts.
+func WithoutRetry() Option {
+	return func(c *Client) error {
+		c.setRetry(RetryPolicy{})
+		return nil
+	}
 }
 
 // WithMiddleware adds middleware to the client.
-func WithMiddleware(middlewares ...Middleware) ClientOption {
-	return func(c *Client) { c.AddMiddleware(middlewares...) }
+func WithMiddleware(middlewares ...Middleware) Option {
+	return func(c *Client) error {
+		c.addMiddleware(middlewares...)
+		return nil
+	}
 }
 
 // WithProfile applies a coherent client identity profile.
-func WithProfile(profile Profile) ClientOption {
-	return func(c *Client) {
-		if err := c.ApplyProfile(profile); err != nil && c.Logger != nil {
-			c.Logger.Errorf("failed to apply profile: %v", err)
-		}
+func WithProfile(profile Profile) Option {
+	return func(c *Client) error {
+		return applyProfileOptions(c, profile)
 	}
 }
 
 // WithTLSConfig sets the TLS configuration for the client.
-func WithTLSConfig(config *tls.Config) ClientOption {
-	return func(c *Client) { c.SetTLSConfig(config) }
+func WithTLSConfig(config *tls.Config) Option {
+	return func(c *Client) error {
+		c.setTLSConfig(config)
+		return nil
+	}
 }
 
 // WithInsecureSkipVerify configures the client to skip TLS certificate verification.
-func WithInsecureSkipVerify() ClientOption {
-	return func(c *Client) { c.InsecureSkipVerify() }
+func WithInsecureSkipVerify() Option {
+	return func(c *Client) error {
+		c.insecureSkipVerify()
+		return nil
+	}
 }
 
 // WithCertificates sets TLS client certificates.
-func WithCertificates(certs ...tls.Certificate) ClientOption {
-	return func(c *Client) { c.SetCertificates(certs...) }
+func WithCertificates(certs ...tls.Certificate) Option {
+	return func(c *Client) error {
+		c.setCertificates(certs...)
+		return nil
+	}
 }
 
 // WithClientCertificate loads and sets a client certificate and key from file paths.
-func WithClientCertificate(certFile, keyFile string) ClientOption {
-	return func(c *Client) { c.SetClientCertificate(certFile, keyFile) }
+func WithClientCertificate(certFile, keyFile string) Option {
+	return func(c *Client) error {
+		cert, err := tls.LoadX509KeyPair(filepath.Clean(certFile), filepath.Clean(keyFile))
+		if err != nil {
+			return fmt.Errorf("load client certificate: %w", err)
+		}
+		c.setCertificates(cert)
+		return nil
+	}
 }
 
 // WithTLSServerName sets the TLS server name (SNI).
-func WithTLSServerName(serverName string) ClientOption {
-	return func(c *Client) { c.SetTLSServerName(serverName) }
+func WithTLSServerName(serverName string) Option {
+	return func(c *Client) error {
+		c.setTLSServerName(serverName)
+		return nil
+	}
 }
 
 // WithRootCertificate sets the root certificate from a PEM file path.
-func WithRootCertificate(pemFilePath string) ClientOption {
-	return func(c *Client) { c.SetRootCertificate(pemFilePath) }
+func WithRootCertificate(pemFilePath string) Option {
+	return func(c *Client) error {
+		rootPemData, err := os.ReadFile(filepath.Clean(pemFilePath))
+		if err != nil {
+			return fmt.Errorf("read root certificate: %w", err)
+		}
+		c.addRootCAs(rootPemData)
+		return nil
+	}
 }
 
 // WithRootCertificateFromString sets the root certificate from a PEM string.
-func WithRootCertificateFromString(pemCerts string) ClientOption {
-	return func(c *Client) { c.SetRootCertificateFromString(pemCerts) }
+func WithRootCertificateFromString(pemCerts string) Option {
+	return func(c *Client) error {
+		c.setRootCertificateFromString(pemCerts)
+		return nil
+	}
 }
 
 // WithTransport sets the HTTP transport for the client.
-func WithTransport(transport http.RoundTripper) ClientOption {
-	return func(c *Client) { c.SetDefaultTransport(transport) }
+func WithTransport(transport http.RoundTripper) Option {
+	return func(c *Client) error {
+		c.setDefaultTransport(transport)
+		return nil
+	}
 }
 
 // WithHTTP2 enables HTTP/2 transport support.
-func WithHTTP2() ClientOption {
-	return func(c *Client) { c.EnableHTTP2() }
+func WithHTTP2() Option {
+	return func(c *Client) error {
+		c.enableHTTP2()
+		return nil
+	}
 }
 
 // WithHTTPClient sets the underlying http.Client.
 // When combined with transport-modifying options (WithProxy, WithDialTimeout, etc.),
 // place WithHTTPClient first since it replaces the entire http.Client.
-func WithHTTPClient(httpClient *http.Client) ClientOption {
-	return func(c *Client) { c.SetHTTPClient(httpClient) }
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(c *Client) error {
+		c.setHTTPClient(httpClient)
+		return nil
+	}
 }
 
 // WithDialTimeout sets the TCP connection timeout on the underlying transport.
-func WithDialTimeout(d time.Duration) ClientOption {
-	return func(c *Client) { c.SetDialTimeout(d) }
+func WithDialTimeout(d time.Duration) Option {
+	return func(c *Client) error {
+		if err := validateDurationOption("DialTimeout", d); err != nil {
+			return err
+		}
+		c.setDialTimeout(d)
+		return nil
+	}
 }
 
 // WithResolver sets the resolver used by the default transport dialer.
-func WithResolver(resolver *net.Resolver) ClientOption {
-	return func(c *Client) { c.SetResolver(resolver) }
+func WithResolver(resolver *net.Resolver) Option {
+	return func(c *Client) error {
+		c.setResolver(resolver)
+		return nil
+	}
 }
 
 // WithDialContext sets the dial function on the underlying transport.
-func WithDialContext(dial func(context.Context, string, string) (net.Conn, error)) ClientOption {
-	return func(c *Client) { c.SetDialContext(dial) }
+func WithDialContext(dial func(context.Context, string, string) (net.Conn, error)) Option {
+	return func(c *Client) error {
+		c.setDialContext(dial)
+		return nil
+	}
 }
 
 // WithLocalAddr sets the local address used by the default transport dialer.
-func WithLocalAddr(addr net.Addr) ClientOption {
-	return func(c *Client) { c.SetLocalAddr(addr) }
+func WithLocalAddr(addr net.Addr) Option {
+	return func(c *Client) error {
+		c.setLocalAddr(addr)
+		return nil
+	}
 }
 
 // WithTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
-func WithTLSHandshakeTimeout(d time.Duration) ClientOption {
-	return func(c *Client) { c.SetTLSHandshakeTimeout(d) }
+func WithTLSHandshakeTimeout(d time.Duration) Option {
+	return func(c *Client) error {
+		if err := validateDurationOption("TLSHandshakeTimeout", d); err != nil {
+			return err
+		}
+		c.setTLSHandshakeTimeout(d)
+		return nil
+	}
 }
 
 // WithResponseHeaderTimeout sets the time to wait for response headers.
-func WithResponseHeaderTimeout(d time.Duration) ClientOption {
-	return func(c *Client) { c.SetResponseHeaderTimeout(d) }
+func WithResponseHeaderTimeout(d time.Duration) Option {
+	return func(c *Client) error {
+		if err := validateDurationOption("ResponseHeaderTimeout", d); err != nil {
+			return err
+		}
+		c.setResponseHeaderTimeout(d)
+		return nil
+	}
 }
 
 // WithMaxIdleConns sets the maximum number of idle connections across all hosts.
-func WithMaxIdleConns(n int) ClientOption {
-	return func(c *Client) { c.SetMaxIdleConns(n) }
+func WithMaxIdleConns(n int) Option {
+	return func(c *Client) error {
+		if err := validateIntOption("MaxIdleConns", n); err != nil {
+			return err
+		}
+		c.setMaxIdleConns(n)
+		return nil
+	}
 }
 
 // WithMaxIdleConnsPerHost sets the maximum number of idle connections per host.
-func WithMaxIdleConnsPerHost(n int) ClientOption {
-	return func(c *Client) { c.SetMaxIdleConnsPerHost(n) }
+func WithMaxIdleConnsPerHost(n int) Option {
+	return func(c *Client) error {
+		if err := validateIntOption("MaxIdleConnsPerHost", n); err != nil {
+			return err
+		}
+		c.setMaxIdleConnsPerHost(n)
+		return nil
+	}
 }
 
 // WithMaxConnsPerHost sets the maximum total number of connections per host.
-func WithMaxConnsPerHost(n int) ClientOption {
-	return func(c *Client) { c.SetMaxConnsPerHost(n) }
+func WithMaxConnsPerHost(n int) Option {
+	return func(c *Client) error {
+		if err := validateIntOption("MaxConnsPerHost", n); err != nil {
+			return err
+		}
+		c.setMaxConnsPerHost(n)
+		return nil
+	}
 }
 
 // WithIdleConnTimeout sets how long idle connections remain in the pool.
-func WithIdleConnTimeout(d time.Duration) ClientOption {
-	return func(c *Client) { c.SetIdleConnTimeout(d) }
+func WithIdleConnTimeout(d time.Duration) Option {
+	return func(c *Client) error {
+		if err := validateDurationOption("IdleConnTimeout", d); err != nil {
+			return err
+		}
+		c.setIdleConnTimeout(d)
+		return nil
+	}
 }
 
 // WithRedirectPolicy sets the redirect policy for the client.
-func WithRedirectPolicy(policies ...RedirectPolicy) ClientOption {
-	return func(c *Client) { c.SetRedirectPolicy(policies...) }
+func WithRedirectPolicy(policies ...RedirectPolicy) Option {
+	return func(c *Client) error {
+		c.setRedirectPolicy(policies...)
+		return nil
+	}
 }
 
 // WithProxy sets the proxy URL for the client.
-// Parse errors are silently ignored to maintain the fluent pattern;
-// use Client.SetProxy() directly for error handling.
-func WithProxy(proxyURL string) ClientOption {
-	return func(c *Client) { _ = c.SetProxy(proxyURL) }
+func WithProxy(proxyURL string) Option {
+	return func(c *Client) error {
+		return c.setProxy(proxyURL)
+	}
+}
+
+// WithProxyBypass sets a proxy URL with a NO_PROXY-style bypass list.
+func WithProxyBypass(proxyURL, bypass string) Option {
+	return func(c *Client) error {
+		return c.setProxyWithBypass(proxyURL, bypass)
+	}
+}
+
+// WithProxyFromEnv uses proxy settings from HTTP_PROXY, HTTPS_PROXY, and NO_PROXY.
+func WithProxyFromEnv() Option {
+	return func(c *Client) error {
+		return c.setProxyFromEnv()
+	}
+}
+
+// WithProxies sets multiple proxies with round-robin rotation.
+func WithProxies(proxyURLs ...string) Option {
+	return func(c *Client) error {
+		return c.setProxies(proxyURLs...)
+	}
+}
+
+// WithProxySelector sets a custom proxy selection function.
+func WithProxySelector(selector func(*http.Request) (*url.URL, error)) Option {
+	return func(c *Client) error {
+		return c.setProxySelector(selector)
+	}
+}
+
+// WithoutProxy clears any configured proxy.
+func WithoutProxy() Option {
+	return func(c *Client) error {
+		c.removeProxy()
+		return nil
+	}
 }
 
 // WithLogger sets the logger for the client.
-func WithLogger(logger Logger) ClientOption {
-	return func(c *Client) { c.SetLogger(logger) }
+func WithLogger(logger Logger) Option {
+	return func(c *Client) error {
+		c.setLogger(logger)
+		return nil
+	}
 }
 
-// WithJSONMarshal sets a custom JSON marshal function.
-func WithJSONMarshal(marshalFunc func(v any) ([]byte, error)) ClientOption {
-	return func(c *Client) { c.SetJSONMarshal(marshalFunc) }
+// WithJSONEncoder sets the JSON encoder.
+func WithJSONEncoder(encoder Encoder) Option {
+	return func(c *Client) error {
+		if err := validateEncoderOption("JSONEncoder", encoder); err != nil {
+			return err
+		}
+		c.jsonEncoder = encoder
+		return nil
+	}
 }
 
-// WithJSONUnmarshal sets a custom JSON unmarshal function.
-func WithJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) ClientOption {
-	return func(c *Client) { c.SetJSONUnmarshal(unmarshalFunc) }
+// WithJSONDecoder sets the JSON decoder.
+func WithJSONDecoder(decoder Decoder) Option {
+	return func(c *Client) error {
+		if err := validateDecoderOption("JSONDecoder", decoder); err != nil {
+			return err
+		}
+		c.jsonDecoder = decoder
+		return nil
+	}
 }
 
-// WithJSONDecode sets a custom JSON decode function.
-func WithJSONDecode(decodeFunc func(r io.Reader, v any) error) ClientOption {
-	return func(c *Client) { c.SetJSONDecode(decodeFunc) }
+// WithXMLEncoder sets the XML encoder.
+func WithXMLEncoder(encoder Encoder) Option {
+	return func(c *Client) error {
+		if err := validateEncoderOption("XMLEncoder", encoder); err != nil {
+			return err
+		}
+		c.xmlEncoder = encoder
+		return nil
+	}
 }
 
-// WithXMLMarshal sets a custom XML marshal function.
-func WithXMLMarshal(marshalFunc func(v any) ([]byte, error)) ClientOption {
-	return func(c *Client) { c.SetXMLMarshal(marshalFunc) }
+// WithXMLDecoder sets the XML decoder.
+func WithXMLDecoder(decoder Decoder) Option {
+	return func(c *Client) error {
+		if err := validateDecoderOption("XMLDecoder", decoder); err != nil {
+			return err
+		}
+		c.xmlDecoder = decoder
+		return nil
+	}
 }
 
-// WithXMLUnmarshal sets a custom XML unmarshal function.
-func WithXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) ClientOption {
-	return func(c *Client) { c.SetXMLUnmarshal(unmarshalFunc) }
+// WithYAMLEncoder sets the YAML encoder.
+func WithYAMLEncoder(encoder Encoder) Option {
+	return func(c *Client) error {
+		if err := validateEncoderOption("YAMLEncoder", encoder); err != nil {
+			return err
+		}
+		c.yamlEncoder = encoder
+		return nil
+	}
 }
 
-// WithYAMLMarshal sets a custom YAML marshal function.
-func WithYAMLMarshal(marshalFunc func(v any) ([]byte, error)) ClientOption {
-	return func(c *Client) { c.SetYAMLMarshal(marshalFunc) }
-}
-
-// WithYAMLUnmarshal sets a custom YAML unmarshal function.
-func WithYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) ClientOption {
-	return func(c *Client) { c.SetYAMLUnmarshal(unmarshalFunc) }
-}
-
-// WithYAMLDecode sets a custom YAML decode function.
-func WithYAMLDecode(decodeFunc func(r io.Reader, v any) error) ClientOption {
-	return func(c *Client) { c.SetYAMLDecode(decodeFunc) }
+// WithYAMLDecoder sets the YAML decoder.
+func WithYAMLDecoder(decoder Decoder) Option {
+	return func(c *Client) error {
+		if err := validateDecoderOption("YAMLDecoder", decoder); err != nil {
+			return err
+		}
+		c.yamlDecoder = decoder
+		return nil
+	}
 }

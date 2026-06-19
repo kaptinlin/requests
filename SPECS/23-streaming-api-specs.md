@@ -2,56 +2,54 @@
 
 ## Overview
 
-Streaming is configured on `RequestBuilder` before `Send`. This spec defines callback registration, the line-oriented delivery model, and the limits of streamed responses.
+Streaming is an explicit dispatch mode. `RequestBuilder.SendStream(ctx)` returns a `StreamResponse` with an open response body owned by the caller.
 
-## Callback Registration
+`RequestBuilder.Send(ctx)` is buffered and never starts a background stream reader.
 
-A streaming request is configured through:
+## Stream Result
 
-- `Stream(StreamCallback)`
-- `StreamErr(StreamErrCallback)`
-- `StreamDone(StreamDoneCallback)`
+`StreamResponse` exposes:
 
-These callbacks MUST be attached to the builder before `Send(ctx)` is called.
+- `Raw() *http.Response`
+- `StatusCode`, `Status`, `Header`, and `URL`
+- `Elapsed` and `Attempts`
+- `Body() io.ReadCloser`
+- `Lines() iter.Seq2[[]byte, error]`
+- `Close() error`
 
-## Delivery Model
+The caller MUST close `StreamResponse`. Closing the stream response closes the response body and releases any request context derived from builder timeout.
 
-Streaming is line-oriented.
+`Elapsed()` returns the duration from request dispatch through stream response setup. `Attempts()` returns transport attempts for the stream response, including the first request.
 
-- The response body is scanned with `bufio.Scanner`.
-- Each callback invocation receives one scanner token, which in practice is one line.
-- The maximum token size is `MaxStreamBufferSize`.
-- `Send(ctx)` returns the `Response` after streaming has been armed; callback execution continues asynchronously.
+## Line Iteration
 
-If `StreamCallback` returns an error, scanning stops immediately.
+`Lines()` is line-oriented.
 
-If the scanner itself fails and `StreamErr` is configured, `StreamErr` receives that scanner error.
+- It scans `StreamResponse.Body()` with `bufio.Scanner`.
+- Each yielded value is one scanner token, which in practice is one line.
+- Yielded byte slices are owned by the caller and remain stable after the next scan.
+- The maximum line token size is 512 KiB.
+- Scanner errors are yielded as the second iterator value.
 
-If `StreamDone` is configured, it is called after scanning ends.
+Callers that need a protocol other than line-oriented scanning SHOULD read directly from `Body()`.
 
-> **Why**: Line-oriented scanning fits SSE, JSONL, and other newline-delimited protocols while keeping the implementation small and allocation-aware.
+> **Why**: Line-oriented iteration fits SSE, JSONL, and newline-delimited protocols while keeping the helper small. Returning errors through the iterator keeps the lifecycle caller-owned instead of hiding it in callbacks.
 >
 > **Rejected**: Arbitrary chunk callbacks with transport-dependent chunk boundaries.
 
 ## Buffered Helper Boundary
 
-A streamed response is not the buffered-response API described in `SPECS/22-response-api-specs.md`. Callers SHOULD consume streamed data through callbacks instead of through `Body`, `String`, `Scan*`, `Save`, or `Lines`.
-
-## Size Limit
-
-`MaxStreamBufferSize` is the maximum scanner token size. Payloads that require larger single tokens are outside the supported streaming contract.
+`StreamResponse` is not the buffered `Response` API described in `SPECS/22-response-api-specs.md`. It does not expose `Body() []byte`, `String`, `Decode*`, `Save`, or buffered `Lines`.
 
 ## Forbidden
 
-- Do not register `StreamErr` or `StreamDone` on `Response`; they are builder configuration methods.
-- Do not assume stream callbacks receive arbitrary transport chunks.
-- Do not assume buffered helpers are populated for streamed responses.
+- Do not use `Send(ctx)` when the caller intends to read a live response body.
+- Do not assume `Lines()` receives arbitrary transport chunks.
+- Do not forget to close `StreamResponse`.
 
-## Acceptance Criteria
+## Contract Invariants
 
-- [ ] Callback registration happens on `RequestBuilder`.
-- [ ] The line-oriented scanner model is explicit.
-- [ ] The asynchronous execution model is explicit.
-- [ ] The stream size limit is explicit.
-
-**Origin:** Migrated from `docs/stream.md`.
+- Streaming is selected with `SendStream(ctx)`.
+- Stream body ownership belongs to the caller.
+- The line-oriented scanner model and size limit are explicit.
+- Scanner errors are observable by callers.

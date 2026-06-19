@@ -14,7 +14,7 @@ var (
 	// ErrUnsupportedContentType is returned when a body encoder cannot handle
 	// the request's Content-Type, or when a raw body is given a value type
 	// other than string, []byte, or io.Reader. Set Content-Type explicitly or
-	// use a typed body setter (JSONBody, XMLBody, YAMLBody, TextBody, RawBody).
+	// use a typed body setter (JSON, XML, YAML, Text, Bytes).
 	ErrUnsupportedContentType = errors.New("unsupported content type")
 
 	// ErrUnsupportedDataType is returned when a decoder cannot handle the
@@ -33,8 +33,8 @@ var (
 	ErrRequestCreationFailed = errors.New("failed to create request")
 
 	// ErrRequestBodyNotReplayable is returned when retries are configured but
-	// the body is a one-shot io.Reader (see [RequestBuilder.Body]). Switch to
-	// a buffered body setter such as JSONBody, RawBody, Form, or call
+	// the body is a one-shot io.Reader from [RequestBuilder.Reader]. Switch
+	// to a buffered body setter such as JSON, Bytes, Form, or call
 	// Multipart.Replayable(maxBytes) to opt in to buffering for multipart.
 	ErrRequestBodyNotReplayable = errors.New("request body is not replayable")
 
@@ -92,13 +92,9 @@ var (
 	// not produced by Send.
 	ErrTestTimeout = errors.New("test timeout: request took too long")
 
-	// ErrInvalidConfigValue is returned by [Config.Validate] when a numeric
-	// field has a negative value. Wrapped errors name the offending field.
+	// ErrInvalidConfigValue is returned by construction options when a value
+	// cannot be applied. Wrapped errors name the offending option.
 	ErrInvalidConfigValue = errors.New("invalid config value")
-
-	// ErrInvalidTLSClientCertificateConfig is returned when one of
-	// TLSClientCertFile or TLSClientKeyFile is set without the other.
-	ErrInvalidTLSClientCertificateConfig = errors.New("TLSClientCertFile and TLSClientKeyFile must both be set or both be empty")
 )
 
 // IsTimeout reports whether err is or wraps a deadline-driven failure:

@@ -14,7 +14,7 @@ import (
 // helpers is not part of the returned client.
 func (c *Client) AsHTTPClient() *http.Client {
 	snap := c.snapshot()
-	source := snap.HTTPClient
+	source := snap.httpClient
 
 	client := &http.Client{
 		Transport: newClientDefaultsTransport(&snap),
@@ -46,8 +46,8 @@ type clientDefaultsTransport struct {
 
 func newClientDefaultsTransport(snap *clientSnapshot) http.RoundTripper {
 	base := http.DefaultTransport
-	if snap.HTTPClient != nil && snap.HTTPClient.Transport != nil {
-		base = snap.HTTPClient.Transport
+	if snap.httpClient != nil && snap.httpClient.Transport != nil {
+		base = snap.httpClient.Transport
 	}
 
 	return &clientDefaultsTransport{
@@ -62,7 +62,7 @@ func (t *clientDefaultsTransport) RoundTrip(req *http.Request) (*http.Response, 
 	handler := MiddlewareHandlerFunc(func(req *http.Request) (*http.Response, error) {
 		return t.base.RoundTrip(req)
 	})
-	for _, mw := range slices.Backward(t.snap.Middlewares) {
+	for _, mw := range slices.Backward(t.snap.middlewares) {
 		handler = mw(handler)
 	}
 
@@ -74,8 +74,8 @@ func cloneWithClientDefaults(req *http.Request, snap *clientSnapshot) *http.Requ
 	original := req.Header.Clone()
 
 	cloned.Header = http.Header{}
-	addHeaderValues(cloned.Header, snap.Headers, snap.OrderedHeaders)
-	for _, cookie := range snap.Cookies {
+	addHeaderValues(cloned.Header, snap.headers, snap.orderedHeaders)
+	for _, cookie := range snap.cookies {
 		if cookie != nil {
 			cloned.AddCookie(cookie)
 		}
@@ -88,7 +88,7 @@ func cloneWithClientDefaults(req *http.Request, snap *clientSnapshot) *http.Requ
 		cloned.Header[key] = slices.Clone(values)
 	}
 
-	ordered := cloneOrderedHeaders(snap.OrderedHeaders)
+	ordered := cloneOrderedHeaders(snap.orderedHeaders)
 	for key := range original {
 		deleteOrderedHeader(ordered, key)
 	}

@@ -53,25 +53,21 @@ func TestTransportOptions(t *testing.T) {
 
 func TestProfileAppliesHTTP3Transport(t *testing.T) {
 	profile := Profile()
-	client := requests.New(requests.WithProfile(profile))
+	client, err := requests.New(requests.WithProfile(profile))
+	require.NoError(t, err)
 
 	require.Equal(t, "HTTP/3", profile.Name())
 	_, ok := client.GetHTTPClient().Transport.(*qhttp3.Transport)
 	require.True(t, ok)
 }
 
-func TestProfileRejectsNilClient(t *testing.T) {
-	err := Profile().Apply(nil)
-
-	require.True(t, errors.Is(err, requests.ErrInvalidConfigValue))
-}
-
 func TestProfileUsesClientTLSConfig(t *testing.T) {
 	tlsConfig := &tls.Config{ServerName: "example.com", MinVersion: tls.VersionTLS13}
-	client := requests.New(
+	client, err := requests.New(
 		requests.WithTLSConfig(tlsConfig),
 		requests.WithProfile(Profile()),
 	)
+	require.NoError(t, err)
 
 	transport, ok := client.GetHTTPClient().Transport.(*qhttp3.Transport)
 	require.True(t, ok)
@@ -108,9 +104,10 @@ func TestProfileSendsHTTP3Request(t *testing.T) {
 		require.True(t, errors.Is(<-errCh, http.ErrServerClosed))
 	})
 
-	client := requests.New(requests.WithProfile(Profile(WithTLSConfig(&tls.Config{
+	client, err := requests.New(requests.WithProfile(Profile(WithTLSConfig(&tls.Config{
 		InsecureSkipVerify: true,
 	}))))
+	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 

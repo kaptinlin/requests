@@ -33,11 +33,11 @@ func TestMiddleware(t *testing.T) {
 	}
 
 	// Initialize the client with our custom middleware
-	client := Create(&Config{
-		BaseURL:     mockServer.URL,                       // Use our mock server as the base URL
-		Transport:   http.DefaultTransport,                // Use the default transport
-		Middlewares: []Middleware{customHeaderMiddleware}, // Apply our custom header middleware
-	})
+	client := newTestClient(t,
+		WithBaseURL(mockServer.URL),
+		WithTransport(http.DefaultTransport),
+		WithMiddleware(customHeaderMiddleware),
+	)
 
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
@@ -84,10 +84,10 @@ func TestNestedMiddleware(t *testing.T) {
 	}))
 	defer mockServer.Close()
 
-	client := Create(&Config{
-		BaseURL:     mockServer.URL,
-		Middlewares: []Middleware{mid0, mid1, mid2},
-	})
+	client := newTestClient(t,
+		WithBaseURL(mockServer.URL),
+		WithMiddleware(mid0, mid1, mid2),
+	)
 
 	// Create an HTTP request object
 	resp, err := client.Get("/").Send(context.Background())
@@ -126,13 +126,11 @@ func TestDynamicMiddlewareAddition(t *testing.T) {
 	defer mockServer.Close()
 
 	// Create a new client
-	client := Create(&Config{
-		BaseURL: mockServer.URL,
-	})
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
 
 	// Dynamically add middleware
-	client.AddMiddleware(loggingMiddleware)
-	client.AddMiddleware(authenticationMiddleware)
+	client.addMiddleware(loggingMiddleware)
+	client.addMiddleware(authenticationMiddleware)
 
 	// Make a request to the mock server
 	_, err := client.Get("/").Send(context.Background())
@@ -173,10 +171,10 @@ func TestRequestMiddlewareAddition(t *testing.T) {
 	defer mockServer.Close()
 
 	// Create a new client with client-level middleware
-	client := Create(&Config{
-		BaseURL:     mockServer.URL,
-		Middlewares: []Middleware{clientLoggingMiddleware}, // Apply client-level middleware
-	})
+	client := newTestClient(t,
+		WithBaseURL(mockServer.URL),
+		WithMiddleware(clientLoggingMiddleware),
+	)
 
 	// Create a request and dynamically add request-level middleware
 	reqBuilder := client.Get("/")

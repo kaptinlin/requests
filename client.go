@@ -4,13 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,23 +21,21 @@ import (
 // Client represents an HTTP client.
 type Client struct {
 	mu             sync.RWMutex
-	BaseURL        string                          // BaseURL is prepended to relative request paths.
-	Headers        *http.Header                    // Headers contains the default headers sent with each request.
-	OrderedHeaders *orderedobject.Object[[]string] // OrderedHeaders contains ordered default headers.
-	Cookies        []*http.Cookie                  // Cookies contains the default cookies sent with each request.
-	Middlewares    []Middleware                    // Middlewares contains the client-level middleware chain.
-	TLSConfig      *tls.Config                     // TLSConfig configures TLS settings for the underlying transport.
-	MaxRetries     int                             // MaxRetries is the maximum number of retry attempts.
-	RetryStrategy  BackoffStrategy                 // RetryStrategy computes the delay before the next retry.
-	RetryIf        RetryIfFunc                     // RetryIf decides whether a request should be retried.
-	HTTPClient     *http.Client                    // HTTPClient is the underlying HTTP client used to send requests.
-	JSONEncoder    Encoder                         // JSONEncoder encodes JSON request bodies.
-	JSONDecoder    Decoder                         // JSONDecoder decodes JSON response bodies.
-	XMLEncoder     Encoder                         // XMLEncoder encodes XML request bodies.
-	XMLDecoder     Decoder                         // XMLDecoder decodes XML response bodies.
-	YAMLEncoder    Encoder                         // YAMLEncoder encodes YAML request bodies.
-	YAMLDecoder    Decoder                         // YAMLDecoder decodes YAML response bodies.
-	Logger         Logger                          // Logger receives client log output when configured.
+	baseURL        string
+	headers        *http.Header
+	orderedHeaders *orderedobject.Object[[]string]
+	cookies        []*http.Cookie
+	middlewares    []Middleware
+	tlsConfig      *tls.Config
+	retry          RetryPolicy
+	httpClient     *http.Client
+	jsonEncoder    Encoder
+	jsonDecoder    Decoder
+	xmlEncoder     Encoder
+	xmlDecoder     Decoder
+	yamlEncoder    Encoder
+	yamlDecoder    Decoder
+	logger         Logger
 	dialTimeout    time.Duration
 	resolver       *net.Resolver
 	localAddr      net.Addr
@@ -49,276 +43,186 @@ type Client struct {
 	auth           AuthMethod
 }
 
-// Config sets up the initial configuration for the HTTP client.
-type Config struct {
-	BaseURL           string                          // BaseURL is the base URL for requests made by this client.
-	Headers           *http.Header                    // Headers contains the default headers sent with each request.
-	OrderedHeaders    *orderedobject.Object[[]string] // OrderedHeaders contains ordered default headers.
-	Cookies           map[string]string               // Cookies contains the default cookies sent with each request.
-	Timeout           time.Duration                   // Timeout is the default request timeout.
-	CookieJar         *cookiejar.Jar                  // CookieJar stores and sends cookies for the client.
-	Middlewares       []Middleware                    // Middlewares contains the middleware stack for request and response handling.
-	TLSConfig         *tls.Config                     // TLSConfig configures TLS settings for the client.
-	TLSClientCertFile string                          // TLSClientCertFile is the path to the client certificate file.
-	TLSClientKeyFile  string                          // TLSClientKeyFile is the path to the client private key file.
-	TLSServerName     string                          // TLSServerName is the TLS server name used for SNI.
-	Transport         http.RoundTripper               // Transport is the custom transport used by the client.
-	MaxRetries        int                             // MaxRetries is the maximum number of retry attempts.
-	RetryStrategy     BackoffStrategy                 // RetryStrategy computes the delay before the next retry.
-	RetryIf           RetryIfFunc                     // RetryIf decides whether a request should be retried.
-	Logger            Logger                          // Logger receives client log output when configured.
-	HTTP2             bool                            // HTTP2 enables HTTP/2 on the default HTTP transport.
-	Resolver          *net.Resolver                   // Resolver customizes name resolution for the default transport dialer.
-	// DialContext is the dial function used by the default transport.
-	DialContext func(context.Context, string, string) (net.Conn, error)
-	LocalAddr   net.Addr // LocalAddr is the local address used by the default transport dialer.
-
-	// Transport-level timeouts.
-	DialTimeout           time.Duration // DialTimeout is the TCP connection timeout.
-	TLSHandshakeTimeout   time.Duration // TLSHandshakeTimeout is the TLS handshake timeout.
-	ResponseHeaderTimeout time.Duration // ResponseHeaderTimeout is the time to the first response byte.
-
-	// Connection pool settings.
-	MaxIdleConns        int           // MaxIdleConns is the maximum number of idle connections across all hosts.
-	MaxIdleConnsPerHost int           // MaxIdleConnsPerHost is the maximum number of idle connections per host.
-	MaxConnsPerHost     int           // MaxConnsPerHost is the maximum number of connections per host.
-	IdleConnTimeout     time.Duration // IdleConnTimeout is how long idle connections remain open.
-}
-
 type clientSnapshot struct {
-	BaseURL        string
-	Headers        http.Header
-	OrderedHeaders *orderedobject.Object[[]string]
-	Cookies        []*http.Cookie
-	Middlewares    []Middleware
-	MaxRetries     int
-	RetryStrategy  BackoffStrategy
-	RetryIf        RetryIfFunc
-	HTTPClient     *http.Client
-	JSONEncoder    Encoder
-	XMLEncoder     Encoder
-	YAMLEncoder    Encoder
-	Logger         Logger
+	baseURL        string
+	headers        http.Header
+	orderedHeaders *orderedobject.Object[[]string]
+	cookies        []*http.Cookie
+	middlewares    []Middleware
+	retry          RetryPolicy
+	httpClient     *http.Client
+	jsonEncoder    Encoder
+	jsonDecoder    Decoder
+	xmlEncoder     Encoder
+	xmlDecoder     Decoder
+	yamlEncoder    Encoder
+	yamlDecoder    Decoder
+	logger         Logger
 	auth           AuthMethod
 }
 
-// Validate checks whether the config contains deterministic invalid values.
-func (cfg *Config) Validate() error {
-	var errs []error
-
-	if _, err := url.Parse(cfg.BaseURL); cfg.BaseURL != "" && err != nil {
-		errs = append(errs, fmt.Errorf("invalid BaseURL: %w", err))
-	}
-
-	if cfg.Timeout < 0 {
-		errs = append(errs, fmt.Errorf("%w: Timeout", ErrInvalidConfigValue))
-	}
-	if cfg.DialTimeout < 0 {
-		errs = append(errs, fmt.Errorf("%w: DialTimeout", ErrInvalidConfigValue))
-	}
-	if cfg.TLSHandshakeTimeout < 0 {
-		errs = append(errs, fmt.Errorf("%w: TLSHandshakeTimeout", ErrInvalidConfigValue))
-	}
-	if cfg.ResponseHeaderTimeout < 0 {
-		errs = append(errs, fmt.Errorf("%w: ResponseHeaderTimeout", ErrInvalidConfigValue))
-	}
-	if cfg.IdleConnTimeout < 0 {
-		errs = append(errs, fmt.Errorf("%w: IdleConnTimeout", ErrInvalidConfigValue))
-	}
-	if cfg.MaxRetries < 0 {
-		errs = append(errs, fmt.Errorf("%w: MaxRetries", ErrInvalidConfigValue))
-	}
-	if cfg.MaxIdleConns < 0 {
-		errs = append(errs, fmt.Errorf("%w: MaxIdleConns", ErrInvalidConfigValue))
-	}
-	if cfg.MaxIdleConnsPerHost < 0 {
-		errs = append(errs, fmt.Errorf("%w: MaxIdleConnsPerHost", ErrInvalidConfigValue))
-	}
-	if cfg.MaxConnsPerHost < 0 {
-		errs = append(errs, fmt.Errorf("%w: MaxConnsPerHost", ErrInvalidConfigValue))
-	}
-	if (cfg.TLSClientCertFile == "") != (cfg.TLSClientKeyFile == "") {
-		errs = append(errs, ErrInvalidTLSClientCertificateConfig)
-	}
-
-	return errors.Join(errs...)
-}
-
-// hasTransportConfig checks if any transport-level configuration is set.
-func (cfg *Config) hasTransportConfig() bool {
-	return cfg.DialTimeout > 0 || cfg.TLSHandshakeTimeout > 0 ||
-		cfg.ResponseHeaderTimeout > 0 || cfg.MaxIdleConns > 0 ||
-		cfg.MaxIdleConnsPerHost > 0 || cfg.MaxConnsPerHost > 0 ||
-		cfg.IdleConnTimeout > 0 || cfg.Resolver != nil ||
-		cfg.DialContext != nil || cfg.LocalAddr != nil
-}
-
 // New creates a Client with functional options applied.
-// It calls Create(nil) to initialize a client with default settings,
-// then applies each option in order.
-func New(opts ...ClientOption) *Client {
-	c := Create(nil)
+// It returns an error when any option cannot be applied.
+func New(opts ...Option) (*Client, error) {
+	c := newClient()
 	for _, opt := range opts {
-		opt(c)
+		if opt == nil {
+			continue
+		}
+		if err := opt(c); err != nil {
+			return nil, err
+		}
 	}
-	return c
+	return c, nil
 }
 
-// URL creates a new HTTP client with the given base URL.
-func URL(baseURL string) *Client {
-	return Create(&Config{BaseURL: baseURL})
+// Clone returns a new Client with the current defaults plus opts applied.
+func (c *Client) Clone(opts ...Option) (*Client, error) {
+	clone := c.clone()
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(clone); err != nil {
+			return nil, err
+		}
+	}
+	return clone, nil
 }
 
-// Create initializes a new HTTP client with the given configuration.
-func Create(config *Config) *Client {
+func newClient() *Client {
+	return &Client{
+		httpClient:  &http.Client{},
+		jsonEncoder: DefaultJSONEncoder,
+		jsonDecoder: DefaultJSONDecoder,
+		xmlEncoder:  DefaultXMLEncoder,
+		xmlDecoder:  DefaultXMLDecoder,
+		yamlEncoder: DefaultYAMLEncoder,
+		yamlDecoder: DefaultYAMLDecoder,
+		retry:       DefaultRetryPolicy(),
+	}
+}
+
+func (c *Client) clone() *Client {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	clone := &Client{
+		baseURL:        c.baseURL,
+		headers:        cloneHeaderPtr(c.headers),
+		orderedHeaders: cloneOrderedHeaders(c.orderedHeaders),
+		cookies:        cloneCookies(c.cookies),
+		middlewares:    slices.Clone(c.middlewares),
+		tlsConfig:      cloneTLSConfig(c.tlsConfig),
+		retry:          c.retry,
+		httpClient:     nil,
+		jsonEncoder:    c.jsonEncoder,
+		jsonDecoder:    c.jsonDecoder,
+		xmlEncoder:     c.xmlEncoder,
+		xmlDecoder:     c.xmlDecoder,
+		yamlEncoder:    c.yamlEncoder,
+		yamlDecoder:    c.yamlDecoder,
+		logger:         c.logger,
+		dialTimeout:    c.dialTimeout,
+		resolver:       c.resolver,
+		localAddr:      c.localAddr,
+		dialContext:    c.dialContext,
+		auth:           c.auth,
+	}
+	clone.httpClient = cloneHTTPClient(c.httpClient, clone.tlsConfig)
+	return clone
+}
+
+func cloneHeaderPtr(headers *http.Header) *http.Header {
+	if headers == nil {
+		return nil
+	}
+	clone := headers.Clone()
+	return &clone
+}
+
+func cloneCookies(cookies []*http.Cookie) []*http.Cookie {
+	if len(cookies) == 0 {
+		return nil
+	}
+	clones := make([]*http.Cookie, len(cookies))
+	for i, cookie := range cookies {
+		if cookie == nil {
+			continue
+		}
+		clone := new(*cookie) //nolint:gosec // clone preserves caller-provided cookie attributes
+		clone.Unparsed = slices.Clone(cookie.Unparsed)
+		clones[i] = clone
+	}
+	return clones
+}
+
+func cloneTLSConfig(config *tls.Config) *tls.Config {
 	if config == nil {
-		config = &Config{}
+		return nil
 	}
-
-	httpClient := &http.Client{}
-
-	if config.Transport != nil {
-		httpClient.Transport = config.Transport
-	}
-
-	if config.Timeout != 0 {
-		httpClient.Timeout = config.Timeout
-	}
-
-	if config.CookieJar != nil {
-		httpClient.Jar = config.CookieJar
-	}
-
-	client := &Client{
-		BaseURL:        config.BaseURL,
-		Headers:        config.Headers,
-		OrderedHeaders: cloneOrderedHeaders(config.OrderedHeaders),
-		HTTPClient:     httpClient,
-		JSONEncoder:    DefaultJSONEncoder,
-		JSONDecoder:    DefaultJSONDecoder,
-		XMLEncoder:     DefaultXMLEncoder,
-		XMLDecoder:     DefaultXMLDecoder,
-		YAMLEncoder:    DefaultYAMLEncoder,
-		YAMLDecoder:    DefaultYAMLDecoder,
-		TLSConfig:      config.TLSConfig,
-		dialTimeout:    config.DialTimeout,
-		resolver:       config.Resolver,
-		localAddr:      config.LocalAddr,
-		dialContext:    config.DialContext,
-	}
-	if client.OrderedHeaders != nil {
-		client.Headers = new(headerFromOrderedHeaders(client.OrderedHeaders))
-	}
-
-	if config.TLSServerName != "" {
-		if client.TLSConfig == nil {
-			client.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		}
-		client.TLSConfig.ServerName = config.TLSServerName
-	}
-
-	if config.TLSClientCertFile != "" && config.TLSClientKeyFile != "" {
-		cert, err := tls.LoadX509KeyPair(filepath.Clean(config.TLSClientCertFile), filepath.Clean(config.TLSClientKeyFile))
-		if err == nil {
-			if client.TLSConfig == nil {
-				client.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-			}
-			client.TLSConfig.Certificates = []tls.Certificate{cert}
-		}
-	}
-
-	if client.TLSConfig != nil {
-		if httpClient.Transport != nil {
-			if transport, ok := httpClient.Transport.(*http.Transport); ok {
-				transport.TLSClientConfig = client.TLSConfig
-			}
-		} else {
-			client.HTTPClient.Transport = &http.Transport{
-				TLSClientConfig: client.TLSConfig,
-			}
-		}
-	}
-
-	applyTransportConfig(client, config)
-	if config.HTTP2 {
-		client.EnableHTTP2()
-	}
-
-	if config.Middlewares != nil {
-		client.Middlewares = config.Middlewares
-	}
-
-	if config.Cookies != nil {
-		client.SetDefaultCookies(config.Cookies)
-	}
-
-	if config.MaxRetries != 0 {
-		client.MaxRetries = config.MaxRetries
-	}
-
-	if config.RetryStrategy != nil {
-		client.RetryStrategy = config.RetryStrategy
-	} else {
-		client.RetryStrategy = DefaultBackoffStrategy(1 * time.Second)
-	}
-
-	if config.RetryIf != nil {
-		client.RetryIf = config.RetryIf
-	} else {
-		client.RetryIf = DefaultRetryIf
-	}
-
-	if config.Logger != nil {
-		client.Logger = config.Logger
-	}
-
-	return client
+	return config.Clone()
 }
 
-// SetBaseURL sets the base URL for the client.
-func (c *Client) SetBaseURL(baseURL string) {
+func cloneHTTPClient(client *http.Client, tlsConfig *tls.Config) *http.Client {
+	if client == nil {
+		return &http.Client{}
+	}
+	clone := *client
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		clonedTransport := transport.Clone()
+		if tlsConfig != nil {
+			clonedTransport.TLSClientConfig = tlsConfig
+		}
+		clone.Transport = clonedTransport
+	}
+	return &clone
+}
+
+// setBaseURL sets the base URL.
+func (c *Client) setBaseURL(baseURL string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.BaseURL = baseURL
+	c.baseURL = baseURL
 }
 
-// AddMiddleware adds a middleware to the client.
-func (c *Client) AddMiddleware(middlewares ...Middleware) {
+// addMiddleware appends client-level middleware.
+func (c *Client) addMiddleware(middlewares ...Middleware) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.Middlewares = append(c.Middlewares, middlewares...)
+	c.middlewares = append(c.middlewares, middlewares...)
 }
 
 func (c *Client) syncTLSConfigLocked() {
-	if c.HTTPClient == nil {
-		c.HTTPClient = &http.Client{}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
-	if c.TLSConfig == nil {
+	if c.tlsConfig == nil {
 		return
 	}
-	if transport, ok := c.HTTPClient.Transport.(*http.Transport); ok {
-		transport.TLSClientConfig = c.TLSConfig
+	if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
+		transport.TLSClientConfig = c.tlsConfig
 		if isHTTP2Configured(transport) {
 			ensureHTTP2NextProtos(transport)
 			transport.ForceAttemptHTTP2 = true
 		}
 		return
 	}
-	if transport, ok := c.HTTPClient.Transport.(*http2.Transport); ok {
-		transport.TLSClientConfig = c.TLSConfig
+	if transport, ok := c.httpClient.Transport.(*http2.Transport); ok {
+		transport.TLSClientConfig = c.tlsConfig
 		return
 	}
-	c.HTTPClient.Transport = &http.Transport{TLSClientConfig: c.TLSConfig}
+	c.httpClient.Transport = &http.Transport{TLSClientConfig: c.tlsConfig}
 }
 
-// SetTLSConfig sets the TLS configuration for the client.
-func (c *Client) SetTLSConfig(config *tls.Config) *Client {
+// setTLSConfig replaces the TLS configuration.
+func (c *Client) setTLSConfig(config *tls.Config) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.TLSConfig = config
+	c.tlsConfig = config
 	c.syncTLSConfigLocked()
 	return c
 }
@@ -326,369 +230,248 @@ func (c *Client) SetTLSConfig(config *tls.Config) *Client {
 // ensureTLSConfig initializes the TLS configuration if nil.
 // Must be called with c.mu held.
 func (c *Client) ensureTLSConfig() {
-	if c.TLSConfig == nil {
-		c.TLSConfig = &tls.Config{
+	if c.tlsConfig == nil {
+		c.tlsConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
 		}
 	}
 }
 
 // InsecureSkipVerify sets the TLS configuration to skip certificate verification.
-func (c *Client) InsecureSkipVerify() *Client {
+func (c *Client) insecureSkipVerify() *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.ensureTLSConfig()
-	c.TLSConfig.InsecureSkipVerify = true
+	c.tlsConfig.InsecureSkipVerify = true
 	c.syncTLSConfigLocked()
 	return c
 }
 
-// SetCertificates sets the TLS certificates for the client.
-func (c *Client) SetCertificates(certs ...tls.Certificate) *Client {
+// setCertificates replaces the TLS client certificates.
+func (c *Client) setCertificates(certs ...tls.Certificate) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.ensureTLSConfig()
-	c.TLSConfig.Certificates = certs
+	c.tlsConfig.Certificates = certs
 	c.syncTLSConfigLocked()
 	return c
 }
 
-// SetClientCertificate loads and sets a client certificate and private key from files.
-func (c *Client) SetClientCertificate(certFile, keyFile string) *Client {
-	cert, err := tls.LoadX509KeyPair(filepath.Clean(certFile), filepath.Clean(keyFile))
-	if err != nil {
-		if c.Logger != nil {
-			c.Logger.Errorf("failed to load client certificate: %v", err)
-		}
-		return c
-	}
-	return c.SetCertificates(cert)
-}
-
-// SetTLSServerName sets the TLS server name (SNI) for the client.
-func (c *Client) SetTLSServerName(serverName string) *Client {
+// setTLSServerName sets the TLS server name (SNI).
+func (c *Client) setTLSServerName(serverName string) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.ensureTLSConfig()
-	c.TLSConfig.ServerName = serverName
+	c.tlsConfig.ServerName = serverName
 	c.syncTLSConfigLocked()
 	return c
 }
 
-// SetRootCertificate sets the root certificate for the client.
-func (c *Client) SetRootCertificate(pemFilePath string) *Client {
+// setRootCertificate loads root certificates from a PEM file.
+func (c *Client) setRootCertificate(pemFilePath string) *Client {
 	cleanPath := filepath.Clean(pemFilePath)
 	rootPemData, err := os.ReadFile(cleanPath)
 	if err != nil {
-		if c.Logger != nil {
-			c.Logger.Errorf("failed to read root certificate: %v", err)
+		if c.logger != nil {
+			c.logger.Errorf("failed to read root certificate: %v", err)
 		}
 		return c
 	}
-	return c.handleCAs("root", rootPemData)
+	return c.addRootCAs(rootPemData)
 }
 
-// SetRootCertificateFromString sets the root certificate for the client from a string.
-func (c *Client) SetRootCertificateFromString(pemCerts string) *Client {
-	return c.handleCAs("root", []byte(pemCerts))
+// setRootCertificateFromString loads root certificates from PEM text.
+func (c *Client) setRootCertificateFromString(pemCerts string) *Client {
+	return c.addRootCAs([]byte(pemCerts))
 }
 
-// SetClientRootCertificate sets the client root certificate for the client.
-func (c *Client) SetClientRootCertificate(pemFilePath string) *Client {
-	cleanPath := filepath.Clean(pemFilePath)
-	rootPemData, err := os.ReadFile(cleanPath)
-	if err != nil {
-		if c.Logger != nil {
-			c.Logger.Errorf("failed to read client root certificate: %v", err)
-		}
-		return c
-	}
-	return c.handleCAs("client", rootPemData)
-}
-
-// SetClientRootCertificateFromString sets the client root certificate for the client from a string.
-func (c *Client) SetClientRootCertificateFromString(pemCerts string) *Client {
-	return c.handleCAs("client", []byte(pemCerts))
-}
-
-// handleCAs sets the TLS certificates for the client.
-func (c *Client) handleCAs(scope string, pemCerts []byte) *Client {
+func (c *Client) addRootCAs(pemCerts []byte) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.ensureTLSConfig()
-	switch scope {
-	case "root":
-		if c.TLSConfig.RootCAs == nil {
-			c.TLSConfig.RootCAs = x509.NewCertPool()
-		}
-		c.TLSConfig.RootCAs.AppendCertsFromPEM(pemCerts)
-	case "client":
-		if c.TLSConfig.ClientCAs == nil {
-			c.TLSConfig.ClientCAs = x509.NewCertPool()
-		}
-		c.TLSConfig.ClientCAs.AppendCertsFromPEM(pemCerts)
+	if c.tlsConfig.RootCAs == nil {
+		c.tlsConfig.RootCAs = x509.NewCertPool()
 	}
+	c.tlsConfig.RootCAs.AppendCertsFromPEM(pemCerts)
 	c.syncTLSConfigLocked()
 	return c
 }
 
-// SetHTTPClient sets the HTTP client for the client.
-func (c *Client) SetHTTPClient(httpClient *http.Client) {
+// setHTTPClient replaces the underlying HTTP client.
+func (c *Client) setHTTPClient(httpClient *http.Client) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HTTPClient = httpClient
+	c.httpClient = httpClient
 }
 
-// SetDefaultHeaders sets the default headers for the client.
-func (c *Client) SetDefaultHeaders(headers *http.Header) {
+// setDefaultHeaders replaces the default semantic headers.
+func (c *Client) setDefaultHeaders(headers *http.Header) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.Headers = headers
-	c.OrderedHeaders = nil
+	c.headers = headers
+	c.orderedHeaders = nil
 }
 
-// SetDefaultOrderedHeaders sets ordered default headers for the client.
-func (c *Client) SetDefaultOrderedHeaders(headers *orderedobject.Object[[]string]) {
+// setDefaultOrderedHeaders replaces ordered default headers.
+func (c *Client) setDefaultOrderedHeaders(headers *orderedobject.Object[[]string]) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.OrderedHeaders = cloneOrderedHeaders(headers)
-	if c.OrderedHeaders == nil {
-		c.Headers = nil
+	c.orderedHeaders = cloneOrderedHeaders(headers)
+	if c.orderedHeaders == nil {
+		c.headers = nil
 		return
 	}
-	c.Headers = new(headerFromOrderedHeaders(c.OrderedHeaders))
+	c.headers = new(headerFromOrderedHeaders(c.orderedHeaders))
 }
 
-// SetDefaultHeader adds or updates a default header.
-func (c *Client) SetDefaultHeader(key, value string) {
+// setDefaultHeader adds or updates a default header.
+func (c *Client) setDefaultHeader(key, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Headers == nil {
-		c.Headers = &http.Header{}
+	if c.headers == nil {
+		c.headers = &http.Header{}
 	}
-	c.Headers.Set(key, value)
-	if c.OrderedHeaders != nil {
-		setOrderedHeaderValues(&c.OrderedHeaders, key, []string{value})
-	}
-}
-
-// AddDefaultHeader adds a default header.
-func (c *Client) AddDefaultHeader(key, value string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.Headers == nil {
-		c.Headers = &http.Header{}
-	}
-	c.Headers.Add(key, value)
-	if c.OrderedHeaders != nil {
-		addOrderedHeaderValue(&c.OrderedHeaders, key, value)
+	c.headers.Set(key, value)
+	if c.orderedHeaders != nil {
+		setOrderedHeaderValues(&c.orderedHeaders, key, []string{value})
 	}
 }
 
-// DelDefaultHeader removes a default header.
-func (c *Client) DelDefaultHeader(key string) {
+// addDefaultHeader adds a default header value.
+func (c *Client) addDefaultHeader(key, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Headers == nil {
+	if c.headers == nil {
+		c.headers = &http.Header{}
+	}
+	c.headers.Add(key, value)
+	if c.orderedHeaders != nil {
+		addOrderedHeaderValue(&c.orderedHeaders, key, value)
+	}
+}
+
+// delDefaultHeader removes a default header.
+func (c *Client) delDefaultHeader(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.headers == nil {
 		return
 	}
-	c.Headers.Del(key)
-	if c.OrderedHeaders != nil {
-		deleteOrderedHeader(c.OrderedHeaders, key)
+	c.headers.Del(key)
+	if c.orderedHeaders != nil {
+		deleteOrderedHeader(c.orderedHeaders, key)
 	}
 }
 
-// SetDefaultContentType sets the default content type for the client.
-func (c *Client) SetDefaultContentType(contentType string) {
-	c.SetDefaultHeader("Content-Type", contentType)
+// setDefaultContentType sets the default content type.
+func (c *Client) setDefaultContentType(contentType string) {
+	c.setDefaultHeader("Content-Type", contentType)
 }
 
-// SetDefaultAccept sets the default accept header for the client.
-func (c *Client) SetDefaultAccept(accept string) {
-	c.SetDefaultHeader("Accept", accept)
+// setDefaultAccept sets the default Accept header.
+func (c *Client) setDefaultAccept(accept string) {
+	c.setDefaultHeader("Accept", accept)
 }
 
-// SetDefaultUserAgent sets the default user agent for the client.
-func (c *Client) SetDefaultUserAgent(userAgent string) {
-	c.SetDefaultHeader("User-Agent", userAgent)
+// setDefaultUserAgent sets the default User-Agent header.
+func (c *Client) setDefaultUserAgent(userAgent string) {
+	c.setDefaultHeader("User-Agent", userAgent)
 }
 
-// SetDefaultReferer sets the default referer for the client.
-func (c *Client) SetDefaultReferer(referer string) {
-	c.SetDefaultHeader("Referer", referer)
+// setDefaultReferer sets the default Referer header.
+func (c *Client) setDefaultReferer(referer string) {
+	c.setDefaultHeader("Referer", referer)
 }
 
-// SetDefaultTimeout sets the default timeout for the client.
-func (c *Client) SetDefaultTimeout(timeout time.Duration) {
+// setDefaultTimeout sets the underlying http.Client timeout.
+func (c *Client) setDefaultTimeout(timeout time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HTTPClient.Timeout = timeout
+	c.httpClient.Timeout = timeout
 }
 
-// SetDefaultTransport sets the default transport for the client.
-func (c *Client) SetDefaultTransport(transport http.RoundTripper) {
+// setDefaultTransport replaces the underlying transport.
+func (c *Client) setDefaultTransport(transport http.RoundTripper) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HTTPClient.Transport = transport
+	c.httpClient.Transport = transport
 }
 
-// SetDefaultCookieJar sets the default cookie jar for the client.
-func (c *Client) SetDefaultCookieJar(jar *cookiejar.Jar) {
+// setDefaultCookieJar replaces the underlying cookie jar.
+func (c *Client) setDefaultCookieJar(jar *cookiejar.Jar) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.HTTPClient.Jar = jar
+	c.httpClient.Jar = jar
 }
 
-// EnableSession enables cookie and TLS session reuse without replacing existing session stores.
-func (c *Client) EnableSession() *Client {
+// enableSession enables cookie and TLS session reuse without replacing existing session stores.
+func (c *Client) enableSession() *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.HTTPClient == nil {
-		c.HTTPClient = &http.Client{}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
-	if c.HTTPClient.Jar == nil {
+	if c.httpClient.Jar == nil {
 		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 		if err == nil {
-			c.HTTPClient.Jar = jar
-		} else if c.Logger != nil {
-			c.Logger.Errorf("failed to create cookie jar: %v", err)
+			c.httpClient.Jar = jar
+		} else if c.logger != nil {
+			c.logger.Errorf("failed to create cookie jar: %v", err)
 		}
 	}
 
 	c.ensureTLSConfig()
-	if c.TLSConfig.ClientSessionCache == nil {
-		c.TLSConfig.ClientSessionCache = tls.NewLRUClientSessionCache(0)
+	if c.tlsConfig.ClientSessionCache == nil {
+		c.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(0)
 	}
-	switch c.HTTPClient.Transport.(type) {
+	switch c.httpClient.Transport.(type) {
 	case nil, *http.Transport, *http2.Transport:
 		c.syncTLSConfigLocked()
 	}
 	return c
 }
 
-// SetDefaultCookies sets the default cookies for the client.
-func (c *Client) SetDefaultCookies(cookies map[string]string) {
+// setDefaultCookies adds default cookies.
+func (c *Client) setDefaultCookies(cookies map[string]string) {
 	for name, value := range cookies {
-		c.SetDefaultCookie(name, value)
+		c.setDefaultCookie(name, value)
 	}
 }
 
-// SetDefaultCookie sets a default cookie for the client.
-func (c *Client) SetDefaultCookie(name, value string) {
+// setDefaultCookie adds a default cookie.
+func (c *Client) setDefaultCookie(name, value string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.Cookies = append(c.Cookies, &http.Cookie{Name: name, Value: value}) //nolint:gosec // callers control default cookie attributes
+	c.cookies = append(c.cookies, &http.Cookie{Name: name, Value: value}) //nolint:gosec // callers control default cookie attributes
 }
 
-// DelDefaultCookie removes a default cookie from the client.
-func (c *Client) DelDefaultCookie(name string) {
+// delDefaultCookie removes a default cookie.
+func (c *Client) delDefaultCookie(name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.Cookies == nil {
+	if c.cookies == nil {
 		return
 	}
 
-	c.Cookies = slices.DeleteFunc(c.Cookies, func(cookie *http.Cookie) bool {
+	c.cookies = slices.DeleteFunc(c.cookies, func(cookie *http.Cookie) bool {
 		return cookie.Name == name
 	})
-}
-
-// SetJSONMarshal sets the JSON marshal function for the client's JSONEncoder.
-func (c *Client) SetJSONMarshal(marshalFunc func(v any) ([]byte, error)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.JSONEncoder = &JSONEncoder{
-		MarshalFunc: marshalFunc,
-	}
-}
-
-// SetJSONUnmarshal sets the JSON unmarshal function for the client's JSONDecoder.
-func (c *Client) SetJSONUnmarshal(unmarshalFunc func(data []byte, v any) error) {
-	c.SetJSONDecode(func(r io.Reader, v any) error {
-		data, err := io.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		return unmarshalFunc(data, v)
-	})
-}
-
-// SetJSONDecode sets the JSON decode function for the client's JSONDecoder.
-func (c *Client) SetJSONDecode(decodeFunc func(r io.Reader, v any) error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.JSONDecoder = &JSONDecoder{
-		DecodeFunc: decodeFunc,
-	}
-}
-
-// SetXMLMarshal sets the XML marshal function for the client's XMLEncoder.
-func (c *Client) SetXMLMarshal(marshalFunc func(v any) ([]byte, error)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.XMLEncoder = &XMLEncoder{
-		MarshalFunc: marshalFunc,
-	}
-}
-
-// SetXMLUnmarshal sets the XML unmarshal function for the client's XMLDecoder.
-func (c *Client) SetXMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.XMLDecoder = &XMLDecoder{
-		UnmarshalFunc: unmarshalFunc,
-	}
-}
-
-// SetYAMLMarshal sets the YAML marshal function for the client's YAMLEncoder.
-func (c *Client) SetYAMLMarshal(marshalFunc func(v any) ([]byte, error)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.YAMLEncoder = &YAMLEncoder{
-		MarshalFunc: marshalFunc,
-	}
-}
-
-// SetYAMLUnmarshal sets the YAML unmarshal function for the client's YAMLDecoder.
-func (c *Client) SetYAMLUnmarshal(unmarshalFunc func(data []byte, v any) error) {
-	c.SetYAMLDecode(func(r io.Reader, v any) error {
-		data, err := io.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		return unmarshalFunc(data, v)
-	})
-}
-
-// SetYAMLDecode sets the YAML decode function for the client's YAMLDecoder.
-func (c *Client) SetYAMLDecode(decodeFunc func(r io.Reader, v any) error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.YAMLDecoder = &YAMLDecoder{
-		DecodeFunc: decodeFunc,
-	}
 }
 
 func (c *Client) snapshot() clientSnapshot {
@@ -696,12 +479,12 @@ func (c *Client) snapshot() clientSnapshot {
 	defer c.mu.RUnlock()
 
 	headers := http.Header{}
-	if c.Headers != nil {
-		headers = c.Headers.Clone()
+	if c.headers != nil {
+		headers = c.headers.Clone()
 	}
 
-	cookies := make([]*http.Cookie, len(c.Cookies))
-	for i, cookie := range c.Cookies {
+	cookies := make([]*http.Cookie, len(c.cookies))
+	for i, cookie := range c.cookies {
 		if cookie == nil {
 			continue
 		}
@@ -710,22 +493,23 @@ func (c *Client) snapshot() clientSnapshot {
 		cookies[i] = clone
 	}
 
-	middlewares := slices.Clone(c.Middlewares)
+	middlewares := slices.Clone(c.middlewares)
 
 	return clientSnapshot{
-		BaseURL:        c.BaseURL,
-		Headers:        headers,
-		OrderedHeaders: cloneOrderedHeaders(c.OrderedHeaders),
-		Cookies:        cookies,
-		Middlewares:    middlewares,
-		MaxRetries:     c.MaxRetries,
-		RetryStrategy:  c.RetryStrategy,
-		RetryIf:        c.RetryIf,
-		HTTPClient:     c.HTTPClient,
-		JSONEncoder:    c.JSONEncoder,
-		XMLEncoder:     c.XMLEncoder,
-		YAMLEncoder:    c.YAMLEncoder,
-		Logger:         c.Logger,
+		baseURL:        c.baseURL,
+		headers:        headers,
+		orderedHeaders: cloneOrderedHeaders(c.orderedHeaders),
+		cookies:        cookies,
+		middlewares:    middlewares,
+		retry:          c.retry,
+		httpClient:     c.httpClient,
+		jsonEncoder:    c.jsonEncoder,
+		jsonDecoder:    c.jsonDecoder,
+		xmlEncoder:     c.xmlEncoder,
+		xmlDecoder:     c.xmlDecoder,
+		yamlEncoder:    c.yamlEncoder,
+		yamlDecoder:    c.yamlDecoder,
+		logger:         c.logger,
 		auth:           c.auth,
 	}
 }
@@ -734,27 +518,28 @@ func (c *Client) snapshot() clientSnapshot {
 func (c *Client) GetHTTPClient() *http.Client {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.HTTPClient
+	return c.httpClient
 }
 
 // GetBaseURL returns the configured base URL in a thread-safe way.
 func (c *Client) GetBaseURL() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.BaseURL
+	return c.baseURL
 }
 
-// SetMaxRetries sets the maximum number of retry attempts.
-func (c *Client) SetMaxRetries(maxRetries int) *Client {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.MaxRetries = maxRetries
-	return c
+// GetTLSConfig returns a clone of the configured TLS settings.
+func (c *Client) GetTLSConfig() *tls.Config {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.tlsConfig == nil {
+		return nil
+	}
+	return c.tlsConfig.Clone()
 }
 
-// EnableHTTP2 enables HTTP/2 on the underlying HTTP transport.
-func (c *Client) EnableHTTP2() *Client {
+// enableHTTP2 enables HTTP/2 on the underlying HTTP transport.
+func (c *Client) enableHTTP2() *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -763,21 +548,21 @@ func (c *Client) EnableHTTP2() *Client {
 }
 
 func (c *Client) enableHTTP2Locked() {
-	if c.HTTPClient == nil {
-		c.HTTPClient = &http.Client{}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
 	transport, err := c.ensureTransport()
 	if err != nil {
-		if c.Logger != nil {
-			c.Logger.Errorf("failed to enable HTTP/2: %v", err)
+		if c.logger != nil {
+			c.logger.Errorf("failed to enable HTTP/2: %v", err)
 		}
 		return
 	}
-	if c.TLSConfig != nil {
-		transport.TLSClientConfig = c.TLSConfig
+	if c.tlsConfig != nil {
+		transport.TLSClientConfig = c.tlsConfig
 	}
-	if err := configureHTTP2Transport(transport); err != nil && c.Logger != nil {
-		c.Logger.Errorf("failed to enable HTTP/2: %v", err)
+	if err := configureHTTP2Transport(transport); err != nil && c.logger != nil {
+		c.logger.Errorf("failed to enable HTTP/2: %v", err)
 	}
 }
 
@@ -818,26 +603,16 @@ func ensureHTTP2NextProtos(transport *http.Transport) {
 	}
 }
 
-// SetRetryStrategy sets the backoff strategy for retries.
-func (c *Client) SetRetryStrategy(strategy BackoffStrategy) *Client {
+func (c *Client) setRetry(policy RetryPolicy) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.RetryStrategy = strategy
+	c.retry = policy
 	return c
 }
 
-// SetRetryIf sets the custom retry condition function.
-func (c *Client) SetRetryIf(retryIf RetryIfFunc) *Client {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.RetryIf = retryIf
-	return c
-}
-
-// SetAuth configures an authentication method for the client.
-func (c *Client) SetAuth(auth AuthMethod) {
+// setAuth configures a client-level authentication method.
+func (c *Client) setAuth(auth AuthMethod) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -846,11 +621,11 @@ func (c *Client) SetAuth(auth AuthMethod) {
 	}
 }
 
-// SetRedirectPolicy sets the redirect policy for the client.
-func (c *Client) SetRedirectPolicy(policies ...RedirectPolicy) *Client {
+// setRedirectPolicy replaces the redirect policy chain.
+func (c *Client) setRedirectPolicy(policies ...RedirectPolicy) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	c.httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		for _, p := range policies {
 			if err := p.Apply(req, via); err != nil {
 				return err
@@ -861,12 +636,12 @@ func (c *Client) SetRedirectPolicy(policies ...RedirectPolicy) *Client {
 	return c
 }
 
-// SetLogger sets logger instance in client.
-func (c *Client) SetLogger(logger Logger) *Client {
+// setLogger sets the client logger.
+func (c *Client) setLogger(logger Logger) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.Logger = logger
+	c.logger = logger
 	return c
 }
 
@@ -902,8 +677,8 @@ func (c *Client) applyDialContextLocked(transport *http.Transport) {
 	transport.DialContext = dialer.DialContext
 }
 
-// SetDialTimeout sets the TCP connection timeout on the underlying transport.
-func (c *Client) SetDialTimeout(d time.Duration) *Client {
+// setDialTimeout sets the TCP connection timeout on the underlying transport.
+func (c *Client) setDialTimeout(d time.Duration) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -916,8 +691,8 @@ func (c *Client) SetDialTimeout(d time.Duration) *Client {
 	return c
 }
 
-// SetResolver sets the resolver used by the default transport dialer.
-func (c *Client) SetResolver(resolver *net.Resolver) *Client {
+// setResolver sets the resolver used by the default transport dialer.
+func (c *Client) setResolver(resolver *net.Resolver) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -930,8 +705,8 @@ func (c *Client) SetResolver(resolver *net.Resolver) *Client {
 	return c
 }
 
-// SetDialContext sets the dial function on the underlying transport.
-func (c *Client) SetDialContext(dial func(context.Context, string, string) (net.Conn, error)) *Client {
+// setDialContext sets the dial function on the underlying transport.
+func (c *Client) setDialContext(dial func(context.Context, string, string) (net.Conn, error)) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -944,8 +719,8 @@ func (c *Client) SetDialContext(dial func(context.Context, string, string) (net.
 	return c
 }
 
-// SetLocalAddr sets the local address used by the default transport dialer.
-func (c *Client) SetLocalAddr(addr net.Addr) *Client {
+// setLocalAddr sets the local address used by the default transport dialer.
+func (c *Client) setLocalAddr(addr net.Addr) *Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -958,89 +733,47 @@ func (c *Client) SetLocalAddr(addr net.Addr) *Client {
 	return c
 }
 
-// SetTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
-func (c *Client) SetTLSHandshakeTimeout(d time.Duration) *Client {
+// setTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
+func (c *Client) setTLSHandshakeTimeout(d time.Duration) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.TLSHandshakeTimeout = d
 	})
 }
 
-// SetResponseHeaderTimeout sets the time to wait for response headers after the request
+// setResponseHeaderTimeout sets the time to wait for response headers after the request
 // is sent. This does not include the time to read the response body.
-func (c *Client) SetResponseHeaderTimeout(d time.Duration) *Client {
+func (c *Client) setResponseHeaderTimeout(d time.Duration) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.ResponseHeaderTimeout = d
 	})
 }
 
-// SetMaxIdleConns sets the maximum number of idle connections across all hosts.
-func (c *Client) SetMaxIdleConns(n int) *Client {
+// setMaxIdleConns sets the maximum number of idle connections across all hosts.
+func (c *Client) setMaxIdleConns(n int) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.MaxIdleConns = n
 	})
 }
 
-// SetMaxIdleConnsPerHost sets the maximum number of idle connections per host.
-func (c *Client) SetMaxIdleConnsPerHost(n int) *Client {
+// setMaxIdleConnsPerHost sets the maximum number of idle connections per host.
+func (c *Client) setMaxIdleConnsPerHost(n int) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.MaxIdleConnsPerHost = n
 	})
 }
 
-// SetMaxConnsPerHost sets the maximum total number of connections per host.
-func (c *Client) SetMaxConnsPerHost(n int) *Client {
+// setMaxConnsPerHost sets the maximum total number of connections per host.
+func (c *Client) setMaxConnsPerHost(n int) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.MaxConnsPerHost = n
 	})
 }
 
-// SetIdleConnTimeout sets how long idle connections remain in the pool before being closed.
-func (c *Client) SetIdleConnTimeout(d time.Duration) *Client {
+// setIdleConnTimeout sets how long idle connections remain in the pool before being closed.
+func (c *Client) setIdleConnTimeout(d time.Duration) *Client {
 	return c.withTransport(func(t *http.Transport) {
 		t.IdleConnTimeout = d
 	})
-}
-
-// applyTransportConfig applies transport-level timeouts and connection pool settings
-// from Config to the client's transport. Only modifies settings that are explicitly set
-// (non-zero). Skips if the transport is not *http.Transport.
-func applyTransportConfig(c *Client, config *Config) {
-	transport, ok := c.HTTPClient.Transport.(*http.Transport)
-	if !ok && (c.HTTPClient.Transport != nil || !config.hasTransportConfig()) {
-		return
-	}
-	if !ok {
-		transport = &http.Transport{}
-		c.HTTPClient.Transport = transport
-	}
-
-	if config.DialContext != nil {
-		transport.DialContext = config.DialContext
-	} else if config.DialTimeout > 0 || config.Resolver != nil || config.LocalAddr != nil {
-		transport.DialContext = (&net.Dialer{
-			Timeout:   config.DialTimeout,
-			Resolver:  config.Resolver,
-			LocalAddr: config.LocalAddr,
-		}).DialContext
-	}
-	if config.TLSHandshakeTimeout > 0 {
-		transport.TLSHandshakeTimeout = config.TLSHandshakeTimeout
-	}
-	if config.ResponseHeaderTimeout > 0 {
-		transport.ResponseHeaderTimeout = config.ResponseHeaderTimeout
-	}
-	if config.MaxIdleConns > 0 {
-		transport.MaxIdleConns = config.MaxIdleConns
-	}
-	if config.MaxIdleConnsPerHost > 0 {
-		transport.MaxIdleConnsPerHost = config.MaxIdleConnsPerHost
-	}
-	if config.MaxConnsPerHost > 0 {
-		transport.MaxConnsPerHost = config.MaxConnsPerHost
-	}
-	if config.IdleConnTimeout > 0 {
-		transport.IdleConnTimeout = config.IdleConnTimeout
-	}
 }
 
 // Get initiates a GET request.

@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,6 +28,16 @@ func (failingWriter) Write([]byte) (int, error) {
 	return 0, errFailingWriter
 }
 
+type closeTrackingWriter struct {
+	bytes.Buffer
+	closed bool
+}
+
+func (w *closeTrackingWriter) Close() error {
+	w.closed = true
+	return nil
+}
+
 func TestResponseContentType(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
@@ -45,7 +56,7 @@ func TestResponseContentType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("ContentType is %s", tt.contentType), func(t *testing.T) {
-			client := Create(&Config{BaseURL: server.URL})
+			client := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := client.Get(tt.url).Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsContentType(tt.contentType))
@@ -57,7 +68,7 @@ func TestResponseStatusAndStatusCode(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-status-code").Send(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, 201, resp.StatusCode())
@@ -68,7 +79,7 @@ func TestResponseHeaderAndCookies(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	t.Run("Test Headers", func(t *testing.T) {
 		resp, err := client.Get("/test-headers").Send(context.Background())
@@ -91,7 +102,7 @@ func TestResponseLocation(t *testing.T) {
 	assert.NoError(t, err)
 
 	resp := &Response{
-		RawResponse: &http.Response{
+		rawResponse: &http.Response{
 			StatusCode: http.StatusFound,
 			Header:     http.Header{"Location": []string{"/next"}},
 			Request:    req,
@@ -107,7 +118,7 @@ func TestResponseContentLengthAndIsEmpty(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	t.Run("Non-empty response", func(t *testing.T) {
 		resp, err := client.Get("/test-content-type?ct=text/plain").Send(context.Background())
@@ -128,7 +139,7 @@ func TestResponseIsSuccess(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-status-code").Send(context.Background()) // This endpoint sets status 201
 	assert.NoError(t, err)
 
@@ -139,7 +150,7 @@ func TestResponseIsSuccessForFailure(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-failure").Send(context.Background()) // This endpoint sets status 500
 	assert.NoError(t, err)
 
@@ -150,7 +161,7 @@ func TestResponseAfterRedirect(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-redirect").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -163,7 +174,7 @@ func TestResponseBodyAndString(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-body").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -174,7 +185,28 @@ func TestResponseBodyAndString(t *testing.T) {
 	assert.Contains(t, string(bodyBytes), "This is the response body.")
 }
 
-func TestResponseScanJSON(t *testing.T) {
+func TestResponseRaw(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Raw", "yes")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, "raw body")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/raw").Send(t.Context())
+	require.NoError(t, err)
+
+	raw := resp.Raw()
+	assert.Equal(t, http.StatusCreated, raw.StatusCode)
+	assert.Equal(t, "yes", raw.Header.Get("X-Raw"))
+
+	body, err := io.ReadAll(raw.Body)
+	require.NoError(t, err)
+	assert.Equal(t, "raw body", string(body))
+}
+
+func TestResponseDecodeJSON(t *testing.T) {
 	type jsonTestResponse struct {
 		Message string `json:"message"`
 		Status  bool   `json:"status"`
@@ -185,18 +217,53 @@ func TestResponseScanJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-json").Send(context.Background())
 	assert.NoError(t, err)
 
 	var jsonResponse jsonTestResponse
-	err = resp.Scan(&jsonResponse)
+	err = resp.Decode(&jsonResponse)
 	assert.NoError(t, err)
 	assert.Equal(t, "This is a JSON response", jsonResponse.Message)
 	assert.True(t, jsonResponse.Status)
 }
 
-func TestResponseScanXML(t *testing.T) {
+func TestResponseDecodeUsesDispatchSnapshot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"ignored": true}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithJSONDecoder(&JSONDecoder{
+			DecodeFunc: func(_ io.Reader, v any) error {
+				out := v.(*struct{ Source string })
+				out.Source = "dispatch"
+				return nil
+			},
+		}),
+	)
+
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	client.jsonDecoder = &JSONDecoder{
+		DecodeFunc: func(_ io.Reader, v any) error {
+			out := v.(*struct{ Source string })
+			out.Source = "mutated"
+			return nil
+		},
+	}
+
+	var out struct{ Source string }
+	err = resp.DecodeJSON(&out)
+	require.NoError(t, err)
+	assert.Equal(t, "dispatch", out.Source)
+}
+
+func TestResponseDecodeXML(t *testing.T) {
 	type xmlTestResponse struct {
 		XMLName xml.Name `xml:"Response"`
 		Message string   `xml:"Message"`
@@ -209,18 +276,18 @@ func TestResponseScanXML(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-xml").Send(context.Background())
 	assert.NoError(t, err)
 
 	var xmlResponse xmlTestResponse
-	err = resp.Scan(&xmlResponse)
+	err = resp.Decode(&xmlResponse)
 	assert.NoError(t, err)
 	assert.Equal(t, "This is an XML response", xmlResponse.Message)
 	assert.True(t, xmlResponse.Status)
 }
 
-func TestResponseScanYAML(t *testing.T) {
+func TestResponseDecodeYAML(t *testing.T) {
 	type yamlTestResponse struct {
 		Message string `yaml:"message"`
 		Status  bool   `yaml:"status"`
@@ -236,27 +303,27 @@ status: true
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-yaml").Send(context.Background())
 	assert.NoError(t, err)
 
 	var yamlResponse yamlTestResponse
-	err = resp.Scan(&yamlResponse)
+	err = resp.Decode(&yamlResponse)
 	assert.NoError(t, err)
 	assert.Equal(t, "This is a YAML response", yamlResponse.Message)
 	assert.True(t, yamlResponse.Status)
 }
 
-func TestResponseScanUnsupportedContentType(t *testing.T) {
+func TestResponseDecodeUnsupportedContentType(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-pdf").Send(context.Background())
 	assert.NoError(t, err)
 
 	var dummyResponse struct{}
-	err = resp.Scan(&dummyResponse)
+	err = resp.Decode(&dummyResponse)
 	assert.Error(t, err, "expected an error for unsupported content type")
 	assert.ErrorIs(t, err, ErrUnsupportedContentType)
 }
@@ -265,7 +332,7 @@ func TestResponseClose(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-get").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -311,7 +378,7 @@ func TestResponseURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			client := Create(&Config{BaseURL: server.URL})
+			client := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := client.Get(tc.path).Send(context.Background())
 			assert.NoError(t, err)
 
@@ -326,13 +393,13 @@ func TestResponseDiagnostics(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/test-get").Send(context.Background())
 	assert.NoError(t, err)
 
 	assert.Equal(t, 1, resp.Attempts())
 	assert.Greater(t, resp.Elapsed(), time.Duration(0))
-	assert.Equal(t, resp.RawResponse.Proto, resp.Protocol())
+	assert.Equal(t, resp.Raw().Proto, resp.Protocol())
 }
 
 func TestResponseTLSReturnsCopy(t *testing.T) {
@@ -341,15 +408,15 @@ func TestResponseTLSReturnsCopy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-	client.InsecureSkipVerify()
+	client := newTestClient(t, WithBaseURL(server.URL))
+	client.insecureSkipVerify()
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
 	state := resp.TLS()
 	if assert.NotNil(t, state) && assert.NotEmpty(t, state.PeerCertificates) {
 		state.PeerCertificates = nil
-		assert.NotEmpty(t, resp.RawResponse.TLS.PeerCertificates)
+		assert.NotEmpty(t, resp.Raw().TLS.PeerCertificates)
 	}
 }
 
@@ -357,8 +424,7 @@ func TestResponseSaveToFileCreatesParentDirectories(t *testing.T) {
 	t.Parallel()
 
 	resp := &Response{
-		Client:    Create(nil),
-		BodyBytes: []byte("Sample response body"),
+		body: []byte("Sample response body"),
 	}
 	filePath := filepath.Join(t.TempDir(), "nested", "sample_response.txt")
 
@@ -376,7 +442,7 @@ func TestResponseLines(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -396,7 +462,7 @@ func TestResponseLinesEmpty(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -415,7 +481,7 @@ func TestResponseLinesEarlyBreak(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -452,7 +518,7 @@ func TestResponseIsError(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := Create(&Config{BaseURL: server.URL})
+			client := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := client.Get("/").Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsError())
@@ -480,7 +546,7 @@ func TestResponseIsClientError(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := Create(&Config{BaseURL: server.URL})
+			client := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := client.Get("/").Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsClientError())
@@ -507,7 +573,7 @@ func TestResponseIsServerError(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := Create(&Config{BaseURL: server.URL})
+			client := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := client.Get("/").Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsServerError())
@@ -519,8 +585,8 @@ func TestResponseIsRedirect(t *testing.T) {
 	// Use a server that doesn't actually redirect (we just check the code)
 	// We need to use a server that returns a redirect status without Location header
 	// to prevent the client from following the redirect.
-	client := Create(nil)
-	client.SetRedirectPolicy(NewProhibitRedirectPolicy())
+	client := newTestClient(t)
+	client.setRedirectPolicy(NewProhibitRedirectPolicy())
 
 	tests := []struct {
 		name       string
@@ -542,7 +608,7 @@ func TestResponseIsRedirect(t *testing.T) {
 			defer server.Close()
 
 			// For non-redirect status codes, use a normal client
-			c := Create(&Config{BaseURL: server.URL})
+			c := newTestClient(t, WithBaseURL(server.URL))
 			resp, err := c.Get("/").Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsRedirect())
@@ -558,7 +624,7 @@ func TestResponseSaveToWriter(t *testing.T) {
 	defer server.Close()
 
 	// Create client and send request
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").Send(context.Background())
 	if err != nil {
 		t.Fatalf("Failed to send request: %v", err)
@@ -580,13 +646,25 @@ func TestResponseSaveToWriter(t *testing.T) {
 
 func TestResponseSaveToWriterError(t *testing.T) {
 	resp := &Response{
-		Client:    Create(nil),
-		BodyBytes: []byte("body"),
+		body: []byte("body"),
 	}
 
 	err := resp.Save(failingWriter{})
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, errFailingWriter))
+}
+
+func TestResponseSaveToWriterDoesNotCloseCallerWriter(t *testing.T) {
+	resp := &Response{
+		body: []byte("body"),
+	}
+	writer := &closeTrackingWriter{}
+
+	err := resp.Save(writer)
+
+	require.NoError(t, err)
+	assert.Equal(t, "body", writer.String())
+	assert.False(t, writer.closed)
 }
 
 func TestHandleNonStream_ConcurrentSafety(t *testing.T) {
@@ -601,7 +679,7 @@ func TestHandleNonStream_ConcurrentSafety(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithBaseURL(server.URL))
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	results := make([]string, goroutines)
 

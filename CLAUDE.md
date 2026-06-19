@@ -1,23 +1,26 @@
 # requests
 
-Fluent HTTP client library for Go built around `Client`, `RequestBuilder`, and `Response`. It wraps `net/http` with builder-style request construction, retries, redirects, proxy controls, middleware, streaming callbacks, ordered-header intent, coherent profiles, and JSON/XML/YAML codecs.
+Fluent HTTP client library for Go built around `Client`, `RequestBuilder`, `Response`, and `StreamResponse`. It wraps `net/http` with builder-style request construction, retries, redirects, proxy controls, middleware, caller-owned streaming, ordered-header intent, coherent profiles, and JSON/XML/YAML codecs.
 
 For usage examples and installation, see [README.md](README.md).
 
 ## Commands
 
 ```bash
-task test          # Run root-module tests with race detection
-task test:all      # Run race tests for root and extension modules
-task lint          # Run golangci-lint and root go mod tidy checks
-task lint:all      # Run lint for root and extension modules
-task tidy:all      # Run go mod tidy for root and extension modules
-task verify        # Run deps, fmt, vet, lint, test, and vuln checks for root
-task fmt           # Format root Go code
-task vet           # Run go vet for root
-task vuln          # Run govulncheck for root
-task deps          # Download and tidy root dependencies
-task clean         # Clean build artifacts and caches
+task test            # Run root-module tests with race detection
+task test:all        # Run race tests for root and extension modules
+task test:published  # Verify extensions outside go.work after a root release
+task lint            # Run golangci-lint and root go mod tidy checks
+task lint:all        # Run lint for root and extension modules
+task tidy:all        # Run go mod tidy for root and extension modules
+task vuln:all        # Run govulncheck for root and extension modules
+task verify          # Run deps, fmt, vet, lint, test, and vuln checks for root
+task verify:all      # Run full root and extension verification
+task fmt             # Format root Go code
+task vet             # Run go vet for root
+task vuln            # Run govulncheck for root
+task deps            # Download and tidy root dependencies
+task clean           # Clean build artifacts and caches
 ```
 
 Use direct module commands when a task touches only one extension:
@@ -45,7 +48,7 @@ requests/
 ├── logger.go        # Logger interface and slog-backed default logger
 ├── codec.go         # Encoder and decoder abstractions
 ├── form.go          # Form and multipart parsing helpers
-├── stream.go        # Streaming callback types and limits
+├── stream.go        # Streaming buffer limits
 ├── middlewares/     # Header, cookie, and cache middleware
 ├── browser/         # Optional browser identity profile module
 ├── fingerprint/     # Optional uTLS ClientHello fingerprint module
@@ -76,7 +79,9 @@ For multi-module work:
 
 1. Use local `go.work` for development across root and extensions.
 2. Run `task test:all`, `task tidy:all`, and module-specific lint before finishing.
-3. Remember extension modules without local `replace` depend on the published root module when `GOWORK=off`.
+3. Follow [RELEASE.md](RELEASE.md) for root-first release sequencing.
+4. Use `task test:published` only after the matching root version is tagged and extension modules require it.
+5. Remember extension modules without local `replace` depend on the published root module when `GOWORK=off`.
 
 ## SPECS Index
 
@@ -88,11 +93,11 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 | [`SPECS/20-client-api-specs.md`](SPECS/20-client-api-specs.md) | Client construction, defaults, TLS, transport, proxy, and redirect policy |
 | [`SPECS/21-request-builder-api-specs.md`](SPECS/21-request-builder-api-specs.md) | Builder state, path/query/body handling, request-local overrides, and dispatch |
 | [`SPECS/22-response-api-specs.md`](SPECS/22-response-api-specs.md) | Buffered response helpers, decoding, save behavior, TLS, and line iteration |
-| [`SPECS/23-streaming-api-specs.md`](SPECS/23-streaming-api-specs.md) | Streaming callbacks, delivery rules, and buffer limits |
+| [`SPECS/23-streaming-api-specs.md`](SPECS/23-streaming-api-specs.md) | Caller-owned streaming, line iteration, and buffer limits |
 | [`SPECS/24-logging-api-specs.md`](SPECS/24-logging-api-specs.md) | Logger interface and default logger behavior |
 | [`SPECS/25-profile-api-specs.md`](SPECS/25-profile-api-specs.md) | Profile contract, package boundaries, and client-level identity rules |
 | [`SPECS/30-defaults.md`](SPECS/30-defaults.md) | Defaults audit: every default value applied by `requests` and the rationale behind it |
-| [`SPECS/31-api-deprecation-candidates.md`](SPECS/31-api-deprecation-candidates.md) | API surface narrowing: candidate symbols proposed for removal in a future major bump |
+| [`SPECS/31-public-surface-decisions.md`](SPECS/31-public-surface-decisions.md) | Public API surface decisions, escape hatches, and forbidden removed-surface aliases |
 | [`SPECS/40-middleware-architecture-specs.md`](SPECS/40-middleware-architecture-specs.md) | Middleware composition, ordering, and built-in middleware rules |
 | [`SPECS/41-retry-and-delivery-specs.md`](SPECS/41-retry-and-delivery-specs.md) | Retry counts, backoff strategies, Retry-After handling, and cancellation |
 
@@ -102,13 +107,13 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 - **YAGNI** — Prefer a narrow fluent API over convenience wrappers that only hide one call site or one transport quirk.
 - **OCP** — Extend behavior through middleware, codecs, retry strategies, redirect policies, proxy selectors, profiles, and optional modules.
 - **ISP** — Keep interfaces small; `AuthMethod`, `Logger`, `Encoder`, `Decoder`, and `Profile` each have one focused role.
-- **APIs as language** — Calls should read like a request script: `client.Post(...).Header(...).JSONBody(...).Send(ctx)`.
+- **APIs as language** — Calls should read like a request script: `client.Post(...).Header(...).JSON(...).Send(ctx)`.
 - **Never:** accidental complexity, feature gravity, abstraction theater, configurability cope.
 
 ## API Design Principles
 
-- **Progressive Disclosure**: `New`, `URL`, and verb helpers cover the common path; transport, proxy, TLS, redirect, codec, retry, profile, and extension hooks stay available when needed.
-- **Default Passthrough**: zero values on `Config` preserve `net/http` defaults unless the caller opts into custom transport behavior.
+- **Progressive Disclosure**: `New` and verb helpers cover the common path; transport, proxy, TLS, redirect, codec, retry, profile, and extension hooks stay available when needed.
+- **Default Passthrough**: `New()` preserves `net/http` defaults unless the caller opts into custom transport behavior with `With*` options.
 - **Core stays light**: optional browser headers, TLS fingerprints, and HTTP/3 live in extension modules so ordinary users do not pay their dependency cost.
 - **Request snapshot model**: once `Send` starts, later `Client` mutations must not affect the in-flight request.
 
@@ -135,7 +140,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 | `strings.SplitSeq` | NO_PROXY parsing in `proxy.go` |
 | `iter.Seq` | `Response.Lines()` iterator API |
 | `log/slog` | Default logger and HTTP/3 extension logger option |
-| `errors.Join` / `errors.AsType` | Config validation, aggregated retry failures, and transport error classification |
+| `errors.Join` / `errors.AsType` | Aggregated retry failures and transport error classification |
 | `sync.OnceValue` | Lazy uTLS session cache initialization in `fingerprint` |
 | `t.Context()` | Tests and examples that need a scoped context |
 | `for range N` | Retry and rotation tests |
@@ -198,10 +203,10 @@ Optional extension dependencies:
 
 ## Error Handling
 
-- Sentinel errors live in `errors.go` for unsupported content types, redirects, invalid transport usage, and configuration failures.
+- Sentinel errors live in `errors.go` for unsupported content types, redirects, invalid transport usage, and invalid option values.
 - Use `IsCanceled`, `IsTimeout`, and `IsConnectionError` to classify transport failures. `IsCanceled` matches `context.Canceled` only; `IsTimeout` matches `context.DeadlineExceeded` and `net.Error` timeouts so caller cancellation stays distinguishable from a deadline hit.
-- Keep configuration validation in `Config.Validate()` and return joined errors for multiple invalid fields.
-- Functional options that cannot return errors may log when a logger is already configured; use direct setters when callers need fail-fast behavior.
+- Keep construction validation in `New`; options that parse URLs, load files, or apply profiles return errors directly.
+- Unexported helper setters may keep fluent best-effort behavior; public fail-fast setup belongs in `New(With...)`.
 
 ## Linting
 

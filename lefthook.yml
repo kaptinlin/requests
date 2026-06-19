@@ -14,7 +14,7 @@ pre-commit:
     - name: trailing-whitespace
       glob: "*.{go,yml,yaml,json,md,mod,sum}"
       stage_fixed: true
-      run: sed -i '' 's/[[:space:]]*$//' {staged_files}
+      run: perl -pi -e 's/[[:space:]]+$//' {staged_files}
 
     - name: gitleaks
       run: gitleaks protect --staged --no-banner

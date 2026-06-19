@@ -87,16 +87,19 @@ func (p profile) Name() string {
 	return "HTTP/3"
 }
 
-func (p profile) Apply(c *requests.Client) error {
+func (p profile) Options() []requests.Option {
+	return []requests.Option{p.configure}
+}
+
+func (p profile) configure(c *requests.Client) error {
 	if c == nil {
 		return fmt.Errorf("%w: client", requests.ErrInvalidConfigValue)
 	}
 	settings := p.settings
 	if settings.tlsConfig == nil {
-		settings.tlsConfig = c.TLSConfig
+		settings.tlsConfig = c.GetTLSConfig()
 	}
-	c.SetDefaultTransport(settings.transport())
-	return nil
+	return requests.WithTransport(settings.transport())(c)
 }
 
 // Transport returns a configured HTTP/3 transport.

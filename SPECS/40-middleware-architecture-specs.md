@@ -18,7 +18,7 @@ A middleware receives the next handler and returns a new handler.
 
 Middleware may be attached at two layers:
 
-- client layer through `Client.AddMiddleware`
+- client layer through `WithMiddleware` during `New` or `Clone`
 - request layer through `RequestBuilder.AddMiddleware`
 
 Within each layer, middleware runs in registration order.
@@ -51,19 +51,17 @@ Cache keys are derived from request path plus raw query string.
 
 ## Mutation Contract
 
-`Client.AddMiddleware` and `RequestBuilder.AddMiddleware` are mutators. They do not return fluent builders.
+`WithMiddleware` contributes client-level middleware during construction or cloning. `RequestBuilder.AddMiddleware` mutates one builder in place and does not return a fluent builder.
 
 ## Forbidden
 
-- Do not use the legacy two-argument middleware signature.
+- Do not use a two-argument middleware signature.
 - Do not assume `RequestBuilder.AddMiddleware` returns `*RequestBuilder`.
 - Do not pass a nil logger to `CacheMiddleware`.
 
-## Acceptance Criteria
+## Contract Invariants
 
-- [ ] The middleware function signature is explicit.
-- [ ] Layering and execution order are explicit.
-- [ ] The built-in middleware contracts are explicit.
-- [ ] The mutating, non-fluent nature of `AddMiddleware` is explicit.
-
-**Origin:** Migrated from `docs/middleware.md`.
+- The middleware function signature is explicit.
+- Layering and execution order are explicit.
+- The built-in middleware contracts are explicit.
+- The construction-time client middleware path and request-local mutator are explicit.

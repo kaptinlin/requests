@@ -4,6 +4,18 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "gomod"
+    directory: "/browser"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    directory: "/fingerprint"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gomod"
+    directory: "/http3"
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

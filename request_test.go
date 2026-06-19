@@ -25,8 +25,8 @@ import (
 func TestRequestNilResponseError(t *testing.T) {
 	t.Parallel()
 
-	client := Create(&Config{BaseURL: "https://example.com"})
-	client.AddMiddleware(func(MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t, WithBaseURL("https://example.com"))
+	client.addMiddleware(func(MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(*http.Request) (*http.Response, error) {
 			return nil, nil
 		}
@@ -50,8 +50,8 @@ func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			ordered, ok := OrderedHeaders(req)
 			require.True(t, ok)
@@ -76,9 +76,13 @@ func TestOrderedHeadersCaseInsensitiveDuplicatesDoNotLeakAfterOverride(t *testin
 		Set("X-Dupe", []string{"one"}).
 		Set("x-dupe", []string{"two"}).
 		Set("X-Keep", []string{"keep"})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
 
-	client := Create(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			assert.Equal(t, []string{"request"}, req.Header.Values("X-Dupe"))
 
@@ -93,7 +97,7 @@ func TestOrderedHeadersCaseInsensitiveDuplicatesDoNotLeakAfterOverride(t *testin
 		}
 	})
 
-	resp, err := client.Get("https://example.com").
+	resp, err := client.Get(server.URL).
 		OrderedHeaders(headers).
 		Header("x-dupe", "request").
 		Send(t.Context())
@@ -111,8 +115,8 @@ func TestOrderedHeadersNilClearsRequestHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			_, ok := OrderedHeaders(req)
 			assert.False(t, ok)
@@ -138,9 +142,9 @@ func TestSetDefaultOrderedHeadersNilClearsDefaults(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithOrderedHeaders(headers))
-	client.SetDefaultOrderedHeaders(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t, WithOrderedHeaders(headers))
+	client.setDefaultOrderedHeaders(nil)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			_, ok := OrderedHeaders(req)
 			assert.False(t, ok)
@@ -158,7 +162,7 @@ func TestOrderedHeadersCloneIsIndependent(t *testing.T) {
 		Set("X-First", []string{"1"}).
 		Set("X-Second", []string{"2"})
 
-	builder := Create(nil).Get("/").OrderedHeaders(headers)
+	builder := newTestClient(t).Get("/").OrderedHeaders(headers)
 	clone := builder.Clone()
 	builder.Header("X-First", "changed")
 
@@ -187,9 +191,9 @@ func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := New(WithOrderedHeaders(clientHeaders))
+	client := newTestClient(t, WithOrderedHeaders(clientHeaders))
 	clientHeaders.Set("X-First", []string{"mutated"})
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			ordered, ok := OrderedHeaders(req)
 			require.True(t, ok)
@@ -234,8 +238,8 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			ordered, ok := OrderedHeaders(req)
 			require.True(t, ok)
@@ -269,13 +273,13 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 		Accept("application/json").
 		UserAgent("agent").
 		Referer("https://example.com").
-		JSONBody(map[string]string{"hello": "world"}).
+		JSON(map[string]string{"hello": "world"}).
 		Send(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, resp.Close())
 }
 
-func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
+func TestOrderedHeadersStaySyncedWithTextContentType(t *testing.T) {
 	headers := orderedobject.NewObject[[]string]().
 		Set("X-First", []string{"1"})
 
@@ -285,8 +289,8 @@ func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(nil)
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t)
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			ordered, ok := OrderedHeaders(req)
 			require.True(t, ok)
@@ -300,7 +304,7 @@ func TestOrderedHeadersStaySyncedWithInferredContentType(t *testing.T) {
 
 	resp, err := client.Post(server.URL).
 		OrderedHeaders(headers).
-		Body("hello").
+		Text("hello").
 		Send(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, resp.Close())
@@ -318,8 +322,8 @@ func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *test
 	}))
 	defer server.Close()
 
-	client := New(WithOrderedHeaders(clientHeaders))
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t, WithOrderedHeaders(clientHeaders))
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			ordered, ok := OrderedHeaders(req)
 			require.True(t, ok)
@@ -338,8 +342,8 @@ func TestHeadersPreserveMultipleValuesWhenOverridingOrderedDefaults(t *testing.T
 		Set("X-Keep", []string{"default"}).
 		Set("X-Multi", []string{"default"})
 
-	client := New(WithOrderedHeaders(clientHeaders))
-	client.AddMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
+	client := newTestClient(t, WithOrderedHeaders(clientHeaders))
+	client.addMiddleware(func(next MiddlewareHandlerFunc) MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			assert.Equal(t, []string{"default"}, req.Header.Values("X-Keep"))
 			assert.Equal(t, []string{"one", "two"}, req.Header.Values("X-Multi"))
@@ -376,7 +380,7 @@ func TestRequestCancellation(t *testing.T) {
 	defer server.Close()
 	defer close(release)
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(ErrTestTimeout)
 
@@ -395,7 +399,7 @@ func TestSendMethodQuery(t *testing.T) {
 	defer server.Close()
 
 	// Define a client with the test server's URL.
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	tests := []struct {
 		name          string
@@ -445,7 +449,7 @@ func TestSendMethodQuery(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Read the response body.
-			bodyBytes, err := io.ReadAll(resp.RawResponse.Body)
+			bodyBytes, err := io.ReadAll(resp.Raw().Body)
 			assert.NoError(t, err)
 			body := string(bodyBytes)
 
@@ -482,7 +486,7 @@ func TestQueryStructWithClient(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Define the struct to be used for query parameters
 	exampleStruct := testQueryStruct{
@@ -503,7 +507,7 @@ func TestQueryStructWithClient(t *testing.T) {
 
 	// Read and verify the response
 	var response map[string][]string
-	err = resp.ScanJSON(&response)
+	err = resp.DecodeJSON(&response)
 	assert.NoError(t, err)
 
 	// Now we can assert the values directly
@@ -523,31 +527,26 @@ func TestQueryStructWithClient(t *testing.T) {
 }
 
 func TestHeaderManipulationMethods(t *testing.T) {
-	// Start a test HTTP server that checks received headers
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check headers
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Equal(t, "Bearer token", r.Header.Get("Authorization"))
-		assert.Empty(t, r.Header.Get("X-Deprecated-Header"))
+		assert.Empty(t, r.Header.Get("X-Removed-Header"))
 
 		_, _ = fmt.Fprintln(w, "Headers received")
 	}))
 	defer server.Close()
 
-	// Create an instance of the client, pointing to the test server
-	rq := Create(&Config{BaseURL: server.URL}).Get("/test-headers")
-	rq.Headers(http.Header{"Content-Type": []string{"application/json"}}) // Using Headers
-	rq.AddHeader("Authorization", "Bearer token")                         // Using AddHeader
-	rq.Header("X-Modified-Header", "NewValue")                            // Using Header
-	rq.AddHeader("X-Deprecated-Header", "OldValue")                       // First, add a header to be removed
-	rq.DelHeader("X-Deprecated-Header")                                   // Using DelHeader to remove it
+	rq := newTestClient(t, WithBaseURL(server.URL)).Get("/test-headers")
+	rq.Headers(http.Header{"Content-Type": []string{"application/json"}})
+	rq.AddHeader("Authorization", "Bearer token")
+	rq.Header("X-Modified-Header", "NewValue")
+	rq.AddHeader("X-Removed-Header", "OldValue")
+	rq.DelHeader("X-Removed-Header")
 
-	// Send the request
 	resp, err := rq.Send(context.Background())
 	assert.NoError(t, err)
 
-	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Headers received")
 }
@@ -563,7 +562,7 @@ func TestUserAgentMethod(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/test-user-agent")
 
 	// Set the User-Agent header using the UserAgent method
@@ -574,7 +573,7 @@ func TestUserAgentMethod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "User-Agent received")
 }
@@ -590,7 +589,7 @@ func TestContentTypeMethod(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/test-content-type")
 
 	// Set the Content-Type header using the ContentType method
@@ -601,7 +600,7 @@ func TestContentTypeMethod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Content-Type received")
 }
@@ -617,7 +616,7 @@ func TestAcceptMethod(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/test-accept")
 
 	// Set the Accept header using the Accept method
@@ -628,7 +627,7 @@ func TestAcceptMethod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Accept received")
 }
@@ -644,7 +643,7 @@ func TestRefererMethod(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/test-referer")
 
 	// Set the Referer header
@@ -655,7 +654,7 @@ func TestRefererMethod(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Referer received")
 }
@@ -681,7 +680,7 @@ func TestCookieManipulationMethods(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	rq := Create(&Config{BaseURL: server.URL}).Get("/test-cookies")
+	rq := newTestClient(t, WithBaseURL(server.URL)).Get("/test-cookies")
 	// Using SetCookies to set multiple cookies at once
 	rq.Cookies(map[string]string{
 		"SessionID":     "12345",
@@ -698,7 +697,7 @@ func TestCookieManipulationMethods(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Cookies received")
 }
@@ -716,7 +715,7 @@ func TestPathParameterMethods(t *testing.T) {
 	defer server.Close()
 
 	// Create an instance of the client, pointing to the test server
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/users/{userId}/posts/{postId}")
 
 	// Using PathParams to set multiple path params at once
@@ -733,7 +732,7 @@ func TestPathParameterMethods(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Read and verify the response
-	responseBody, err := io.ReadAll(resp.RawResponse.Body)
+	responseBody, err := io.ReadAll(resp.Raw().Body)
 	assert.NoError(t, err)
 	assert.Contains(t, string(responseBody), "Path parameters received correctly")
 }
@@ -756,7 +755,7 @@ func TestFormFields(t *testing.T) {
 	server := startEchoServer() // Starts a mock HTTP server that echoes back received requests
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example form data using a map
 	formData := map[string]string{
@@ -770,7 +769,7 @@ func TestFormFields(t *testing.T) {
 	assert.NoError(t, err, "Request should not fail")
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err, "Response should be parsed without error")
 
 	// Validates that the form data was correctly encoded and sent in the request body
@@ -784,7 +783,7 @@ func TestFormField(t *testing.T) {
 	server := startEchoServer() // Simulated HTTP server
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	resp, err := client.Post("/").
 		FormField("name", "John Doe"). // Adding a single form field
@@ -792,7 +791,7 @@ func TestFormField(t *testing.T) {
 	assert.NoError(t, err, "No error expected on sending request")
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err, "Parsing response should not error")
 
 	// Validate that the single form field was correctly encoded and sent
@@ -804,7 +803,7 @@ func TestDelFormField(t *testing.T) {
 	server := startEchoServer() // Setup mock server
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Set initial form fields
 	initialFormData := map[string]string{
@@ -820,7 +819,7 @@ func TestDelFormField(t *testing.T) {
 	assert.NoError(t, err, "Expect no error on request send")
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err, "Expect no error on response parse")
 
 	// Validates that the "age" field was correctly removed
@@ -828,25 +827,24 @@ func TestDelFormField(t *testing.T) {
 	assert.Equal(t, expectedEncodedFormData, response["body"], "The body should match after deleting a field")
 }
 
-func TestBody(t *testing.T) {
+func TestFormBody(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example body data
 	bodyData := url.Values{"key": []string{"value"}}
 	encodedData := bodyData.Encode()
 
 	resp, err := client.Post("/").
-		Body(bodyData).
-		ContentType("application/x-www-form-urlencoded").
+		Form(bodyData).
 		Send(context.Background())
 
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -854,23 +852,23 @@ func TestBody(t *testing.T) {
 	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"], "The content type should be set correctly.")
 }
 
-func TestJSONBody(t *testing.T) {
+func TestJSON(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example JSON data
 	jsonData := map[string]any{"name": "John Doe", "age": 30}
 	jsonDataStr, _ := json.Marshal(jsonData)
 
 	resp, err := client.Post("/").
-		JSONBody(jsonData).
+		JSON(jsonData).
 		Send(context.Background())
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -878,33 +876,11 @@ func TestJSONBody(t *testing.T) {
 	assert.Equal(t, "application/json", response["contentType"], "The content type should be set to application/json.")
 }
 
-func TestJSONBodyStream(t *testing.T) {
+func TestXML(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
-
-	jsonData := map[string]any{"name": "John Doe", "age": 30}
-	jsonDataStr, _ := json.Marshal(jsonData)
-
-	resp, err := client.Post("/").
-		JSONBodyStream(jsonData).
-		Send(context.Background())
-	require.NoError(t, err)
-
-	var response map[string]string
-	err = resp.Scan(&response)
-	require.NoError(t, err)
-
-	assert.JSONEq(t, string(jsonDataStr), response["body"])
-	assert.Equal(t, "application/json", response["contentType"])
-}
-
-func TestXMLBody(t *testing.T) {
-	server := startEchoServer()
-	defer server.Close()
-
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example XML data
 	xmlData := struct {
@@ -915,12 +891,12 @@ func TestXMLBody(t *testing.T) {
 	xmlDataStr, _ := xml.Marshal(xmlData)
 
 	resp, err := client.Post("/").
-		XMLBody(xmlData).
+		XML(xmlData).
 		Send(context.Background())
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -932,7 +908,7 @@ func TestFormWithURLValues(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example form data
 	formData := url.Values{
@@ -946,7 +922,7 @@ func TestFormWithURLValues(t *testing.T) {
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -955,7 +931,7 @@ func TestFormWithURLValues(t *testing.T) {
 }
 
 func TestPrepareBodyWithFormFields(t *testing.T) {
-	builder := New().Post("/").Form(url.Values{
+	builder := newTestClient(t).Post("/").Form(url.Values{
 		"name": {"Jane Doe"},
 		"age":  {"32"},
 	})
@@ -975,7 +951,7 @@ func TestDelQuery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	resp, err := client.Get("/").
 		Query("keep", "1").
 		Query("drop", "2").
@@ -996,7 +972,7 @@ func TestRequestTimeout(t *testing.T) {
 	defer server.Close()
 	defer close(release)
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	_, err := client.Get("/").Timeout(50 * time.Millisecond).Send(context.Background())
 	require.Error(t, err)
 	assert.True(t, IsTimeout(err))
@@ -1006,7 +982,7 @@ func TestFormFieldsWithStruct(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	formData := struct {
 		Name string `url:"name"`
 		Age  int    `url:"age"`
@@ -1019,28 +995,28 @@ func TestFormFieldsWithStruct(t *testing.T) {
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 	assert.Equal(t, url.Values{"name": {"Jane Doe"}, "age": {"32"}}.Encode(), response["body"])
 	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"])
 }
 
-func TestTextBody(t *testing.T) {
+func TestText(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example text data
 	textData := "This is a plain text body."
 
 	resp, err := client.Post("/").
-		TextBody(textData).
+		Text(textData).
 		Send(context.Background())
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -1048,23 +1024,23 @@ func TestTextBody(t *testing.T) {
 	assert.Equal(t, "text/plain", response["contentType"], "The content type should be set to text/plain.")
 }
 
-func TestRawBody(t *testing.T) {
+func TestBytes(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Example raw data
 	rawData := []byte("This is raw byte data.")
 
 	resp, err := client.Post("/").
-		RawBody(rawData).
+		Bytes(rawData).
 		ContentType("application/octet-stream"). // Explicitly set content type
 		Send(context.Background())
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	// Asserts
@@ -1072,50 +1048,49 @@ func TestRawBody(t *testing.T) {
 	assert.Equal(t, "application/octet-stream", response["contentType"], "The content type should be set to application/octet-stream.")
 }
 
-func TestRawBodyPreservesBytesWithJSONContentType(t *testing.T) {
+func TestBytesPreservesBytesWithJSONContentType(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rawData := []byte(`{"event":"created","ok":true}`)
 
 	resp, err := client.Post("/").
-		RawBody(rawData).
+		Bytes(rawData).
 		ContentType("application/json").
 		Send(t.Context())
 	require.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	require.NoError(t, err)
 
 	assert.Equal(t, string(rawData), response["body"])
 	assert.Equal(t, "application/json", response["contentType"])
 }
 
-func TestReaderBody(t *testing.T) {
+func TestReader(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	readerData := "This is data from an io.Reader."
 
 	resp, err := client.Post("/").
-		Body(strings.NewReader(readerData)).
-		ContentType("text/plain").
+		Reader(strings.NewReader(readerData), "text/plain").
 		Send(context.Background())
 	assert.NoError(t, err)
 
 	var response map[string]string
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err)
 
 	assert.Equal(t, readerData, response["body"])
 	assert.Equal(t, "text/plain", response["contentType"])
 }
 
-func TestReaderBody_OctetStream(t *testing.T) {
+func TestReaderOctetStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		assert.Equal(t, "application/octet-stream", r.Header.Get("Content-Type"))
@@ -1124,13 +1099,12 @@ func TestReaderBody_OctetStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	data := []byte{0x00, 0x01, 0x02, 0xFF}
 
 	resp, err := client.Post("/").
-		Body(bytes.NewReader(data)).
-		ContentType("application/octet-stream").
+		Reader(bytes.NewReader(data), "application/octet-stream").
 		Send(context.Background())
 	assert.NoError(t, err)
 
@@ -1150,7 +1124,10 @@ func TestDefaultRetryOn408And429(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(0)})
+		client := newTestClient(t,
+			WithBaseURL(server.URL),
+			WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+		)
 		_, err := client.Get("/").Send(context.Background())
 		assert.NoError(t, err)
 		assert.Equal(t, int32(2), requestCount)
@@ -1168,7 +1145,10 @@ func TestDefaultRetryOn408And429(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(0)})
+		client := newTestClient(t,
+			WithBaseURL(server.URL),
+			WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+		)
 		_, err := client.Get("/").Send(context.Background())
 		assert.NoError(t, err)
 		assert.Equal(t, int32(2), requestCount)
@@ -1188,7 +1168,10 @@ func TestRetryAfterHeader(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL, MaxRetries: 1, RetryStrategy: DefaultBackoffStrategy(5 * time.Second)})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(5 * time.Second)}),
+	)
 	_, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, int32(2), requestCount)
@@ -1202,19 +1185,18 @@ func TestRequestMaxRetriesZeroOverridesClientDefault(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    2,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
-	resp, err := client.Get("/").MaxRetries(0).Send(context.Background())
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 2, Backoff: DefaultBackoffStrategy(0)}),
+	)
+	resp, err := client.Get("/").NoRetry().Send(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode())
 	assert.Equal(t, int32(1), requestCount)
 	assert.Equal(t, 1, resp.Attempts())
 }
 
-func TestRetryReplaysJSONBody(t *testing.T) {
+func TestRetryReplaysJSON(t *testing.T) {
 	var requestCount int32
 	var bodies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1233,12 +1215,11 @@ func TestRetryReplaysJSONBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    1,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
-	resp, err := client.Post("/").JSONBody(map[string]string{"message": "hello"}).Send(context.Background())
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
+	resp, err := client.Post("/").JSON(map[string]string{"message": "hello"}).Send(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode())
 	assert.Equal(t, int32(2), requestCount)
@@ -1260,18 +1241,17 @@ func TestRetryRejectsNonReplayableBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    1,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
 	body := &io.LimitedReader{R: strings.NewReader("payload"), N: int64(len("payload"))}
-	_, err := client.Post("/").Body(body).ContentType("text/plain").Send(context.Background())
+	_, err := client.Post("/").Reader(body, "text/plain").Send(context.Background())
 	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
 	assert.Equal(t, int32(1), requestCount)
 }
 
-func TestRetryRejectsJSONBodyStream(t *testing.T) {
+func TestRetryRejectsNonReplayableJSONReader(t *testing.T) {
 	var requestCount int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := io.ReadAll(r.Body)
@@ -1284,13 +1264,13 @@ func TestRetryRejectsJSONBodyStream(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{
-		BaseURL:       server.URL,
-		MaxRetries:    1,
-		RetryStrategy: DefaultBackoffStrategy(0),
-	})
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
+	body := &io.LimitedReader{R: strings.NewReader(`{"message":"hello"}`), N: int64(len(`{"message":"hello"}`))}
 	_, err := client.Post("/").
-		JSONBodyStream(map[string]string{"message": "hello"}).
+		Reader(body, "application/json").
 		Send(context.Background())
 	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
 	assert.Equal(t, int32(1), requestCount)
@@ -1313,13 +1293,14 @@ func TestRequestLevelRetries(t *testing.T) {
 	defer server.Close()
 
 	// Set up a request builder with retry configuration
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 	rq := client.Get("/")
-	rq.MaxRetries(2) // Allow up to 2 retries
-	rq.RetryStrategy(func(attempt int) time.Duration { return 10 * time.Millisecond })
-	rq.RetryIf(func(req *http.Request, resp *http.Response, err error) bool {
-		// Retry on server error
-		return resp.StatusCode == http.StatusInternalServerError
+	rq.Retry(RetryPolicy{
+		Max:     2,
+		Backoff: func(attempt int) time.Duration { return 10 * time.Millisecond },
+		ShouldRetry: func(req *http.Request, resp *http.Response, err error) bool {
+			return resp.StatusCode == http.StatusInternalServerError
+		},
 	})
 
 	// Send the request
@@ -1349,13 +1330,13 @@ func TestFormWithNil(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	resp, err := client.Post("/").Form(nil).Send(context.Background())
 	assert.NoError(t, err, "No error expected on sending request with nil form")
 
 	var response map[string]any
-	err = resp.ScanJSON(&response)
+	err = resp.DecodeJSON(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Assert form is correctly received
@@ -1397,7 +1378,7 @@ func TestFormWithFiles(t *testing.T) {
 	server := startFormHandlingServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	fileContent1 := strings.NewReader("File content 1")
 	fileContent2 := strings.NewReader("File content 2")
@@ -1411,7 +1392,7 @@ func TestFormWithFiles(t *testing.T) {
 	assert.NoError(t, err, "No error expected on sending request with files")
 
 	var response map[string]any
-	err = resp.ScanJSON(&response)
+	err = resp.DecodeJSON(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Assert files are correctly received
@@ -1423,7 +1404,7 @@ func TestFormWithMixedFilesAndFields(t *testing.T) {
 	server := startFormHandlingServer()
 	defer server.Close()
 
-	client := Create(&Config{BaseURL: server.URL})
+	client := newTestClient(t, WithBaseURL(server.URL))
 
 	fileContent := strings.NewReader("File content 1")
 
@@ -1437,7 +1418,7 @@ func TestFormWithMixedFilesAndFields(t *testing.T) {
 	assert.NoError(t, err, "No error expected on sending request with mixed form data")
 
 	var response map[string]any
-	err = resp.Scan(&response)
+	err = resp.Decode(&response)
 	assert.NoError(t, err, "Expect no error on parsing response")
 
 	// Assert fields and files are correctly received
@@ -1476,9 +1457,7 @@ func TestAuthRequest(t *testing.T) {
 	defer mockServer.Close() // Ensure the server is shut down at the end of the test.
 
 	// Initialize the HTTP client with the base URL set to the mock server's URL.
-	client := Create(&Config{
-		BaseURL: mockServer.URL,
-	})
+	client := newTestClient(t, WithBaseURL(mockServer.URL))
 
 	// Create a request to the mock server with basic authentication credentials.
 	resp, err := client.Get("/").Auth(BasicAuth{
@@ -1716,7 +1695,7 @@ func TestDelFile_EmptyFiles(t *testing.T) {
 
 func TestClone(t *testing.T) {
 	t.Run("ProducesIndependentCopy", func(t *testing.T) {
-		client := Create(&Config{BaseURL: "http://example.com"})
+		client := newTestClient(t, WithBaseURL("http://example.com"))
 		original := client.Get("/users").
 			Header("Authorization", "Bearer token").
 			Query("page", "1").
@@ -1737,7 +1716,7 @@ func TestClone(t *testing.T) {
 	})
 
 	t.Run("ModifyingCloneDoesNotAffectOriginal", func(t *testing.T) {
-		client := Create(&Config{BaseURL: "http://example.com"})
+		client := newTestClient(t, WithBaseURL("http://example.com"))
 		original := client.Get("/users").
 			Header("Authorization", "Bearer token").
 			Query("page", "1").
@@ -1764,7 +1743,7 @@ func TestClone(t *testing.T) {
 	})
 
 	t.Run("ClonePreservesFormFields", func(t *testing.T) {
-		client := Create(&Config{BaseURL: "http://example.com"})
+		client := newTestClient(t, WithBaseURL("http://example.com"))
 		original := client.Post("/submit").
 			FormField("name", "John").
 			FormField("age", "30")
@@ -1784,7 +1763,7 @@ func TestClone(t *testing.T) {
 	})
 
 	t.Run("CloneNilFields", func(t *testing.T) {
-		client := Create(&Config{BaseURL: "http://example.com"})
+		client := newTestClient(t, WithBaseURL("http://example.com"))
 		original := client.Get("/simple")
 
 		clone := original.Clone()
@@ -1795,16 +1774,16 @@ func TestClone(t *testing.T) {
 		assert.Nil(t, clone.formFields)
 	})
 
-	t.Run("CloneDoesNotCopyBodyOrStreaming", func(t *testing.T) {
-		client := Create(&Config{BaseURL: "http://example.com"})
+	t.Run("CloneDoesNotCopyBodyOrRequestState", func(t *testing.T) {
+		client := newTestClient(t, WithBaseURL("http://example.com"))
 		original := client.Post("/data").
-			JSONBody(map[string]string{"key": "value"}).
-			Stream(func(data []byte) error { return nil })
+			JSON(map[string]string{"key": "value"}).
+			Retry(RetryPolicy{Max: 1})
 
 		clone := original.Clone()
 
 		assert.Nil(t, clone.bodyData, "Body data should not be copied")
-		assert.Nil(t, clone.stream, "Stream callback should not be copied")
 		assert.Nil(t, clone.middlewares, "Middlewares should not be copied")
+		assert.False(t, clone.hasRetryPolicy, "Retry policy should not be copied")
 	})
 }

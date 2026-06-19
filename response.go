@@ -3,7 +3,6 @@ package requests
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -20,39 +19,28 @@ import (
 
 // Response represents an HTTP response.
 type Response struct {
-	stream      StreamCallback
-	streamErr   StreamErrCallback
-	streamDone  StreamDoneCallback
 	elapsed     time.Duration
 	attempts    int
-	RawResponse *http.Response  // RawResponse is the underlying HTTP response.
-	BodyBytes   []byte          // BodyBytes contains the buffered response body for non-streaming responses.
-	Context     context.Context // Context is the request context associated with the response.
-	Client      *Client         // Client is the client that created the response.
+	jsonDecoder Decoder
+	xmlDecoder  Decoder
+	yamlDecoder Decoder
+	logger      Logger
+	rawResponse *http.Response
+	body        []byte
 }
 
-// NewResponse creates a new wrapped response object, leveraging the buffer pool for efficient memory usage.
-func NewResponse(
-	ctx context.Context,
+func newResponse(
 	resp *http.Response,
-	client *Client,
-	stream StreamCallback,
-	streamErr StreamErrCallback,
-	streamDone StreamDoneCallback,
+	snap *clientSnapshot,
 ) (*Response, error) {
 	response := &Response{
-		RawResponse: resp,
-		Context:     ctx,
-		BodyBytes:   nil,
-		stream:      stream,
-		streamErr:   streamErr,
-		streamDone:  streamDone,
-		Client:      client,
+		rawResponse: resp,
 	}
-
-	if response.stream != nil {
-		go response.handleStream()
-		return response, nil
+	if snap != nil {
+		response.jsonDecoder = snap.jsonDecoder
+		response.xmlDecoder = snap.xmlDecoder
+		response.yamlDecoder = snap.yamlDecoder
+		response.logger = snap.logger
 	}
 
 	if err := response.handleNonStream(); err != nil {
@@ -61,80 +49,57 @@ func NewResponse(
 	return response, nil
 }
 
-func (r *Response) handleStream() {
-	defer func() {
-		if err := r.RawResponse.Body.Close(); err != nil {
-			if r.Client.Logger != nil {
-				r.Client.Logger.Errorf("failed to close response body: %v", err)
-			}
-		}
-	}()
-
-	scanner := bufio.NewScanner(r.RawResponse.Body)
-	scanBuf := make([]byte, 0, MaxStreamBufferSize)
-	scanner.Buffer(scanBuf, MaxStreamBufferSize)
-
-	for scanner.Scan() {
-		if err := r.stream(scanner.Bytes()); err != nil {
-			break
-		}
-	}
-
-	if err := scanner.Err(); err != nil && r.streamErr != nil {
-		r.streamErr(err)
-	}
-
-	if r.streamDone != nil {
-		r.streamDone()
-	}
+// Raw returns the underlying HTTP response for callers that need net/http details.
+func (r *Response) Raw() *http.Response {
+	return r.rawResponse
 }
 
 func (r *Response) handleNonStream() error {
-	buf := GetBuffer()
-	defer PutBuffer(buf)
+	buf := getBuffer()
+	defer putBuffer(buf)
 
-	_, err := buf.ReadFrom(r.RawResponse.Body)
+	_, err := buf.ReadFrom(r.rawResponse.Body)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrResponseReadFailed, err)
 	}
-	_ = r.RawResponse.Body.Close()
+	_ = r.rawResponse.Body.Close()
 
 	// Copy data before returning buffer to pool to prevent data race.
 	// Without this, concurrent goroutines could get the same pooled buffer,
 	// causing one goroutine's response data to be overwritten by another.
-	r.BodyBytes = bytes.Clone(buf.B)
-	r.RawResponse.Body = io.NopCloser(bytes.NewReader(r.BodyBytes))
+	r.body = bytes.Clone(buf.B)
+	r.rawResponse.Body = io.NopCloser(bytes.NewReader(r.body))
 	return nil
 }
 
 // StatusCode returns the HTTP status code of the response.
 func (r *Response) StatusCode() int {
-	return r.RawResponse.StatusCode
+	return r.rawResponse.StatusCode
 }
 
 // Status returns the status string of the response (e.g., "200 OK").
 func (r *Response) Status() string {
-	return r.RawResponse.Status
+	return r.rawResponse.Status
 }
 
 // Header returns the response headers.
 func (r *Response) Header() http.Header {
-	return r.RawResponse.Header
+	return r.rawResponse.Header
 }
 
 // Cookies parses and returns the cookies set in the response.
 func (r *Response) Cookies() []*http.Cookie {
-	return r.RawResponse.Cookies()
+	return r.rawResponse.Cookies()
 }
 
 // Location returns the URL redirected address.
 func (r *Response) Location() (*url.URL, error) {
-	return r.RawResponse.Location()
+	return r.rawResponse.Location()
 }
 
 // URL returns the request URL that elicited the response.
 func (r *Response) URL() *url.URL {
-	return r.RawResponse.Request.URL
+	return r.rawResponse.Request.URL
 }
 
 // Elapsed returns the duration from request dispatch through response setup.
@@ -149,18 +114,18 @@ func (r *Response) Attempts() int {
 
 // Protocol returns the response protocol, such as "HTTP/1.1" or "HTTP/2.0".
 func (r *Response) Protocol() string {
-	if r.RawResponse == nil {
+	if r.rawResponse == nil {
 		return ""
 	}
-	return r.RawResponse.Proto
+	return r.rawResponse.Proto
 }
 
 // TLS returns a copy of the response TLS connection state, if any.
 func (r *Response) TLS() *tls.ConnectionState {
-	if r.RawResponse == nil || r.RawResponse.TLS == nil {
+	if r.rawResponse == nil || r.rawResponse.TLS == nil {
 		return nil
 	}
-	state := new(*r.RawResponse.TLS)
+	state := new(*r.rawResponse.TLS)
 	state.PeerCertificates = slices.Clone(state.PeerCertificates)
 	state.VerifiedChains = slices.Clone(state.VerifiedChains)
 	for i, chain := range state.VerifiedChains {
@@ -210,7 +175,7 @@ func (r *Response) IsYAML() bool {
 
 // ContentLength returns the length of the response body.
 func (r *Response) ContentLength() int {
-	return len(r.BodyBytes)
+	return len(r.body)
 }
 
 // IsEmpty checks if the response body is empty.
@@ -248,52 +213,54 @@ func (r *Response) IsRedirect() bool {
 
 // Body returns the response body as a byte slice.
 func (r *Response) Body() []byte {
-	return r.BodyBytes
+	return r.body
 }
 
 // String returns the response body as a string.
 func (r *Response) String() string {
-	return string(r.BodyBytes)
+	return string(r.body)
 }
 
-// Scan attempts to unmarshal the response body based on its content type.
-func (r *Response) Scan(v any) error {
+// Decode decodes the response body based on its content type.
+func (r *Response) Decode(v any) error {
 	switch {
 	case r.IsJSON():
-		return r.ScanJSON(v)
+		return r.DecodeJSON(v)
 	case r.IsXML():
-		return r.ScanXML(v)
+		return r.DecodeXML(v)
 	case r.IsYAML():
-		return r.ScanYAML(v)
+		return r.DecodeYAML(v)
 	}
 
 	return fmt.Errorf("%w: %s", ErrUnsupportedContentType, r.ContentType())
 }
 
-// ScanJSON unmarshals the response body into a struct via JSON decoding.
-func (r *Response) ScanJSON(v any) error {
-	return r.scanWith(r.Client.JSONDecoder, v)
+// DecodeJSON decodes the response body as JSON.
+func (r *Response) DecodeJSON(v any) error {
+	return r.decodeWith(r.jsonDecoder, DefaultJSONDecoder, v)
 }
 
-// ScanXML unmarshals the response body into a struct via XML decoding.
-func (r *Response) ScanXML(v any) error {
-	return r.scanWith(r.Client.XMLDecoder, v)
+// DecodeXML decodes the response body as XML.
+func (r *Response) DecodeXML(v any) error {
+	return r.decodeWith(r.xmlDecoder, DefaultXMLDecoder, v)
 }
 
-// ScanYAML unmarshals the response body into a struct via YAML decoding.
-func (r *Response) ScanYAML(v any) error {
-	return r.scanWith(r.Client.YAMLDecoder, v)
+// DecodeYAML decodes the response body as YAML.
+func (r *Response) DecodeYAML(v any) error {
+	return r.decodeWith(r.yamlDecoder, DefaultYAMLDecoder, v)
 }
 
-func (r *Response) scanWith(decoder Decoder, v any) error {
-	if r.BodyBytes == nil {
+func (r *Response) decodeWith(decoder, fallback Decoder, v any) error {
+	if r.body == nil {
 		return nil
 	}
-	return decoder.Decode(bytes.NewReader(r.BodyBytes), v)
+	if decoder == nil {
+		decoder = fallback
+	}
+	return decoder.Decode(bytes.NewReader(r.body), v)
 }
 
-// DirPermissions is the permission mode used when Save creates parent directories.
-const DirPermissions = 0o750
+const dirPermissions = 0o750
 
 // Save saves the response body to a file or io.Writer.
 func (r *Response) Save(v any) error {
@@ -315,7 +282,7 @@ func (r *Response) saveToFile(path string) error {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("failed to check directory: %w", err)
 		}
-		if err = os.MkdirAll(dir, DirPermissions); err != nil {
+		if err = os.MkdirAll(dir, dirPermissions); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
@@ -326,8 +293,8 @@ func (r *Response) saveToFile(path string) error {
 	}
 	defer func() {
 		if err := outFile.Close(); err != nil {
-			if r.Client.Logger != nil {
-				r.Client.Logger.Errorf("failed to close file: %v", err)
+			if r.logger != nil {
+				r.logger.Errorf("failed to close file: %v", err)
 			}
 		}
 	}()
@@ -343,26 +310,17 @@ func (r *Response) saveToWriter(w io.Writer) error {
 	if _, err := io.Copy(w, bytes.NewReader(r.Body())); err != nil {
 		return fmt.Errorf("failed to write response body to io.Writer: %w", err)
 	}
-
-	if wc, ok := w.(io.WriteCloser); ok {
-		if err := wc.Close(); err != nil {
-			if r.Client.Logger != nil {
-				r.Client.Logger.Errorf("failed to close io.Writer: %v", err)
-			}
-		}
-	}
-
 	return nil
 }
 
 // Lines returns an iterator over the buffered response body lines.
 func (r *Response) Lines() iter.Seq[[]byte] {
 	return func(yield func([]byte) bool) {
-		if r.BodyBytes == nil {
+		if r.body == nil {
 			return
 		}
 
-		scanner := bufio.NewScanner(bytes.NewReader(r.BodyBytes))
+		scanner := bufio.NewScanner(bytes.NewReader(r.body))
 		for scanner.Scan() {
 			if !yield(scanner.Bytes()) {
 				break
@@ -373,5 +331,5 @@ func (r *Response) Lines() iter.Seq[[]byte] {
 
 // Close closes the response body.
 func (r *Response) Close() error {
-	return r.RawResponse.Body.Close()
+	return r.rawResponse.Body.Close()
 }
