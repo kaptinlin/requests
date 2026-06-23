@@ -85,7 +85,9 @@ func cloneWithClientDefaults(req *http.Request, snap *clientSnapshot) *http.Requ
 	}
 	for key, values := range original {
 		deleteHeaderValues(cloned.Header, key)
-		cloned.Header[key] = slices.Clone(values)
+		for _, value := range values {
+			cloned.Header.Add(key, value)
+		}
 	}
 
 	ordered := cloneOrderedHeaders(snap.orderedHeaders)

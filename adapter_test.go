@@ -199,3 +199,40 @@ func TestAsTransportDropsOrderedMetadataForOriginalHeaderOverrides(t *testing.T)
 	}()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+func TestAsTransportCanonicalizesOriginalHeaderOverrides(t *testing.T) {
+	headers := orderedobject.NewObject[[]string]().
+		Set("X-First", []string{"default"}).
+		Set("X-Keep", []string{"default"})
+
+	client := newTestClient(t,
+		WithOrderedHeaders(headers),
+		WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			assert.Equal(t, "request", req.Header.Get("X-First"))
+			assert.Equal(t, "default", req.Header.Get("X-Keep"))
+
+			ordered, ok := OrderedHeaders(req)
+			require.True(t, ok)
+			assert.Equal(t, []string{"X-Keep"}, ordered.Keys())
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Header:     http.Header{},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		})),
+	)
+
+	req, err := http.NewRequest(http.MethodGet, "https://example.com", nil)
+	require.NoError(t, err)
+	req.Header["x-first"] = []string{"request"}
+
+	resp, err := client.AsTransport().RoundTrip(req)
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, resp.Body.Close())
+	}()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
