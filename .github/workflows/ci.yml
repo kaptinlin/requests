@@ -26,7 +26,7 @@ jobs:
       GOWORK: "off"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         # Do NOT initialize submodules
 
       - name: Set up Go
@@ -58,7 +58,7 @@ jobs:
       GOMEMLIMIT: 4GiB
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         # Do NOT initialize submodules
 
       - name: Set up Go
@@ -96,7 +96,7 @@ jobs:
       GOMEMLIMIT: 4GiB
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         # Do NOT initialize submodules
 
       - name: Set up Go
@@ -136,7 +136,7 @@ jobs:
       GOWORK: "off"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
