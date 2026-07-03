@@ -10,7 +10,8 @@ vars:
     sh: cat .golangci.version 2>/dev/null || echo "2.12.2"
   REQUIRED_GOVULNCHECK_VERSION:
     sh: cat .govulncheck.version 2>/dev/null || echo "v1.4.0"
-  RELEASE_VERSION: v0.7.0
+  RELEASE_VERSION:
+    sh: awk '$1 == "github.com/kaptinlin/requests" { print $2; exit }' browser/go.mod
   GOLANGCI_LINT_BINARY:
     sh: |
       required="$(cat .golangci.version 2>/dev/null || echo "2.12.2")"
