@@ -287,8 +287,7 @@ func WithTransport(transport http.RoundTripper) Option {
 // WithHTTP2 enables HTTP/2 transport support.
 func WithHTTP2() Option {
 	return func(c *Client) error {
-		c.enableHTTP2()
-		return nil
+		return c.configureHTTP2()
 	}
 }
 
@@ -297,6 +296,9 @@ func WithHTTP2() Option {
 // place WithHTTPClient first since it replaces the entire http.Client.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) error {
+		if httpClient == nil {
+			return invalidOptionValue("HTTPClient")
+		}
 		c.setHTTPClient(httpClient)
 		return nil
 	}
@@ -308,32 +310,28 @@ func WithDialTimeout(d time.Duration) Option {
 		if err := validateDurationOption("DialTimeout", d); err != nil {
 			return err
 		}
-		c.setDialTimeout(d)
-		return nil
+		return c.applyDialTimeout(d)
 	}
 }
 
 // WithResolver sets the resolver used by the default transport dialer.
 func WithResolver(resolver *net.Resolver) Option {
 	return func(c *Client) error {
-		c.setResolver(resolver)
-		return nil
+		return c.applyResolver(resolver)
 	}
 }
 
 // WithDialContext sets the dial function on the underlying transport.
 func WithDialContext(dial func(context.Context, string, string) (net.Conn, error)) Option {
 	return func(c *Client) error {
-		c.setDialContext(dial)
-		return nil
+		return c.applyDialContext(dial)
 	}
 }
 
 // WithLocalAddr sets the local address used by the default transport dialer.
 func WithLocalAddr(addr net.Addr) Option {
 	return func(c *Client) error {
-		c.setLocalAddr(addr)
-		return nil
+		return c.applyLocalAddr(addr)
 	}
 }
 
@@ -343,8 +341,9 @@ func WithTLSHandshakeTimeout(d time.Duration) Option {
 		if err := validateDurationOption("TLSHandshakeTimeout", d); err != nil {
 			return err
 		}
-		c.setTLSHandshakeTimeout(d)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.TLSHandshakeTimeout = d
+		})
 	}
 }
 
@@ -354,8 +353,9 @@ func WithResponseHeaderTimeout(d time.Duration) Option {
 		if err := validateDurationOption("ResponseHeaderTimeout", d); err != nil {
 			return err
 		}
-		c.setResponseHeaderTimeout(d)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.ResponseHeaderTimeout = d
+		})
 	}
 }
 
@@ -365,8 +365,9 @@ func WithMaxIdleConns(n int) Option {
 		if err := validateIntOption("MaxIdleConns", n); err != nil {
 			return err
 		}
-		c.setMaxIdleConns(n)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.MaxIdleConns = n
+		})
 	}
 }
 
@@ -376,8 +377,9 @@ func WithMaxIdleConnsPerHost(n int) Option {
 		if err := validateIntOption("MaxIdleConnsPerHost", n); err != nil {
 			return err
 		}
-		c.setMaxIdleConnsPerHost(n)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.MaxIdleConnsPerHost = n
+		})
 	}
 }
 
@@ -387,8 +389,9 @@ func WithMaxConnsPerHost(n int) Option {
 		if err := validateIntOption("MaxConnsPerHost", n); err != nil {
 			return err
 		}
-		c.setMaxConnsPerHost(n)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.MaxConnsPerHost = n
+		})
 	}
 }
 
@@ -398,8 +401,9 @@ func WithIdleConnTimeout(d time.Duration) Option {
 		if err := validateDurationOption("IdleConnTimeout", d); err != nil {
 			return err
 		}
-		c.setIdleConnTimeout(d)
-		return nil
+		return c.applyTransport(func(t *http.Transport) {
+			t.IdleConnTimeout = d
+		})
 	}
 }
 

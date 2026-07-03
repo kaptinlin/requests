@@ -514,8 +514,12 @@ func (c *Client) snapshot() clientSnapshot {
 	}
 }
 
-// GetHTTPClient returns the underlying HTTP client in a thread-safe way.
-func (c *Client) GetHTTPClient() *http.Client {
+// UnsafeHTTPClient returns the underlying HTTP client for advanced integration.
+//
+// The returned pointer is shared mutable client state. Callers that mutate it
+// must coordinate their own synchronization and should prefer construction
+// options when possible.
+func (c *Client) UnsafeHTTPClient() *http.Client {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.httpClient
@@ -538,32 +542,25 @@ func (c *Client) GetTLSConfig() *tls.Config {
 	return c.tlsConfig.Clone()
 }
 
-// enableHTTP2 enables HTTP/2 on the underlying HTTP transport.
-func (c *Client) enableHTTP2() *Client {
+func (c *Client) configureHTTP2() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.enableHTTP2Locked()
-	return c
+	return c.enableHTTP2Locked()
 }
 
-func (c *Client) enableHTTP2Locked() {
+func (c *Client) enableHTTP2Locked() error {
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
 	}
 	transport, err := c.ensureTransport()
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Errorf("failed to enable HTTP/2: %v", err)
-		}
-		return
+		return err
 	}
 	if c.tlsConfig != nil {
 		transport.TLSClientConfig = c.tlsConfig
 	}
-	if err := configureHTTP2Transport(transport); err != nil && c.logger != nil {
-		c.logger.Errorf("failed to enable HTTP/2: %v", err)
-	}
+	return configureHTTP2Transport(transport)
 }
 
 func configureHTTP2Transport(transport *http.Transport) error {
@@ -649,15 +646,20 @@ func (c *Client) setLogger(logger Logger) *Client {
 // Returns the client for method chaining. Errors from ensureTransport are silently ignored to
 // maintain the fluent API pattern.
 func (c *Client) withTransport(fn func(*http.Transport)) *Client {
+	_ = c.applyTransport(fn)
+	return c
+}
+
+func (c *Client) applyTransport(fn func(*http.Transport)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	transport, err := c.ensureTransport()
 	if err != nil {
-		return c
+		return err
 	}
 	fn(transport)
-	return c
+	return nil
 }
 
 func (c *Client) applyDialContextLocked(transport *http.Transport) {
@@ -679,58 +681,60 @@ func (c *Client) applyDialContextLocked(transport *http.Transport) {
 
 // setDialTimeout sets the TCP connection timeout on the underlying transport.
 func (c *Client) setDialTimeout(d time.Duration) *Client {
+	_ = c.applyDialTimeout(d)
+	return c
+}
+
+func (c *Client) applyDialTimeout(d time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.dialTimeout = d
 	transport, err := c.ensureTransport()
 	if err != nil {
-		return c
+		return err
 	}
 	c.applyDialContextLocked(transport)
-	return c
+	return nil
 }
 
-// setResolver sets the resolver used by the default transport dialer.
-func (c *Client) setResolver(resolver *net.Resolver) *Client {
+func (c *Client) applyResolver(resolver *net.Resolver) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.resolver = resolver
 	transport, err := c.ensureTransport()
 	if err != nil {
-		return c
+		return err
 	}
 	c.applyDialContextLocked(transport)
-	return c
+	return nil
 }
 
-// setDialContext sets the dial function on the underlying transport.
-func (c *Client) setDialContext(dial func(context.Context, string, string) (net.Conn, error)) *Client {
+func (c *Client) applyDialContext(dial func(context.Context, string, string) (net.Conn, error)) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.dialContext = dial
 	transport, err := c.ensureTransport()
 	if err != nil {
-		return c
+		return err
 	}
 	c.applyDialContextLocked(transport)
-	return c
+	return nil
 }
 
-// setLocalAddr sets the local address used by the default transport dialer.
-func (c *Client) setLocalAddr(addr net.Addr) *Client {
+func (c *Client) applyLocalAddr(addr net.Addr) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.localAddr = addr
 	transport, err := c.ensureTransport()
 	if err != nil {
-		return c
+		return err
 	}
 	c.applyDialContextLocked(transport)
-	return c
+	return nil
 }
 
 // setTLSHandshakeTimeout sets the TLS handshake timeout on the underlying transport.
@@ -821,7 +825,7 @@ func (c *Client) Trace(path string) *RequestBuilder {
 	return c.NewRequestBuilder(http.MethodTrace, path)
 }
 
-// Custom initiates a custom request.
-func (c *Client) Custom(path, method string) *RequestBuilder {
+// Request initiates a request with method and path.
+func (c *Client) Request(method, path string) *RequestBuilder {
 	return c.NewRequestBuilder(method, path)
 }

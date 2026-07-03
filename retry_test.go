@@ -1,6 +1,8 @@
 package requests
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -8,12 +10,72 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type retryTimeoutError struct{}
+
+func (retryTimeoutError) Error() string {
+	return "timeout"
+}
+
+func (retryTimeoutError) Timeout() bool {
+	return true
+}
+
+func (retryTimeoutError) Temporary() bool {
+	return true
+}
+
 func TestDefaultRetryIf(t *testing.T) {
-	assert.True(t, DefaultRetryIf(nil, nil, assert.AnError))
+	assert.False(t, DefaultRetryIf(nil, nil, assert.AnError))
+	assert.True(t, DefaultRetryIf(nil, nil, context.DeadlineExceeded))
+	assert.True(t, DefaultRetryIf(nil, nil, &net.OpError{Op: "dial", Net: "tcp", Err: assert.AnError}))
 	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusRequestTimeout}, nil))
 	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusTooManyRequests}, nil))
 	assert.True(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusInternalServerError}, nil))
 	assert.False(t, DefaultRetryIf(nil, &http.Response{StatusCode: http.StatusBadRequest}, nil))
+}
+
+func TestDefaultRetryIfClassifiesTransportErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "caller cancellation", err: context.Canceled},
+		{name: "unknown error", err: assert.AnError},
+		{name: "redirect disabled", err: ErrAutoRedirectDisabled},
+		{name: "too many redirects", err: ErrTooManyRedirects},
+		{name: "unsupported proxy scheme", err: ErrUnsupportedScheme},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, want: true},
+		{name: "net timeout", err: retryTimeoutError{}, want: true},
+		{name: "connection error", err: &net.OpError{Op: "dial", Net: "tcp", Err: assert.AnError}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DefaultRetryIf(nil, nil, tt.err))
+		})
+	}
+}
+
+func TestDefaultRetryIfClassifiesResponses(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		want   bool
+	}{
+		{name: "request timeout", status: http.StatusRequestTimeout, want: true},
+		{name: "too many requests", status: http.StatusTooManyRequests, want: true},
+		{name: "internal server error", status: http.StatusInternalServerError, want: true},
+		{name: "bad request", status: http.StatusBadRequest},
+		{name: "ok", status: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: tt.status}
+			assert.Equal(t, tt.want, DefaultRetryIf(nil, resp, nil))
+		})
+	}
 }
 
 func TestRetryAfterDelay(t *testing.T) {
@@ -76,7 +138,7 @@ func TestJitterBackoffStrategy(t *testing.T) {
 	})
 
 	t.Run("ResultNeverNegative", func(t *testing.T) {
-		// Use a very high fraction to try to produce negative results
+		// Use a very high fraction to try to produce negative results.
 		base := DefaultBackoffStrategy(10 * time.Millisecond)
 		jittered := JitterBackoffStrategy(base, 2.0)
 
@@ -90,12 +152,12 @@ func TestJitterBackoffStrategy(t *testing.T) {
 		base := ExponentialBackoffStrategy(100*time.Millisecond, 2.0, 10*time.Second)
 		jittered := JitterBackoffStrategy(base, 0.1)
 
-		// Attempt 0: base = 100ms, jitter ±10%
+		// Attempt 0: base = 100ms, jitter +/-10%.
 		delay := jittered(0)
 		assert.GreaterOrEqual(t, delay, 90*time.Millisecond)
 		assert.LessOrEqual(t, delay, 110*time.Millisecond)
 
-		// Attempt 2: base = 400ms, jitter ±10%
+		// Attempt 2: base = 400ms, jitter +/-10%.
 		delay = jittered(2)
 		assert.GreaterOrEqual(t, delay, 360*time.Millisecond)
 		assert.LessOrEqual(t, delay, 440*time.Millisecond)
@@ -121,6 +183,6 @@ func TestExponentialBackoffStrategy(t *testing.T) {
 	assert.Equal(t, 200*time.Millisecond, strategy(1))
 	assert.Equal(t, 400*time.Millisecond, strategy(2))
 
-	// Should cap at maxBackoffTime
+	// Should cap at maxBackoffTime.
 	assert.Equal(t, 5*time.Second, strategy(10))
 }

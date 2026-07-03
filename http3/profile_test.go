@@ -57,7 +57,7 @@ func TestProfileAppliesHTTP3Transport(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "HTTP/3", profile.Name())
-	_, ok := client.GetHTTPClient().Transport.(*qhttp3.Transport)
+	_, ok := client.UnsafeHTTPClient().Transport.(*qhttp3.Transport)
 	require.True(t, ok)
 }
 
@@ -69,7 +69,7 @@ func TestProfileUsesClientTLSConfig(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	transport, ok := client.GetHTTPClient().Transport.(*qhttp3.Transport)
+	transport, ok := client.UnsafeHTTPClient().Transport.(*qhttp3.Transport)
 	require.True(t, ok)
 	require.False(t, tlsConfig == transport.TLSClientConfig)
 	require.Equal(t, "example.com", transport.TLSClientConfig.ServerName)

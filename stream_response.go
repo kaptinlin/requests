@@ -49,7 +49,7 @@ func (r *StreamResponse) Status() string {
 
 // Header returns the response headers.
 func (r *StreamResponse) Header() http.Header {
-	return r.rawResponse.Header
+	return r.rawResponse.Header.Clone()
 }
 
 // URL returns the request URL that elicited the response.

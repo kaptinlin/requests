@@ -55,9 +55,9 @@ Ordered headers preserve caller-specified insertion order as request intent. The
 `Client` owns the underlying `http.Client` and transport-level configuration:
 
 - `WithTimeout` sets the default `http.Client.Timeout`.
-- `WithTransport` and `WithHTTPClient` replace the underlying transport or client.
-- `WithHTTP2` enables HTTP/2 on the active `*http.Transport`.
-- `WithDialTimeout`, `WithResolver`, `WithDialContext`, `WithLocalAddr`, `WithTLSHandshakeTimeout`, `WithResponseHeaderTimeout`, `WithMaxIdleConns`, `WithMaxIdleConnsPerHost`, `WithMaxConnsPerHost`, and `WithIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`.
+- `WithTransport` and `WithHTTPClient` replace the underlying transport or client; `WithHTTPClient(nil)` is invalid.
+- `WithHTTP2` enables HTTP/2 on the active `*http.Transport` and reports configuration errors during construction.
+- `WithDialTimeout`, `WithResolver`, `WithDialContext`, `WithLocalAddr`, `WithTLSHandshakeTimeout`, `WithResponseHeaderTimeout`, `WithMaxIdleConns`, `WithMaxIdleConnsPerHost`, `WithMaxConnsPerHost`, and `WithIdleConnTimeout` apply only when the underlying transport is a `*http.Transport`; construction fails with `ErrInvalidTransportType` when they cannot apply.
 - HTTP/2 enablement configures the active `*http.Transport` instead of replacing it, preserving proxy, dialer, resolver, local address, TLS, timeout, and connection-pool settings.
 - Resolver and local-address configuration use `net` package types only.
 - `WithHTTPClient` MUST be applied before transport-mutating options such as `WithProxy` or `WithDialTimeout`, because replacing the client discards earlier transport mutations.
@@ -71,7 +71,7 @@ Profiles are applied at the client layer through `WithProfile`. They contribute 
 `Client` owns TLS configuration and certificate material:
 
 - `WithTLSConfig`, `WithInsecureSkipVerify`, `WithCertificates`, `WithClientCertificate`, `WithTLSServerName`, `WithRootCertificate`, and `WithRootCertificateFromString` configure client-level TLS state.
-- `WithHTTP2()` configures HTTP/2 on the existing or default `*http.Transport`; custom non-`*http.Transport` implementations are left unchanged.
+- `WithHTTP2()` configures HTTP/2 on the existing or default `*http.Transport`; custom non-`*http.Transport` implementations fail with `ErrInvalidTransportType`.
 - `WithSession` creates a cookie jar and TLS client session cache when missing.
 - File-loading construction options such as `WithClientCertificate` and `WithRootCertificate` return errors from `New` when files cannot be loaded.
 
@@ -88,6 +88,7 @@ Proxy configuration belongs on `Client`:
 - `WithProxy`, `WithProxyBypass`, `WithProxyFromEnv`, `WithProxies`, and `WithProxySelector` affect transport delivery and return errors when validation fails.
 - `WithoutProxy` clears any configured proxy while constructing or cloning a client.
 - `WithProxies` and selector-based proxy functions apply per transport attempt, including retry attempts.
+- Explicit proxy URLs accept only `http`, `https`, and `socks5` schemes.
 
 ## Redirect Policy
 
@@ -113,7 +114,7 @@ Adapter boundaries:
 - preserve client headers, cookies, auth, middleware, timeout, cookie jar, redirect policy, and the underlying transport
 - do not preserve `RequestBuilder` behavior such as request-local retry, response buffering, stream responses, decoding helpers, `Save`, or `Lines`
 - clone inbound `net/http` requests before applying defaults
-- do not change the meaning of `GetHTTPClient`, which remains a raw escape hatch
+- do not change the meaning of `UnsafeHTTPClient`, which remains a raw mutable escape hatch
 
 ## Forbidden
 

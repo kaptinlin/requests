@@ -112,6 +112,68 @@ func (b *RequestBuilder) preparePath() string {
 	return preparedPath
 }
 
+func resolveRequestURL(baseURL, requestPath string, queryValues url.Values) (*url.URL, error) {
+	requestURL, err := url.Parse(requestPath)
+	if err != nil {
+		return nil, err
+	}
+	if requestURL.IsAbs() || baseURL == "" {
+		addQueryValues(requestURL, queryValues)
+		return requestURL, nil
+	}
+
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	resolved := *base
+	resolved.RawQuery = requestURL.RawQuery
+	resolved.ForceQuery = requestURL.ForceQuery
+	resolved.Fragment = requestURL.Fragment
+
+	path, rawPath, err := joinEscapedURLPath(base.EscapedPath(), requestURL.EscapedPath())
+	if err != nil {
+		return nil, err
+	}
+	resolved.Path = path
+	resolved.RawPath = rawPath
+	addQueryValues(&resolved, queryValues)
+	return &resolved, nil
+}
+
+func joinEscapedURLPath(basePath, requestPath string) (string, string, error) {
+	escaped := basePath
+	if requestPath != "" {
+		switch escaped {
+		case "", "/":
+			escaped = "/" + strings.TrimLeft(requestPath, "/")
+		default:
+			escaped = strings.TrimRight(escaped, "/") + "/" + strings.TrimLeft(requestPath, "/")
+		}
+	}
+	path, err := url.PathUnescape(escaped)
+	if err != nil {
+		return "", "", err
+	}
+	if path == escaped {
+		return path, "", nil
+	}
+	return path, escaped, nil
+}
+
+func addQueryValues(requestURL *url.URL, queryValues url.Values) {
+	if len(queryValues) == 0 {
+		return
+	}
+	query := requestURL.Query()
+	for key, values := range queryValues {
+		for _, value := range values {
+			query.Add(key, value)
+		}
+	}
+	requestURL.RawQuery = query.Encode()
+}
+
 // Queries adds query parameters to the request.
 func (b *RequestBuilder) Queries(params url.Values) *RequestBuilder {
 	for key, values := range params {
@@ -485,7 +547,7 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap *client
 				errs = append(errs, fmt.Errorf("attempt %d/%d: %w", attempt+1, retry.Max+1, err))
 			}
 
-			shouldRetry := err != nil || (resp != nil && retry.ShouldRetry(req, resp, err))
+			shouldRetry := retry.ShouldRetry(req, resp, err)
 			if !shouldRetry || attempt == retry.Max {
 				if err != nil {
 					if snap.logger != nil {
@@ -510,11 +572,7 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap *client
 			}
 
 			if resp != nil {
-				if closeErr := resp.Body.Close(); closeErr != nil {
-					if snap.logger != nil {
-						snap.logger.Errorf("Error closing response body: %v", closeErr)
-					}
-				}
+				drainAndCloseBody(resp.Body, snap.logger)
 			}
 
 			if snap.logger != nil {
@@ -546,6 +604,20 @@ func (b *RequestBuilder) do(ctx context.Context, req *http.Request, snap *client
 
 	resp, err := finalHandler(req)
 	return resp, attempts, err
+}
+
+const maxRetryDrainBytes = 64 << 10
+
+func drainAndCloseBody(body io.ReadCloser, logger Logger) {
+	if body == nil {
+		return
+	}
+	if _, err := io.Copy(io.Discard, io.LimitReader(body, maxRetryDrainBytes)); err != nil && logger != nil {
+		logger.Errorf("Error draining response body: %v", err)
+	}
+	if err := body.Close(); err != nil && logger != nil {
+		logger.Errorf("Error closing response body: %v", err)
+	}
 }
 
 // Clone creates a deep copy of the RequestBuilder. The clone shares the same client
@@ -685,21 +757,13 @@ func (b *RequestBuilder) prepareRequest(ctx context.Context) (*http.Request, cli
 		}
 	}
 
-	parsedURL, err := url.Parse(snap.baseURL + b.preparePath())
+	parsedURL, err := resolveRequestURL(snap.baseURL, b.preparePath(), b.queries)
 	if err != nil {
 		if snap.logger != nil {
 			snap.logger.Errorf("Error parsing URL: %v", err)
 		}
 		return nil, snap, nil, start, err
 	}
-
-	query := parsedURL.Query()
-	for key, values := range b.queries {
-		for _, value := range values {
-			query.Set(key, value)
-		}
-	}
-	parsedURL.RawQuery = query.Encode()
 
 	ctx, cancel = b.prepareContext(ctx)
 

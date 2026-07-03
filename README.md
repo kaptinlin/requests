@@ -103,7 +103,7 @@ import (
 )
 
 client, err := requests.New(
-	requests.WithProfile(browser.Chrome()),
+	requests.WithProfile(browser.Chrome145()),
 )
 if err != nil {
 	log.Fatal(err)
@@ -208,6 +208,23 @@ resp, err := client.Get("/articles/{id}").
 	Send(context.Background())
 ```
 
+Repeated query keys are preserved:
+
+```go
+resp, err := client.Get("/search").
+	Query("tag", "go").
+	Query("tag", "http").
+	Send(context.Background())
+```
+
+For non-standard methods, use the method-first request entry:
+
+```go
+resp, err := client.Request("PROPFIND", "/files/{id}").
+	PathParam("id", "report").
+	Send(context.Background())
+```
+
 ### Forms and files
 
 ```go
@@ -299,6 +316,8 @@ httpClient := &http.Client{
 
 The adapter applies client headers, cookies, auth, and client middleware. It does not run request-builder retries, response buffering, stream responses, or decoding helpers.
 
+`UnsafeHTTPClient()` exposes the live underlying `*http.Client` only for advanced integrations that must inspect or mutate raw transport state. Prefer construction options or adapters for ordinary use.
+
 ## Session and Dialing
 
 ```go
@@ -334,6 +353,8 @@ if err != nil {
 }
 ```
 
+Proxy URLs support `http`, `https`, and `socks5` schemes.
+
 ### Redirect policies
 
 ```go
@@ -364,6 +385,8 @@ if err := resp.Save("downloads/report.json"); err != nil {
 	log.Fatal(err)
 }
 ```
+
+`resp.Bytes()` returns a caller-owned copy of the buffered body. `resp.Header()` returns a header snapshot; mutate `resp.Raw()` only when you intentionally need the underlying `net/http` response.
 
 ### Iterate line-oriented responses
 
@@ -432,7 +455,21 @@ if err != nil {
 }
 ```
 
-For response caching, use `middlewares.CacheMiddleware` with a `middlewares.Cacher` implementation such as `middlewares.NewMemoryCache()`.
+For simple response caching, create a middleware with `middlewares.NewCacheMiddleware` and a `middlewares.Cacher` implementation such as `middlewares.NewMemoryCache()`:
+
+```go
+cache := middlewares.NewMemoryCache()
+defer cache.Close()
+
+mw, err := middlewares.NewCacheMiddleware(cache, time.Minute, logger)
+if err != nil {
+	log.Fatal(err)
+}
+
+client, err := requests.New(requests.WithMiddleware(mw))
+```
+
+The built-in helper caches successful `GET` responses by scheme, host, path, and query; it is not a full RFC HTTP cache with `Cache-Control`, `Vary`, or revalidation semantics.
 
 ## Documentation
 

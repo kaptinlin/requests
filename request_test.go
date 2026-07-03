@@ -425,10 +425,10 @@ func TestSendMethodQuery(t *testing.T) {
 			expectedURL:   "/test?param1=value1&param2=value2",
 		},
 		{
-			name:          "Method overwrites URL",
+			name:          "Method preserves URL value",
 			url:           "/test?param1=value1",
 			additionalQPs: map[string]string{"param1": "value2"},
-			expectedURL:   "/test?param1=value2",
+			expectedURL:   "/test?param1=value1&param1=value2",
 		},
 	}
 
@@ -457,6 +457,115 @@ func TestSendMethodQuery(t *testing.T) {
 			assert.Contains(t, body, tc.expectedURL, "The server did not receive the expected URL.")
 		})
 	}
+}
+
+func TestSendPreservesRepeatedQueryValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, r.URL.RawQuery)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/search?tag=existing").
+		Query("tag", "builder").
+		Queries(url.Values{"tag": {"queries"}}).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(resp.Raw().Body)
+	require.NoError(t, err)
+	got, err := url.ParseQuery(strings.TrimSpace(string(body)))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"existing", "builder", "queries"}, got["tag"])
+}
+
+func TestSendResolvesBaseURLAndRequestPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		basePath    string
+		requestPath string
+		configure   func(*RequestBuilder)
+		wantURI     string
+	}{
+		{
+			name:        "joins base path and relative request path",
+			basePath:    "/api",
+			requestPath: "users",
+			wantURI:     "/api/users",
+		},
+		{
+			name:        "normalizes slash between base and request path",
+			basePath:    "/api/",
+			requestPath: "/users",
+			wantURI:     "/api/users",
+		},
+		{
+			name:        "preserves escaped path parameters",
+			basePath:    "/api",
+			requestPath: "/items/{id}",
+			configure: func(rb *RequestBuilder) {
+				rb.PathParam("id", "a/b")
+			},
+			wantURI: "/api/items/a%2Fb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = fmt.Fprintln(w, r.URL.RequestURI())
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, WithBaseURL(server.URL+tt.basePath))
+			rb := client.Get(tt.requestPath)
+			if tt.configure != nil {
+				tt.configure(rb)
+			}
+			resp, err := rb.Send(t.Context())
+			require.NoError(t, err)
+
+			body, err := io.ReadAll(resp.Raw().Body)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantURI, strings.TrimSpace(string(body)))
+		})
+	}
+}
+
+func TestSendAbsoluteURLOverridesBaseURL(t *testing.T) {
+	var baseCalled atomic.Bool
+	base := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		baseCalled.Store(true)
+		_, _ = fmt.Fprintln(w, "base")
+	}))
+	defer base.Close()
+	absolute := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintln(w, r.URL.RequestURI())
+	}))
+	defer absolute.Close()
+
+	client := newTestClient(t, WithBaseURL(base.URL+"/api"))
+	resp, err := client.Get(absolute.URL + "/direct").Send(t.Context())
+	require.NoError(t, err)
+
+	body, err := io.ReadAll(resp.Raw().Body)
+	require.NoError(t, err)
+	assert.Equal(t, "/direct", strings.TrimSpace(string(body)))
+	assert.False(t, baseCalled.Load())
+}
+
+func TestSendInvalidResolvedURLDoesNotDispatch(t *testing.T) {
+	var called atomic.Bool
+	client := newTestClient(t, WithHTTPClient(&http.Client{
+		Transport: testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			called.Store(true)
+			return nil, nil
+		}),
+	}))
+
+	_, err := client.Get("/bad/%zz").Send(t.Context())
+	require.Error(t, err)
+	assert.False(t, called.Load())
 }
 
 type testAddress struct {
@@ -1108,7 +1217,7 @@ func TestReaderOctetStream(t *testing.T) {
 		Send(context.Background())
 	assert.NoError(t, err)
 
-	assert.Equal(t, data, resp.Body())
+	assert.Equal(t, data, resp.Bytes())
 }
 
 func TestDefaultRetryOn408And429(t *testing.T) {
@@ -1274,6 +1383,148 @@ func TestRetryRejectsNonReplayableJSONReader(t *testing.T) {
 		Send(context.Background())
 	assert.ErrorIs(t, err, ErrRequestBodyNotReplayable)
 	assert.Equal(t, int32(1), requestCount)
+}
+
+func TestRetryPolicyControlsTransportErrors(t *testing.T) {
+	t.Run("false policy does not retry transport error", func(t *testing.T) {
+		var attempts int32
+		client := newTestClient(t,
+			WithHTTPClient(&http.Client{Transport: testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+				atomic.AddInt32(&attempts, 1)
+				return nil, assert.AnError
+			})}),
+			WithRetry(RetryPolicy{
+				Max:     2,
+				Backoff: DefaultBackoffStrategy(0),
+				ShouldRetry: func(*http.Request, *http.Response, error) bool {
+					return false
+				},
+			}),
+		)
+
+		_, err := client.Get("http://example.com").Send(t.Context())
+		require.Error(t, err)
+		assert.ErrorIs(t, err, assert.AnError)
+		assert.Equal(t, int32(1), attempts)
+	})
+
+	t.Run("true policy retries transport error", func(t *testing.T) {
+		var attempts int32
+		client := newTestClient(t,
+			WithHTTPClient(&http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+				if atomic.AddInt32(&attempts, 1) == 1 {
+					return nil, assert.AnError
+				}
+				return &http.Response{
+					Status:     "200 OK",
+					StatusCode: http.StatusOK,
+					Header:     http.Header{},
+					Body:       io.NopCloser(strings.NewReader("ok")),
+					Request:    req,
+				}, nil
+			})}),
+			WithRetry(RetryPolicy{
+				Max:     2,
+				Backoff: DefaultBackoffStrategy(0),
+				ShouldRetry: func(_ *http.Request, _ *http.Response, err error) bool {
+					return err != nil
+				},
+			}),
+		)
+
+		resp, err := client.Get("http://example.com").Send(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode())
+		assert.Equal(t, int32(2), attempts)
+		assert.Equal(t, 2, resp.Attempts())
+	})
+}
+
+type trackingReadCloser struct {
+	reader    *strings.Reader
+	readBytes int64
+	closed    atomic.Bool
+}
+
+func newTrackingReadCloser(body string) *trackingReadCloser {
+	return &trackingReadCloser{reader: strings.NewReader(body)}
+}
+
+func (b *trackingReadCloser) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	atomic.AddInt64(&b.readBytes, int64(n))
+	return n, err
+}
+
+func (b *trackingReadCloser) Close() error {
+	b.closed.Store(true)
+	return nil
+}
+
+func TestRetryDrainsResponseBodyBeforeRetry(t *testing.T) {
+	retryBody := newTrackingReadCloser("retry body")
+	var attempts int32
+	client := newTestClient(t,
+		WithHTTPClient(&http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			if atomic.AddInt32(&attempts, 1) == 1 {
+				return &http.Response{
+					Status:     "500 Internal Server Error",
+					StatusCode: http.StatusInternalServerError,
+					Header:     http.Header{},
+					Body:       retryBody,
+					Request:    req,
+				}, nil
+			}
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("ok")),
+				Request:    req,
+			}, nil
+		})}),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
+
+	resp, err := client.Get("http://example.com").Send(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+	assert.Equal(t, "ok", resp.String())
+	assert.Equal(t, int32(2), attempts)
+	assert.Equal(t, int64(len("retry body")), atomic.LoadInt64(&retryBody.readBytes))
+	assert.True(t, retryBody.closed.Load())
+}
+
+func TestRetryDrainsResponseBodyWithLimit(t *testing.T) {
+	retryBody := newTrackingReadCloser(strings.Repeat("x", maxRetryDrainBytes+1))
+	var attempts int32
+	client := newTestClient(t,
+		WithHTTPClient(&http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			if atomic.AddInt32(&attempts, 1) == 1 {
+				return &http.Response{
+					Status:     "500 Internal Server Error",
+					StatusCode: http.StatusInternalServerError,
+					Header:     http.Header{},
+					Body:       retryBody,
+					Request:    req,
+				}, nil
+			}
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader("ok")),
+				Request:    req,
+			}, nil
+		})}),
+		WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+	)
+
+	resp, err := client.Get("http://example.com").Send(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
+	assert.Equal(t, int64(maxRetryDrainBytes), atomic.LoadInt64(&retryBody.readBytes))
+	assert.True(t, retryBody.closed.Load())
 }
 
 func TestRequestLevelRetries(t *testing.T) {

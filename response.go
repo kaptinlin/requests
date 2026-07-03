@@ -84,7 +84,7 @@ func (r *Response) Status() string {
 
 // Header returns the response headers.
 func (r *Response) Header() http.Header {
-	return r.rawResponse.Header
+	return r.rawResponse.Header.Clone()
 }
 
 // Cookies parses and returns the cookies set in the response.
@@ -211,9 +211,9 @@ func (r *Response) IsRedirect() bool {
 	return code >= 300 && code < 400
 }
 
-// Body returns the response body as a byte slice.
-func (r *Response) Body() []byte {
-	return r.body
+// Bytes returns the response body as a caller-owned byte slice.
+func (r *Response) Bytes() []byte {
+	return bytes.Clone(r.body)
 }
 
 // String returns the response body as a string.
@@ -299,7 +299,7 @@ func (r *Response) saveToFile(path string) error {
 		}
 	}()
 
-	if _, err = io.Copy(outFile, bytes.NewReader(r.Body())); err != nil {
+	if _, err = io.Copy(outFile, bytes.NewReader(r.body)); err != nil {
 		return fmt.Errorf("failed to write response body to file: %w", err)
 	}
 
@@ -307,7 +307,7 @@ func (r *Response) saveToFile(path string) error {
 }
 
 func (r *Response) saveToWriter(w io.Writer) error {
-	if _, err := io.Copy(w, bytes.NewReader(r.Body())); err != nil {
+	if _, err := io.Copy(w, bytes.NewReader(r.body)); err != nil {
 		return fmt.Errorf("failed to write response body to io.Writer: %w", err)
 	}
 	return nil

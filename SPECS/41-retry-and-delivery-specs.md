@@ -28,16 +28,18 @@ Client defaults come from `WithRetry(policy)` during construction or cloning. Re
 
 ## Retry Conditions
 
-`RetryIfFunc` decides whether an HTTP response should be retried. Transport errors are retryable whenever `Max > 0`; response retry decisions use `ShouldRetry`.
+`RetryIfFunc` decides whether an HTTP response or transport error should be retried. The retry loop calls `ShouldRetry(req, resp, err)` for both response and error outcomes, so custom policies control all retry decisions.
 
 If `RetryPolicy.ShouldRetry` is nil, delivery uses `DefaultRetryIf`.
 
 `DefaultRetryIf` retries on:
 
-- transport errors
+- timeout and connection-level transport errors
 - `408 Request Timeout`
 - `429 Too Many Requests`
 - `5xx` responses
+
+Default retry does not retry caller cancellation, malformed request construction, invalid headers, redirect policy failures, or other deterministic caller/configuration errors.
 
 ## Backoff Strategies
 
@@ -66,7 +68,7 @@ Invalid or negative `Retry-After` values fall back to the configured strategy.
 The retry loop respects the request context.
 
 - If the context is canceled or reaches its deadline during backoff, delivery stops and returns `ctx.Err()`.
-- Before sleeping for a retry, any received response body is closed.
+- Before sleeping for a retry, any received response body is drained up to an internal cap and closed.
 - When proxy rotation is configured through `WithProxies` or a proxy selector, proxy choice is evaluated per transport attempt, so retries may use different proxies.
 
 Callers classify the failure with the package helpers: `IsCanceled` matches `context.Canceled` only, and `IsTimeout` matches `context.DeadlineExceeded` and `net.Error` timeouts. The two are orthogonal so caller-driven cancellation is distinguishable from a deadline hit.

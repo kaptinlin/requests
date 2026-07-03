@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -29,10 +28,13 @@ func TestCacheMiddleware(t *testing.T) {
 	defer server.Close()
 
 	cache := NewMemoryCache()
-	logger := requests.NewDefaultLogger(os.Stdout, requests.LevelDebug)
+	defer cache.Close()
+	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
+	mw, err := NewCacheMiddleware(cache, time.Millisecond, logger)
+	require.NoError(t, err)
 	client, err := requests.New(
 		requests.WithBaseURL(server.URL),
-		requests.WithMiddleware(CacheMiddleware(cache, time.Millisecond, logger)),
+		requests.WithMiddleware(mw),
 	)
 	require.NoError(t, err)
 
@@ -56,34 +58,58 @@ func TestCacheMiddleware(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestNewCacheMiddlewareValidatesSetup(t *testing.T) {
+	t.Parallel()
+
+	cache := NewMemoryCache()
+	defer cache.Close()
+	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
+
+	mw, err := NewCacheMiddleware(cache, time.Second, logger)
+	require.NoError(t, err)
+	require.NotNil(t, mw)
+
+	_, err = NewCacheMiddleware(nil, time.Second, logger)
+	assert.ErrorIs(t, err, requests.ErrInvalidConfigValue)
+
+	_, err = NewCacheMiddleware(cache, time.Second, nil)
+	assert.ErrorIs(t, err, requests.ErrInvalidConfigValue)
+
+	_, err = NewCacheMiddleware(cache, 0, logger)
+	assert.ErrorIs(t, err, requests.ErrInvalidConfigValue)
+
+	_, err = NewCacheMiddleware(cache, -time.Nanosecond, logger)
+	assert.ErrorIs(t, err, requests.ErrInvalidConfigValue)
+}
+
 // TestCacheKeyGeneration tests cache key generation
 func TestCacheKeyGeneration(t *testing.T) {
 	tests := []struct {
 		name     string
-		path     string
-		query    string
+		url      string
 		expected string
 	}{
 		{
-			name:     "Simple path",
-			path:     "/test",
-			query:    "",
-			expected: "/test",
+			name:     "origin and path",
+			url:      "http://example.com/test",
+			expected: "http://example.com/test",
 		},
 		{
-			name:     "Path with query",
-			path:     "/test",
-			query:    "a=1&b=2",
-			expected: "/test?a=1&b=2",
+			name:     "origin path and query",
+			url:      "http://example.com/test?a=1&b=2",
+			expected: "http://example.com/test?a=1&b=2",
+		},
+		{
+			name:     "different scheme is distinct",
+			url:      "https://example.com/test?a=1&b=2",
+			expected: "https://example.com/test?a=1&b=2",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, _ := http.NewRequest("GET", "http://example.com"+tt.path, nil)
-			if tt.query != "" {
-				req.URL.RawQuery = tt.query
-			}
+			req, err := http.NewRequest(http.MethodGet, tt.url, nil)
+			require.NoError(t, err)
 
 			key := generateCacheKey(req)
 			assert.Equal(t, tt.expected, key, "Unexpected cache key generated")
@@ -91,43 +117,50 @@ func TestCacheKeyGeneration(t *testing.T) {
 	}
 }
 
-func TestCacheMiddlewareUsesPathAndQueryAcrossExampleHosts(t *testing.T) {
+func TestCacheMiddlewareSeparatesOriginInCacheKey(t *testing.T) {
 	callCount := 0
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
-		w.Header().Set("Content-Type", "text/plain")
-		_, _ = fmt.Fprintf(w, "%s:%d", r.Host, callCount)
-	}))
-	defer server.Close()
-
 	cache := NewMemoryCache()
 	defer cache.Close()
 	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
-	client, err := requests.New(
-		requests.WithHTTPClient(server.Client()),
-		requests.WithMiddleware(CacheMiddleware(cache, time.Minute, logger)),
-	)
+	mw, err := NewCacheMiddleware(cache, time.Minute, logger)
 	require.NoError(t, err)
 
-	resp1, err := client.Get("https://a.example.com/resource?id=1").Send(t.Context())
-	require.NoError(t, err)
-	defer resp1.Close() //nolint:errcheck // test cleanup closes response body
-	body1 := resp1.String()
+	handler := mw(func(req *http.Request) (*http.Response, error) {
+		callCount++
+		body := fmt.Sprintf("%s:%d", req.URL.Host, callCount)
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/plain"}},
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+			Request:    req,
+		}, nil
+	})
 
-	resp2, err := client.Get("https://b.example.com/resource?id=1").Send(t.Context())
-	require.NoError(t, err)
-	defer resp2.Close() //nolint:errcheck // test cleanup closes response body
-	body2 := resp2.String()
+	send := func(rawURL string) string {
+		t.Helper()
 
-	assert.Equal(t, "a.example.com:1", body1)
-	assert.Equal(t, body1, body2)
-	assert.Equal(t, 1, callCount)
+		req := httptest.NewRequest(http.MethodGet, rawURL, nil)
+		resp, err := handler(req)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		return string(body)
+	}
+
+	assert.Equal(t, "a.example.com:1", send("https://a.example.com/resource?id=1"))
+	assert.Equal(t, "b.example.com:2", send("https://b.example.com/resource?id=1"))
+	assert.Equal(t, "a.example.com:1", send("https://a.example.com/resource?id=1"))
+	assert.Equal(t, 2, callCount)
 }
 
 func TestMemoryCache(t *testing.T) {
 	t.Parallel()
 
 	cache := NewMemoryCache()
+	defer cache.Close()
 	cache.Set("key1", []byte("value1"), time.Second)
 	value, ok := cache.Get("key1")
 	assert.True(t, ok)
@@ -143,6 +176,38 @@ func TestMemoryCache(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestMemoryCacheCloseIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	cache := NewMemoryCache()
+
+	require.NotPanics(t, func() {
+		cache.Close()
+		cache.Close()
+	})
+}
+
+func TestMemoryCacheOwnsStoredBytes(t *testing.T) {
+	t.Parallel()
+
+	cache := NewMemoryCache()
+	defer cache.Close()
+
+	original := []byte("value")
+	cache.Set("key", original, time.Second)
+	original[0] = 'X'
+
+	value, ok := cache.Get("key")
+	require.True(t, ok)
+	assert.Equal(t, "value", string(value))
+
+	value[0] = 'Y'
+
+	again, ok := cache.Get("key")
+	require.True(t, ok)
+	assert.Equal(t, "value", string(again))
+}
+
 // TestNonGetRequests tests handling of non-GET requests
 func TestNonGetRequests(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,11 +216,14 @@ func TestNonGetRequests(t *testing.T) {
 	defer server.Close()
 
 	cache := NewMemoryCache()
-	logger := requests.NewDefaultLogger(os.Stdout, requests.LevelDebug)
+	defer cache.Close()
+	logger := requests.NewDefaultLogger(io.Discard, requests.LevelDebug)
+	mw, err := NewCacheMiddleware(cache, 5*time.Second, logger)
+	require.NoError(t, err)
 
 	client, err := requests.New(
 		requests.WithBaseURL(server.URL),
-		requests.WithMiddleware(CacheMiddleware(cache, 5*time.Second, logger)),
+		requests.WithMiddleware(mw),
 	)
 	require.NoError(t, err)
 

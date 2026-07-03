@@ -276,6 +276,25 @@ func TestWithProxiesValidation(t *testing.T) {
 	})
 }
 
+func TestVerifyProxySchemes(t *testing.T) {
+	t.Parallel()
+
+	valid := []string{
+		"http://proxy.example.com:8080",
+		"https://proxy.example.com:8443",
+		"socks5://proxy.example.com:1080",
+	}
+	for _, raw := range valid {
+		t.Run(raw, func(t *testing.T) {
+			_, err := verifyProxy(raw)
+			assert.NoError(t, err)
+		})
+	}
+
+	_, err := verifyProxy("ftp://proxy.example.com:21")
+	assert.ErrorIs(t, err, ErrUnsupportedScheme)
+}
+
 func TestRoundRobinProxiesFactory(t *testing.T) {
 	t.Run("NoURLs", func(t *testing.T) {
 		_, err := RoundRobinProxies()

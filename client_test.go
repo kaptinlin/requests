@@ -279,12 +279,12 @@ func TestClientConnectRequest(t *testing.T) {
 	assert.Equal(t, "CONNECT response\n", resp.String())
 }
 
-func TestClientCustomMethodRequest(t *testing.T) {
+func TestClientRequestMethod(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
 	client := newTestClient(t, WithBaseURL(server.URL))
-	resp, err := client.Custom("/test-get", "OPTIONS").Send(context.Background())
+	resp, err := client.Request(http.MethodOptions, "/test-get").Send(context.Background())
 
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.Raw().StatusCode)
@@ -790,7 +790,7 @@ func TestGettersAndSnapshot(t *testing.T) {
 	client.setDefaultCookie("session", "abc")
 
 	assert.Equal(t, "https://example.com", client.GetBaseURL())
-	assert.NotNil(t, client.GetHTTPClient())
+	assert.NotNil(t, client.UnsafeHTTPClient())
 
 	snap := client.snapshot()
 	assert.Equal(t, "https://example.com", snap.baseURL)

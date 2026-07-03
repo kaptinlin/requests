@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -25,8 +26,22 @@ type Cacher interface {
 	Delete(key string)
 }
 
-// CacheMiddleware creates a middleware that caches GET responses.
-func CacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
+// NewCacheMiddleware creates a middleware that caches successful GET responses.
+func NewCacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) (requests.Middleware, error) {
+	if cache == nil {
+		return nil, fmt.Errorf("%w: cache is nil", requests.ErrInvalidConfigValue)
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("%w: logger is nil", requests.ErrInvalidConfigValue)
+	}
+	if ttl <= 0 {
+		return nil, fmt.Errorf("%w: cache ttl must be positive", requests.ErrInvalidConfigValue)
+	}
+
+	return cacheMiddleware(cache, ttl, logger), nil
+}
+
+func cacheMiddleware(cache Cacher, ttl time.Duration, logger requests.Logger) requests.Middleware {
 	return func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 		return func(req *http.Request) (*http.Response, error) {
 			if req.Method != http.MethodGet {
@@ -64,16 +79,17 @@ func cacheResponse(resp *http.Response) ([]byte, error) {
 	return json.Marshal(&CachedResponse{
 		Status:     resp.Status,
 		StatusCode: resp.StatusCode,
-		Headers:    resp.Header,
+		Headers:    resp.Header.Clone(),
 		Body:       body,
 	})
 }
 
 func generateCacheKey(req *http.Request) string {
+	base := req.URL.Scheme + "://" + req.URL.Host + req.URL.EscapedPath()
 	if req.URL.RawQuery == "" {
-		return req.URL.Path
+		return base
 	}
-	return req.URL.Path + "?" + req.URL.RawQuery
+	return base + "?" + req.URL.RawQuery
 }
 
 func buildResponseFromCache(data []byte) (*http.Response, error) {
@@ -85,8 +101,8 @@ func buildResponseFromCache(data []byte) (*http.Response, error) {
 	return &http.Response{
 		Status:     cached.Status,
 		StatusCode: cached.StatusCode,
-		Header:     cached.Headers,
-		Body:       io.NopCloser(bytes.NewReader(cached.Body)),
+		Header:     cached.Headers.Clone(),
+		Body:       io.NopCloser(bytes.NewReader(bytes.Clone(cached.Body))),
 	}, nil
 }
 
@@ -100,9 +116,10 @@ type CachedResponse struct {
 
 // MemoryCache is an in-memory cache implementation with TTL-based expiration.
 type MemoryCache struct {
-	data  map[string]*cacheItem
-	mutex sync.RWMutex
-	done  chan struct{}
+	data      map[string]*cacheItem
+	mutex     sync.RWMutex
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type cacheItem struct {
@@ -122,7 +139,9 @@ func NewMemoryCache() *MemoryCache {
 
 // Close stops the background cleanup goroutine.
 func (c *MemoryCache) Close() {
-	close(c.done)
+	c.closeOnce.Do(func() {
+		close(c.done)
+	})
 }
 
 // Get retrieves a cache item by key, returning the value and whether it was found.
@@ -134,7 +153,7 @@ func (c *MemoryCache) Get(key string) ([]byte, bool) {
 	if !ok || time.Now().After(item.expiration) {
 		return nil, false
 	}
-	return item.value, true
+	return bytes.Clone(item.value), true
 }
 
 // Set stores a value in the cache with the specified TTL.
@@ -143,7 +162,7 @@ func (c *MemoryCache) Set(key string, value []byte, ttl time.Duration) {
 	defer c.mutex.Unlock()
 
 	c.data[key] = &cacheItem{
-		value:      value,
+		value:      bytes.Clone(value),
 		expiration: time.Now().Add(ttl),
 	}
 }

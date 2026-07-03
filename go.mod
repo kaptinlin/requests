@@ -3,7 +3,7 @@ module github.com/kaptinlin/requests
 go 1.26.4
 
 require (
-	github.com/go-json-experiment/json v0.0.0-20260601182631-00ed12fed2a6
+	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-querystring v1.2.0

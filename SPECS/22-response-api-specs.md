@@ -10,7 +10,8 @@
 
 The response body is fully read into an internal buffer, the underlying body is
 replaced with a reader over the buffered bytes, and buffered helpers such as
-`Body()` and `String()` are available.
+`Bytes()` and `String()` are available. `Bytes()` returns a caller-owned copy;
+callers that need mutable `net/http` state use `Raw()`.
 
 > **Why**: Buffered helpers and caller-owned streaming solve different workloads. Keeping them separate avoids ambiguous ownership of the response body.
 >
@@ -27,9 +28,10 @@ replaced with a reader over the buffered bytes, and buffered helpers such as
 - `ContentType`, `IsContentType`, `IsJSON`, `IsXML`, `IsYAML`
 - `ContentLength`, `IsEmpty`
 - `IsSuccess`, `IsError`, `IsClientError`, `IsServerError`, `IsRedirect`
-- `Body`, `String`, `Close`
+- `Bytes`, `String`, `Close`
 
 These helpers describe response metadata only. They do not change delivery behavior.
+`Header()` returns a snapshot; intentional header mutation goes through `Raw().Header`.
 
 Diagnostics:
 

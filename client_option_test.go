@@ -291,6 +291,7 @@ func TestNew_ReturnsOptionErrors(t *testing.T) {
 	}{
 		{name: "invalid base URL", opts: []Option{WithBaseURL("://bad")}},
 		{name: "negative timeout", opts: []Option{WithTimeout(-time.Nanosecond)}, want: ErrInvalidConfigValue},
+		{name: "nil HTTP client", opts: []Option{WithHTTPClient(nil)}, want: ErrInvalidConfigValue},
 		{name: "negative dial timeout", opts: []Option{WithDialTimeout(-time.Nanosecond)}, want: ErrInvalidConfigValue},
 		{name: "negative TLS handshake timeout", opts: []Option{WithTLSHandshakeTimeout(-time.Nanosecond)}, want: ErrInvalidConfigValue},
 		{name: "negative response header timeout", opts: []Option{WithResponseHeaderTimeout(-time.Nanosecond)}, want: ErrInvalidConfigValue},
@@ -329,6 +330,44 @@ func TestNew_WithTransportTimeouts(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 3*time.Second, transport.TLSHandshakeTimeout)
 	assert.Equal(t, 10*time.Second, transport.ResponseHeaderTimeout)
+}
+
+func TestNew_TransportMutatingOptionsRejectCustomTransport(t *testing.T) {
+	tests := []struct {
+		name string
+		opt  Option
+	}{
+		{name: "HTTP2", opt: WithHTTP2()},
+		{name: "dial timeout", opt: WithDialTimeout(time.Second)},
+		{name: "resolver", opt: WithResolver(&net.Resolver{})},
+		{
+			name: "dial context",
+			opt: WithDialContext(func(context.Context, string, string) (net.Conn, error) {
+				return nil, assert.AnError
+			}),
+		},
+		{name: "local addr", opt: WithLocalAddr(&net.TCPAddr{IP: net.IPv4zero})},
+		{name: "TLS handshake timeout", opt: WithTLSHandshakeTimeout(time.Second)},
+		{name: "response header timeout", opt: WithResponseHeaderTimeout(time.Second)},
+		{name: "max idle conns", opt: WithMaxIdleConns(1)},
+		{name: "max idle conns per host", opt: WithMaxIdleConnsPerHost(1)},
+		{name: "max conns per host", opt: WithMaxConnsPerHost(1)},
+		{name: "idle conn timeout", opt: WithIdleConnTimeout(time.Second)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			customClient := &http.Client{Transport: testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+				return nil, assert.AnError
+			})}
+
+			c, err := New(WithHTTPClient(customClient), tt.opt)
+
+			require.Error(t, err)
+			assert.Nil(t, c)
+			assert.ErrorIs(t, err, ErrInvalidTransportType)
+		})
+	}
 }
 
 func TestNew_WithConnectionPool(t *testing.T) {

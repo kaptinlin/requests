@@ -120,7 +120,7 @@ func TestProfileWithTLSConfigConfiguresTransport(t *testing.T) {
 	client, err := requests.New(requests.WithProfile(Custom("custom", utls.HelloChrome_Auto, WithTLSConfig(tlsConfig))))
 	require.NoError(t, err)
 
-	transport, ok := client.GetHTTPClient().Transport.(*http.Transport)
+	transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)
 	require.True(t, tlsConfig == transport.TLSClientConfig)
 	require.Equal(t, "example.com", transport.TLSClientConfig.ServerName)

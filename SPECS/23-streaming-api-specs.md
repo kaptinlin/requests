@@ -39,7 +39,7 @@ Callers that need a protocol other than line-oriented scanning SHOULD read direc
 
 ## Buffered Helper Boundary
 
-`StreamResponse` is not the buffered `Response` API described in `SPECS/22-response-api-specs.md`. It does not expose `Body() []byte`, `String`, `Decode*`, `Save`, or buffered `Lines`.
+`StreamResponse` is not the buffered `Response` API described in `SPECS/22-response-api-specs.md`. It does not expose `Bytes`, `String`, `Decode*`, `Save`, or buffered `Lines`.
 
 ## Forbidden
 

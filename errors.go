@@ -48,7 +48,7 @@ var (
 	ErrResponseReadFailed = errors.New("failed to read response")
 
 	// ErrUnsupportedScheme is returned when a proxy URL uses a scheme other
-	// than http, https, socks5, or socks5h.
+	// than http, https, or socks5.
 	ErrUnsupportedScheme = errors.New("unsupported proxy scheme")
 
 	// ErrNoProxies is returned when a proxy rotation function is given an

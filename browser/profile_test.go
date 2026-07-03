@@ -11,7 +11,7 @@ import (
 	"github.com/kaptinlin/requests"
 )
 
-func TestChromeProfile(t *testing.T) {
+func TestChrome145Profile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Contains(t, r.Header.Get("User-Agent"), "Chrome/145.0.0.0")
 		require.Equal(t, "gzip, deflate", r.Header.Get("Accept-Encoding"))
@@ -22,8 +22,9 @@ func TestChromeProfile(t *testing.T) {
 	}))
 	defer server.Close()
 
+	profile := Chrome145()
 	client, err := requests.New(
-		requests.WithProfile(Chrome()),
+		requests.WithProfile(profile),
 		requests.WithMiddleware(func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 			return func(req *http.Request) (*http.Response, error) {
 				ordered, ok := requests.OrderedHeaders(req)
@@ -45,8 +46,9 @@ func TestChromeProfile(t *testing.T) {
 		}),
 	)
 	require.NoError(t, err)
+	require.Equal(t, "Chrome145", profile.Name())
 
-	transport, ok := client.GetHTTPClient().Transport.(*http.Transport)
+	transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)
 	require.True(t, transport.ForceAttemptHTTP2)
 	require.NotNil(t, transport.TLSClientConfig)
@@ -57,7 +59,7 @@ func TestChromeProfile(t *testing.T) {
 	require.NoError(t, resp.Close())
 }
 
-func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
+func TestChrome145ProfileUsesExampleHostOverTLS(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "www.example.com", r.Host)
 		require.NotNil(t, r.TLS)
@@ -69,7 +71,7 @@ func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
 
 	client, err := requests.New(
 		requests.WithHTTPClient(server.Client()),
-		requests.WithProfile(Chrome()),
+		requests.WithProfile(Chrome145()),
 	)
 	require.NoError(t, err)
 
@@ -78,7 +80,7 @@ func TestChromeProfileUsesExampleHostOverTLS(t *testing.T) {
 	require.NoError(t, resp.Close())
 }
 
-func TestFirefoxProfile(t *testing.T) {
+func TestFirefox148Profile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Contains(t, r.Header.Get("User-Agent"), "Firefox/148.0")
 		require.Equal(t, "en-US,en;q=0.5", r.Header.Get("Accept-Language"))
@@ -88,12 +90,12 @@ func TestFirefoxProfile(t *testing.T) {
 	}))
 	defer server.Close()
 
-	profile := Firefox()
+	profile := Firefox148()
 	client, err := requests.New(requests.WithProfile(profile))
 	require.NoError(t, err)
 
-	require.Equal(t, "Firefox", profile.Name())
-	transport, ok := client.GetHTTPClient().Transport.(*http.Transport)
+	require.Equal(t, "Firefox148", profile.Name())
+	transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)
 	require.True(t, transport.ForceAttemptHTTP2)
 
@@ -110,7 +112,7 @@ func TestProfileRequestHeadersOverrideDefaults(t *testing.T) {
 	defer server.Close()
 
 	client, err := requests.New(
-		requests.WithProfile(Chrome()),
+		requests.WithProfile(Chrome145()),
 		requests.WithMiddleware(func(next requests.MiddlewareHandlerFunc) requests.MiddlewareHandlerFunc {
 			return func(req *http.Request) (*http.Response, error) {
 				ordered, ok := requests.OrderedHeaders(req)

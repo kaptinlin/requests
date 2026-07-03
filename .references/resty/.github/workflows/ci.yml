@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - v3
+      - v2
+    paths-ignore:
+      - '**.md'
+      - '**.bazel'
+      - 'WORKSPACE'
+  pull_request:
+    branches:
+      - main
+      - v3
+      - v2
+    paths-ignore:
+      - '**.md'
+      - '**.bazel'
+      - 'WORKSPACE'
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        go: [ 'stable', '1.23.x' ]
+        os: [ ubuntu-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Format
+        run: diff -u <(echo -n) <(go fmt $(go list ./...))
+
+      - name: Test
+        run: go run gotest.tools/gotestsum@latest -f testname -- ./... -race -count=1 -coverprofile=coverage.txt -covermode=atomic -coverpkg=./... -shuffle=on
+
+      - name: Upload coverage to Codecov
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.go == 'stable' }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.txt
+          flags: unittests

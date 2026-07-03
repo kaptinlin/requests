@@ -60,6 +60,28 @@ hatches. The response structs do not expose mutable storage fields.
 - **Contract Impact**: Raw access is explicit and narrow; callers that mutate the
   returned `*http.Response` own the consequences.
 
+### Caller-Owned Buffered Helpers
+
+Buffered response helpers return values owned by the caller. `Response.Bytes()`
+returns a byte-slice copy, and `Response.Header()` returns a header snapshot.
+
+- **Why**: Helper names read as values. Returning internal mutable storage makes
+  ordinary reads accidentally mutate later response behavior.
+- **Rejected**: A buffered `Body()` helper that exposes internal bytes.
+- **Contract Impact**: Raw mutation goes through `Raw()`; value helpers return
+  snapshots.
+
+### Method-First Arbitrary Requests
+
+The arbitrary-method entry point is `Client.Request(method, path)`.
+
+- **Why**: Method-first order matches `NewRequestBuilder(method, path)` and
+  standard HTTP language.
+- **Rejected**: `Custom(path, method)` or aliases that preserve two grammars for
+  one operation.
+- **Contract Impact**: Public request syntax is either a verb helper such as
+  `Get(path)` or `Request(method, path)`.
+
 ### Retry Policy As One Value
 
 Retry behavior is configured through `RetryPolicy` at the client layer with
@@ -91,8 +113,8 @@ modules require that version.
 These symbols remain public because they name real integration points:
 
 - `AsHTTPClient` and `AsTransport` expose standard-library adapter shapes.
-- `GetHTTPClient` exposes the underlying client for advanced integration. Callers
-  that mutate it own the risk.
+- `UnsafeHTTPClient` exposes the underlying client for advanced integration.
+  Callers that mutate it own synchronization and consistency risk.
 - `GetTLSConfig` returns a clone so extension modules can inherit TLS intent
   without taking ownership of mutable client state.
 - `RoundRobinProxies` and `RandomProxies` create proxy selectors for

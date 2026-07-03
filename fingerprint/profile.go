@@ -70,7 +70,7 @@ func (p profile) configure(c *requests.Client) error {
 		return fmt.Errorf("%w: hello id", requests.ErrInvalidConfigValue)
 	}
 
-	client := c.GetHTTPClient()
+	client := c.UnsafeHTTPClient()
 	var transport *http.Transport
 	switch current := client.Transport.(type) {
 	case nil:

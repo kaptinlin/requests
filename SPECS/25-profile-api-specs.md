@@ -35,9 +35,12 @@ Profiles MUST NOT apply request-local state. Request-local headers and ordered h
 
 The root package defines the profile interface and option only. Concrete profiles SHOULD live in small extension packages such as `browser`, `fingerprint`, and `http3`, so root APIs stay stable and do not accumulate browser-version or transport dependency details.
 
+Fixed browser header profiles in the `browser` module MUST name the browser major version they emit, such as `Chrome145` or `Firefox148`. Auto-style fingerprint profiles in the `fingerprint` module may stay unversioned when the exact ClientHello version is controlled by the uTLS dependency.
+
 ## Forbidden
 
 - Do not expose browser version details as root package methods.
+- Do not use unversioned names for fixed browser header identities.
 - Do not make profile application per-request.
 - Do not use profile as a general mutation hook.
 - Do not silently change TLS verification defaults from a profile.

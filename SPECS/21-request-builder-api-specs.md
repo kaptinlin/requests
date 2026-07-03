@@ -9,7 +9,7 @@
 A builder is created by either:
 
 - `Client.NewRequestBuilder(method, path)`
-- one of the verb helpers: `Get`, `Post`, `Delete`, `Put`, `Patch`, `Options`, `Head`, `Connect`, `Trace`, or `Custom`
+- one of the verb helpers: `Get`, `Post`, `Delete`, `Put`, `Patch`, `Options`, `Head`, `Connect`, `Trace`, or `Request(method, path)`
 
 A builder is mutable until `Send(ctx)` is called.
 
@@ -21,6 +21,8 @@ A builder MAY define:
 - query parameters through `Query`, `Queries`, `QueriesStruct`, and `DelQuery`
 
 Path parameters use `{name}` placeholders and MUST be URL-path-escaped before dispatch.
+
+Dispatch uses one resolver for base URL, request path, path params, absolute URLs, and query composition. Base URL paths and request paths are joined without accidental slash loss or duplication. Builder query values are appended to any existing raw query values, so repeated keys remain repeated.
 
 ## Request Metadata
 
@@ -110,6 +112,7 @@ Client mutations after `Send` starts do not affect that in-flight request.
 ## Forbidden
 
 - Do not chain `AddMiddleware`; it is a mutator, not a fluent builder method.
+- Do not add a `Custom(path, method)` alias; arbitrary request creation is method-first through `Request(method, path)`.
 - Do not assume `Clone` copies body data, files, retry policy, or middleware.
 - Do not assume `Timeout` overrides an existing context deadline.
 - Do not add body aliases or content-type inference that obscure `JSON`, `XML`, `YAML`, `Text`, `Bytes`, `Reader`, form, and multipart ownership.

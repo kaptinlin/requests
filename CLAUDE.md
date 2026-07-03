@@ -58,6 +58,17 @@ requests/
 
 The root module is `github.com/kaptinlin/requests`. Extension modules are independently consumable packages organized locally with `go.work`; keep their `go.mod` files publishable and do not add local `replace` directives.
 
+## Agent Operating Rules
+
+- Read the relevant SPECS and current code before changing behavior.
+- Prefer the standard library, `net/http`, and existing project helpers before new abstractions.
+- Keep edits surgical; do not combine feature work, docs cleanup, dependency changes, and release work unless the task asks for it.
+- Preserve the request language: verb helpers for common methods, `Request(method, path)` for arbitrary methods.
+- Treat `UnsafeHTTPClient` and `Raw` methods as explicit mutable escape hatches, not normal integration paths.
+- Prove behavior with focused tests first, then run the smallest wider gate that covers the changed surface.
+- Do not create policy-only scripts or tests that merely mirror SPECS without proving runtime behavior.
+- Fail loudly with returned errors; do not hide invalid construction in logs or request-time surprises.
+
 ## Agent Workflow
 
 ### Design Phase — Read SPECS First
@@ -70,6 +81,18 @@ Workflow:
 2. Read those specs completely before changing code.
 3. Keep new behavior inside the existing client/builder/response/profile boundaries.
 4. Ask the user before inventing a new public pattern that is not covered by the specs.
+
+### Reference Phase — Check Prior Art
+
+When implementing non-trivial request, retry, response, or transport behavior, inspect relevant projects in [`.references/`](.references/) before inventing new machinery. Adapt patterns only when they fit this package's smaller API language.
+
+Reference projects:
+
+| Reference | Use For |
+|-----------|---------|
+| [`.references/req`](.references/req/) | Browser impersonation, ordered headers, transport and response behavior comparison |
+| [`.references/resty`](.references/resty/) | Fluent client ergonomics, middleware, retries, multipart, streaming, and API tradeoff comparison |
+| [`.references/go-retryablehttp`](.references/go-retryablehttp/) | Focused retry loop and backoff behavior comparison |
 
 ### Implementation Phase — Respect Module Boundaries
 
@@ -116,6 +139,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 - **Default Passthrough**: `New()` preserves `net/http` defaults unless the caller opts into custom transport behavior with `With*` options.
 - **Core stays light**: optional browser headers, TLS fingerprints, and HTTP/3 live in extension modules so ordinary users do not pay their dependency cost.
 - **Request snapshot model**: once `Send` starts, later `Client` mutations must not affect the in-flight request.
+- **Caller-owned helpers**: value-like helpers return snapshots or copies; raw mutation is named `Raw` or `Unsafe`.
 
 ## Coding Rules
 
@@ -127,6 +151,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 - KISS/DRY/YAGNI — no premature abstractions, no unused features, no duplicated logic.
 - Keep shared defaults on `Client` and one-shot request state on `RequestBuilder`.
 - Keep profile behavior client-level; request-local headers and ordered headers override profile defaults.
+- Use versioned names for fixed browser header profiles; keep unversioned names only for dependency-controlled auto profiles.
 - Keep extension modules publishable; do not encode local workspace relationships in extension `go.mod` files.
 - Return errors instead of panicking; preserve context with wrapped errors.
 - Use `httptest.Server` or local protocol servers for request/response behavior tests.
@@ -151,6 +176,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 - No premature abstraction — three similar lines are better than a helper used once.
 - No feature creep — only implement behavior supported by the package contracts.
 - No per-request TLS or protocol mutation.
+- No compatibility aliases for removed request, response, cache, profile, or raw-client APIs.
 - No hidden dependency bloat in the root module; heavy optional protocols belong in extension modules.
 - No encoding spec prose as runtime code; keep rules in `SPECS/` and executable behavior in source.
 - No working around dependency bugs — if a dependency is the problem, write a report in `reports/` instead of reimplementing it here.

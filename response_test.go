@@ -97,6 +97,26 @@ func TestResponseHeaderAndCookies(t *testing.T) {
 	})
 }
 
+func TestResponseHeaderReturnsSnapshot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Snapshot", "raw")
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	headers := resp.Header()
+	headers.Set("X-Snapshot", "mutated")
+	headers.Set("Content-Type", "application/json")
+
+	assert.Equal(t, "raw", resp.Raw().Header.Get("X-Snapshot"))
+	assert.Equal(t, "text/plain", resp.ContentType())
+}
+
 func TestResponseLocation(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "https://example.com/start", nil)
 	assert.NoError(t, err)
@@ -170,7 +190,7 @@ func TestResponseAfterRedirect(t *testing.T) {
 	assert.Contains(t, bodyStr, expectedContent, "The response content should be 'Redirected'")
 }
 
-func TestResponseBodyAndString(t *testing.T) {
+func TestResponseBytesAndString(t *testing.T) {
 	server := startTestHTTPServer()
 	defer server.Close()
 
@@ -181,8 +201,17 @@ func TestResponseBodyAndString(t *testing.T) {
 	bodyStr := resp.String()
 	assert.Contains(t, bodyStr, "This is the response body.")
 
-	bodyBytes := resp.Body()
+	bodyBytes := resp.Bytes()
 	assert.Contains(t, string(bodyBytes), "This is the response body.")
+	bodyBytes[0] = 'x'
+	assert.Contains(t, resp.String(), "This is the response body.")
+	assert.Contains(t, string(resp.Bytes()), "This is the response body.")
+
+	var lines []string
+	for line := range resp.Lines() {
+		lines = append(lines, string(line))
+	}
+	assert.Contains(t, lines, "This is the response body.")
 }
 
 func TestResponseRaw(t *testing.T) {
@@ -691,7 +720,7 @@ func TestHandleNonStream_ConcurrentSafety(t *testing.T) {
 				results[i] = fmt.Sprintf("ERROR: %v", err)
 				return
 			}
-			results[i] = string(resp.Body())
+			results[i] = string(resp.Bytes())
 		})
 	}
 	wg.Wait()

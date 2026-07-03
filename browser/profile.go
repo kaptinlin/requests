@@ -12,19 +12,19 @@ type profile struct {
 	http2   bool
 }
 
-// Chrome returns a Chrome identity profile.
-func Chrome() requests.Profile {
+// Chrome145 returns a fixed Chrome 145 identity profile.
+func Chrome145() requests.Profile {
 	return profile{
-		name:    "Chrome",
+		name:    "Chrome145",
 		headers: chromeHeaders(),
 		http2:   true,
 	}
 }
 
-// Firefox returns a Firefox identity profile.
-func Firefox() requests.Profile {
+// Firefox148 returns a fixed Firefox 148 identity profile.
+func Firefox148() requests.Profile {
 	return profile{
-		name:    "Firefox",
+		name:    "Firefox148",
 		headers: firefoxHeaders(),
 		http2:   true,
 	}

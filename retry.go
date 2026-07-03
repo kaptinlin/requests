@@ -97,7 +97,7 @@ func (p RetryPolicy) delay(attempt int, resp *http.Response) time.Duration {
 // request timeouts, rate limiting, and 5xx status codes.
 func DefaultRetryIf(req *http.Request, resp *http.Response, err error) bool {
 	if err != nil {
-		return true
+		return IsTimeout(err) || IsConnectionError(err)
 	}
 	if resp == nil {
 		return false
