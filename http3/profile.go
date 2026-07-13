@@ -29,10 +29,10 @@ type profile struct {
 // Option configures an HTTP/3 transport profile.
 type Option func(*settings)
 
-// WithTLSConfig sets the TLS configuration for the HTTP/3 transport.
+// WithTLSConfig captures a standard shallow clone for the HTTP/3 transport.
 func WithTLSConfig(tlsConfig *tls.Config) Option {
 	return func(s *settings) {
-		s.tlsConfig = tlsConfig
+		s.tlsConfig = cloneTLSConfig(tlsConfig)
 	}
 }
 

@@ -2,34 +2,10 @@ package requests
 
 import (
 	"fmt"
-	"io"
 	"net/url"
-	"strings"
 
 	"github.com/google/go-querystring/query"
 )
-
-// File represents a form file.
-type File struct {
-	Name     string        // Name is the form field name.
-	FileName string        // FileName is the uploaded file name.
-	Content  io.ReadCloser // Content is the uploaded file content.
-}
-
-// SetContent sets the content of the file.
-func (f *File) SetContent(content io.ReadCloser) {
-	f.Content = content
-}
-
-// SetFileName sets the file name.
-func (f *File) SetFileName(fileName string) {
-	f.FileName = fileName
-}
-
-// SetName sets the form field name.
-func (f *File) SetName(name string) {
-	f.Name = name
-}
 
 func stringMapToValues(data map[string]string) url.Values {
 	values := make(url.Values, len(data))
@@ -55,63 +31,3 @@ func parseFormFields(fields any) (url.Values, error) {
 		return values, nil
 	}
 }
-
-func parseForm(v any) (url.Values, []*File, error) {
-	switch data := v.(type) {
-	case url.Values:
-		return data, nil, nil
-	case map[string][]string:
-		return url.Values(data), nil, nil
-	case map[string]string:
-		return stringMapToValues(data), nil, nil
-	case map[string]any:
-		values := make(url.Values)
-		var files []*File
-		for key, value := range data {
-			switch field := value.(type) {
-			case string:
-				values.Set(key, field)
-			case []string:
-				for _, item := range field {
-					values.Add(key, item)
-				}
-			case *File:
-				field.SetName(key)
-				files = append(files, field)
-			default:
-				return nil, nil, fmt.Errorf("%w: %T", ErrUnsupportedDataType, value)
-			}
-		}
-		return values, files, nil
-	default:
-		values, err := query.Values(v)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%w: %w", ErrUnsupportedFormFieldsType, err)
-		}
-		return values, nil, nil
-	}
-}
-
-// FormEncoder handles encoding of form data.
-type FormEncoder struct{}
-
-// Encode encodes the given value into URL-encoded form data.
-func (e *FormEncoder) Encode(v any) (io.Reader, error) {
-	switch data := v.(type) {
-	case url.Values:
-		return strings.NewReader(data.Encode()), nil
-	case map[string][]string:
-		return strings.NewReader(url.Values(data).Encode()), nil
-	case map[string]string:
-		return strings.NewReader(stringMapToValues(data).Encode()), nil
-	default:
-		values, err := query.Values(v)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
-		}
-		return strings.NewReader(values.Encode()), nil
-	}
-}
-
-// DefaultFormEncoder is the default FormEncoder instance.
-var DefaultFormEncoder = &FormEncoder{}

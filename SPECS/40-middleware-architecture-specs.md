@@ -39,17 +39,6 @@ The `middlewares` package defines:
 
 - `HeaderMiddleware`, which adds headers to every request it wraps
 - `CookieMiddleware`, which adds cookies to every request it wraps
-- `NewCacheMiddleware`, which validates and returns middleware that caches only successful `GET` responses with status `200 OK`
-
-`NewCacheMiddleware` requires:
-
-- a non-nil `Cacher`
-- a positive TTL
-- a non-nil `requests.Logger`
-
-Invalid cache setup fails before the middleware is installed. Cache keys are derived from request scheme, host, escaped path, and raw query string. `MemoryCache` owns stored bytes, returns byte snapshots, and allows `Close` to be called more than once.
-
-The built-in cache helper is intentionally simple. It does not implement full RFC HTTP cache semantics such as `Cache-Control`, `Vary`, validators, or revalidation.
 
 ## Mutation Contract
 
@@ -59,7 +48,6 @@ The built-in cache helper is intentionally simple. It does not implement full RF
 
 - Do not use a two-argument middleware signature.
 - Do not assume `RequestBuilder.AddMiddleware` returns `*RequestBuilder`.
-- Do not install cache middleware without handling the `NewCacheMiddleware` setup error.
 
 ## Contract Invariants
 

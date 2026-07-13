@@ -49,7 +49,7 @@ requests/
 ├── codec.go         # Encoder and decoder abstractions
 ├── form.go          # Form and multipart parsing helpers
 ├── stream.go        # Streaming buffer limits
-├── middlewares/     # Header, cookie, and cache middleware
+├── middlewares/     # Header and cookie middleware
 ├── browser/         # Optional browser identity profile module
 ├── fingerprint/     # Optional uTLS ClientHello fingerprint module
 ├── http3/           # Optional QUIC HTTP/3 transport module
@@ -145,11 +145,15 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 
 ### Must Follow
 
-- Go 1.26.4 — use modern Go features already present in this repo when they simplify code.
+- Go 1.26.5 — use modern Go features already present in this repo when they simplify code.
 - Follow [Google Go Best Practices](https://google.github.io/go-style/best-practices).
 - Follow [Google Go Style Decisions](https://google.github.io/go-style/decisions).
 - KISS/DRY/YAGNI — no premature abstractions, no unused features, no duplicated logic.
 - Keep shared defaults on `Client` and one-shot request state on `RequestBuilder`.
+- Keep exactly one body selection on `RequestBuilder`; a later body helper replaces earlier body state and its generated media type.
+- Treat `Encoder.Encode` readers and multipart `FilePart.Body` values as read-only borrowed inputs; do not call `Close` based on dynamic type.
+- Treat buffered `Send` response bodies as library-owned and `SendStream` bodies as caller-owned.
+- Apply root TLS and session options only to `*http.Transport`; fail incompatible transports instead of partially mutating or replacing them.
 - Keep profile behavior client-level; request-local headers and ordered headers override profile defaults.
 - Use versioned names for fixed browser header profiles; keep unversioned names only for dependency-controlled auto profiles.
 - Keep extension modules publishable; do not encode local workspace relationships in extension `go.mod` files.
@@ -160,7 +164,7 @@ Specification documents in [`SPECS/`](SPECS/) define system contracts, API rules
 
 | Feature | Where Used |
 |---------|------------|
-| `maps.Copy` / `maps.Clone` | Redirect header preservation and builder map cloning |
+| `maps.Copy` / `maps.Clone` | Builder path-parameter copying and HTTP/3 settings clones |
 | `slices.Clone` / `slices.DeleteFunc` / `slices.Backward` / `slices.Contains` | Response copies, request mutation helpers, middleware ordering, ALPN checks |
 | `strings.SplitSeq` | NO_PROXY parsing in `proxy.go` |
 | `iter.Seq` | `Response.Lines()` iterator API |

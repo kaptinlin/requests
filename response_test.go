@@ -22,6 +22,32 @@ import (
 
 var errFailingWriter = errors.New("failing writer")
 
+type recordingResponseBody struct {
+	data       []byte
+	readErr    error
+	closeErr   error
+	readCount  int
+	closeCount int
+}
+
+func (b *recordingResponseBody) Read(p []byte) (int, error) {
+	b.readCount++
+	if len(b.data) > 0 {
+		n := copy(p, b.data)
+		b.data = b.data[n:]
+		return n, nil
+	}
+	if b.readErr != nil {
+		return 0, b.readErr
+	}
+	return 0, io.EOF
+}
+
+func (b *recordingResponseBody) Close() error {
+	b.closeCount++
+	return b.closeErr
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) {
@@ -60,6 +86,173 @@ func TestResponseContentType(t *testing.T) {
 			resp, err := client.Get(tt.url).Send(context.Background())
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expected, resp.IsContentType(tt.contentType))
+		})
+	}
+}
+
+func TestResponseRejectsJSONPMediaType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/jsonp")
+		_, _ = fmt.Fprint(w, `{"message":"not json media"}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	assert.False(t, resp.IsJSON())
+	var decoded map[string]string
+	err = resp.Decode(&decoded)
+	assert.ErrorIs(t, err, ErrUnsupportedContentType)
+}
+
+func TestResponseDecodesStructuredJSONMediaType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+		_, _ = fmt.Fprint(w, `{"message":"problem"}`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, resp.IsJSON())
+	var decoded map[string]string
+	require.NoError(t, resp.Decode(&decoded))
+	assert.Equal(t, "problem", decoded["message"])
+}
+
+func TestResponseDecodesStructuredXMLMediaType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		_, _ = fmt.Fprint(w, `<svg><title>icon</title></svg>`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, resp.IsXML())
+	var decoded struct {
+		Title string `xml:"title"`
+	}
+	require.NoError(t, resp.Decode(&decoded))
+	assert.Equal(t, "icon", decoded.Title)
+}
+
+func TestResponseDecodesTextXMLMediaType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		_, _ = fmt.Fprint(w, `<message>hello</message>`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, resp.IsXML())
+	var decoded struct {
+		Value string `xml:",chardata"`
+	}
+	require.NoError(t, resp.Decode(&decoded))
+	assert.Equal(t, "hello", decoded.Value)
+}
+
+func TestResponseDecodesStructuredYAMLMediaType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/vnd.example+yaml")
+		_, _ = fmt.Fprint(w, "message: hello\n")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	assert.True(t, resp.IsYAML())
+	var decoded map[string]string
+	require.NoError(t, resp.Decode(&decoded))
+	assert.Equal(t, "hello", decoded["message"])
+}
+
+func TestResponseMediaTypeClassification(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", r.URL.Query().Get("type"))
+		_, _ = fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	tests := []struct {
+		name        string
+		contentType string
+		compare     string
+		isJSON      bool
+		isXML       bool
+		isYAML      bool
+		exactMatch  bool
+	}{
+		{
+			name:        "case parameters and whitespace",
+			contentType: "Application/JSON ; Charset=UTF-8",
+			compare:     "application/json",
+			isJSON:      true,
+			exactMatch:  true,
+		},
+		{
+			name:        "structured JSON is not exact JSON",
+			contentType: "application/problem+json",
+			compare:     "application/json",
+			isJSON:      true,
+		},
+		{
+			name:        "structured XML",
+			contentType: "image/svg+xml",
+			compare:     "image/svg+xml; charset=utf-8",
+			isXML:       true,
+			exactMatch:  true,
+		},
+		{
+			name:        "structured YAML",
+			contentType: "application/vnd.example+yaml",
+			compare:     "application/vnd.example+yaml",
+			isYAML:      true,
+			exactMatch:  true,
+		},
+		{
+			name:        "JSONP",
+			contentType: "application/jsonp",
+			compare:     "application/json",
+		},
+		{
+			name:        "invalid",
+			contentType: "not a media type",
+			compare:     "not a media type",
+		},
+		{
+			name:        "unsupported",
+			contentType: "text/plain",
+			compare:     "application/json",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resp, err := client.Get("/?type=" + url.QueryEscape(test.contentType)).Send(t.Context())
+			require.NoError(t, err)
+
+			assert.Equal(t, test.isJSON, resp.IsJSON())
+			assert.Equal(t, test.isXML, resp.IsXML())
+			assert.Equal(t, test.isYAML, resp.IsYAML())
+			assert.Equal(t, test.exactMatch, resp.IsContentType(test.compare))
+			if !test.isJSON && !test.isXML && !test.isYAML {
+				var decoded any
+				assert.ErrorIs(t, resp.Decode(&decoded), ErrUnsupportedContentType)
+			}
 		})
 	}
 }
@@ -438,7 +631,7 @@ func TestResponseTLSReturnsCopy(t *testing.T) {
 	defer server.Close()
 
 	client := newTestClient(t, WithBaseURL(server.URL))
-	client.insecureSkipVerify()
+	require.NoError(t, client.insecureSkipVerify())
 	resp, err := client.Get("/").Send(context.Background())
 	assert.NoError(t, err)
 
@@ -482,6 +675,85 @@ func TestResponseLines(t *testing.T) {
 
 	expected := []string{"Line 1", "Line 2", "Line 3"}
 	assert.Equal(t, expected, lines)
+}
+
+func TestResponseLinesReturnsLongBufferedLine(t *testing.T) {
+	want := bytes.Repeat([]byte("x"), 600<<10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(want)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	var lines [][]byte
+	for line := range resp.Lines() {
+		lines = append(lines, line)
+	}
+	require.Len(t, lines, 1)
+	assert.Equal(t, want, lines[0])
+}
+
+func TestResponseLinesReturnsCallerOwnedBytes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "first\nsecond")
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	resp, err := client.Get("/").Send(t.Context())
+	require.NoError(t, err)
+
+	var first []byte
+	for line := range resp.Lines() {
+		first = line
+		break
+	}
+	require.NotEmpty(t, first)
+	first[0] = 'X'
+
+	assert.Equal(t, "first\nsecond", resp.String())
+	var lines []string
+	for line := range resp.Lines() {
+		lines = append(lines, string(line))
+	}
+	assert.Equal(t, []string{"first", "second"}, lines)
+}
+
+func TestResponseLinesMatchesScanLinesSemantics(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{name: "empty"},
+		{name: "consecutive blank lines", body: "\n\n", want: []string{"", ""}},
+		{name: "CRLF", body: "first\r\nsecond\r\n", want: []string{"first", "second"}},
+		{name: "trailing newline", body: "first\n", want: []string{"first"}},
+		{name: "no newline", body: "first", want: []string{"first"}},
+		{name: "terminal carriage return", body: "first\r", want: []string{"first"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprint(w, test.body)
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, WithBaseURL(server.URL))
+			resp, err := client.Get("/").Send(t.Context())
+			require.NoError(t, err)
+
+			var got []string
+			for line := range resp.Lines() {
+				got = append(got, string(line))
+			}
+			assert.Equal(t, test.want, got)
+		})
+	}
 }
 
 func TestResponseLinesEmpty(t *testing.T) {
@@ -729,4 +1001,103 @@ func TestHandleNonStream_ConcurrentSafety(t *testing.T) {
 		expected := fmt.Sprintf("response-%d", i)
 		assert.Equal(t, expected, results[i], "goroutine %d: body data mismatch (possible data race)", i)
 	}
+}
+
+func TestBufferedResponseClosesBodyOnReadError(t *testing.T) {
+	readErr := errors.New("response read failed")
+	body := &recordingResponseBody{readErr: readErr}
+	httpClient := &http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       body,
+			Request:    req,
+		}, nil
+	})}
+	client := newTestClient(t, WithHTTPClient(httpClient))
+
+	resp, err := client.Get("http://example.test/").Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrResponseReadFailed)
+	assert.ErrorIs(t, err, readErr)
+	assert.Equal(t, 1, body.closeCount)
+}
+
+func TestBufferedResponseClosesBodyAfterSuccessfulRead(t *testing.T) {
+	payload := []byte(`{"message":"hello"}`)
+	closeErr := errors.New("response close failed")
+	body := &recordingResponseBody{data: bytes.Clone(payload), closeErr: closeErr}
+	httpClient := &http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       body,
+			Request:    req,
+		}, nil
+	})}
+	client := newTestClient(t, WithHTTPClient(httpClient))
+
+	resp, err := client.Get("http://example.test/").Send(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, body.closeCount)
+	assert.Equal(t, payload, resp.Bytes())
+	assert.Equal(t, string(payload), resp.String())
+
+	var decoded map[string]string
+	require.NoError(t, resp.Decode(&decoded))
+	assert.Equal(t, map[string]string{"message": "hello"}, decoded)
+	rawBody, err := io.ReadAll(resp.Raw().Body)
+	require.NoError(t, err)
+	assert.Equal(t, payload, rawBody)
+	require.NoError(t, resp.Close())
+	assert.Equal(t, 1, body.closeCount)
+}
+
+func TestBufferedResponseReadErrorTakesPrecedenceOverCloseError(t *testing.T) {
+	readErr := errors.New("response read failed")
+	closeErr := errors.New("response close failed")
+	body := &recordingResponseBody{
+		data:     []byte("partial"),
+		readErr:  readErr,
+		closeErr: closeErr,
+	}
+	httpClient := &http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       body,
+			Request:    req,
+		}, nil
+	})}
+	client := newTestClient(t, WithHTTPClient(httpClient))
+
+	resp, err := client.Get("http://example.test/").Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrResponseReadFailed)
+	assert.ErrorIs(t, err, readErr)
+	assert.NotErrorIs(t, err, closeErr)
+	assert.Equal(t, 1, body.closeCount)
+}
+
+func TestSendStreamDoesNotPreReadAndClosesBodyOnce(t *testing.T) {
+	body := &recordingResponseBody{data: []byte("stream")}
+	httpClient := &http.Client{Transport: testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       body,
+			Request:    req,
+		}, nil
+	})}
+	client := newTestClient(t, WithHTTPClient(httpClient))
+
+	resp, err := client.Get("http://example.test/").SendStream(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, body.readCount)
+	assert.Zero(t, body.closeCount)
+	require.NoError(t, resp.Close())
+	require.NoError(t, resp.Close())
+	assert.Equal(t, 1, body.closeCount)
 }

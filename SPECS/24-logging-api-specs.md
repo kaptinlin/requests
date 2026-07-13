@@ -12,7 +12,6 @@ A valid logger implements all of:
 - `Infof`
 - `Warnf`
 - `Errorf`
-- `SetLevel`
 
 The package log levels are:
 
@@ -23,13 +22,18 @@ The package log levels are:
 
 ## Default Logger
 
-`NewDefaultLogger(output io.Writer, level Level)` creates a package logger backed by `log/slog`.
+`NewDefaultLogger(output io.Writer, level Level)` returns a `*DefaultLogger`
+backed by `log/slog`.
 
 The level argument MUST be a `requests.Level`, not a `slog.Level`.
 
-`SetLevel` changes the active threshold after construction.
+`DefaultLogger.SetLevel` changes the active threshold after construction. Level
+configuration belongs to the concrete default logger; custom `Logger`
+implementations only provide the four emission methods.
 
-> **Why**: The package exposes its own small logging contract so callers can swap implementations without depending on a specific logging framework.
+> **Why**: The package consumes emission only, so callers can supply a minimal
+> logger without implementing unrelated configuration. The concrete default
+> logger retains runtime level control without widening the consumer interface.
 >
 > **Rejected**: Exposing `slog.Logger` directly as the public logging interface.
 
@@ -42,7 +46,7 @@ The level argument MUST be a `requests.Level`, not a `slog.Level`.
 ## Forbidden
 
 - Do not pass `slog.Level*` values to `NewDefaultLogger`; use `requests.Level*`.
-- Do not implement only part of the `Logger` interface.
+- Do not require custom loggers to expose level configuration.
 - Do not parse package log messages as a stable machine-readable API.
 
 ## Contract Invariants

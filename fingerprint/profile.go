@@ -20,10 +20,14 @@ type profile struct {
 // Option configures a TLS fingerprint profile.
 type Option func(*profile)
 
-// WithTLSConfig sets the TLS configuration used by the uTLS handshake.
+// WithTLSConfig captures a standard shallow clone for the uTLS handshake.
 func WithTLSConfig(config *tls.Config) Option {
 	return func(p *profile) {
-		p.tlsConfig = config
+		if config == nil {
+			p.tlsConfig = nil
+			return
+		}
+		p.tlsConfig = config.Clone()
 	}
 }
 

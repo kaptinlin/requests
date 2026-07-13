@@ -50,7 +50,7 @@ func TestWithoutProxyClearsProxyOnClone(t *testing.T) {
 	defer server.Close()
 
 	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Proxy server response
+		w.Header().Set("X-Test-Proxy", "true")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer proxyServer.Close()

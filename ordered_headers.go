@@ -159,6 +159,23 @@ func mergeOrderedHeaders(
 	return merged
 }
 
+func syncOrderedHeaderValues(headers *orderedobject.Object[[]string], semantic http.Header) {
+	if headers == nil {
+		return
+	}
+	for _, entry := range headers.Entries() {
+		if isPseudoHeader(entry.Key) {
+			continue
+		}
+		values := semantic.Values(entry.Key)
+		if len(values) == 0 {
+			headers.Delete(entry.Key)
+			continue
+		}
+		headers.Set(entry.Key, slices.Clone(values))
+	}
+}
+
 func withOrderedHeaders(req *http.Request, headers *orderedobject.Object[[]string]) *http.Request {
 	if headers == nil {
 		return req

@@ -34,12 +34,17 @@ If `RetryPolicy.ShouldRetry` is nil, delivery uses `DefaultRetryIf`.
 
 `DefaultRetryIf` retries on:
 
-- timeout and connection-level transport errors
+- errors classified by `IsTimeout`
+- errors whose chain contains `*net.OpError`, as classified by `IsConnectionError`
 - `408 Request Timeout`
 - `429 Too Many Requests`
 - `5xx` responses
 
-Default retry does not retry caller cancellation, malformed request construction, invalid headers, redirect policy failures, or other deterministic caller/configuration errors.
+Default retry does not retry caller cancellation, TLS certificate verification,
+malformed request construction, invalid headers, redirect policy failures, or
+other deterministic caller/configuration errors. Error joins from exhausted
+attempts preserve `errors.Is` / `errors.As` traversal and therefore preserve the
+same helper classifications.
 
 ## Backoff Strategies
 
@@ -89,7 +94,17 @@ Before retrying a request with a replayable body, delivery restores `req.Body` t
 
 Replayable body sources include built-in buffered/string body helpers (`JSON`, `XML`, `YAML`, `Text`, `Bytes`, `Form`, `FormField`, `FormFields`) and multipart builders that explicitly opt into `Replayable(maxBytes)`. A non-seekable `io.Reader` passed to `Reader` is non-replayable: when a retry would need to resend the body, delivery returns `ErrRequestBodyNotReplayable` instead of silently re-sending or silently skipping.
 
+Body preparation populates `GetBody` for replayable sources regardless of the
+active retry count, because 307/308 redirects consume the same standard
+contract. Every `GetBody` call returns a fresh body with byte-equivalent
+content. The delivery loop does not inspect concrete reader types; it only
+checks and invokes `req.GetBody`.
+
 Non-replayable streaming bodies are attempted once; if their first attempt returns a retryable response, delivery returns `ErrRequestBodyNotReplayable`.
+
+The first request body is closed by the HTTP transport. Preparation does not
+pre-close a caller-provided request reader. Nested multipart `FilePart.Body`
+values remain caller-owned and are not closed by the multipart writer.
 
 ## Forbidden
 

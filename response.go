@@ -1,13 +1,13 @@
 package requests
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"iter"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -57,12 +57,12 @@ func (r *Response) Raw() *http.Response {
 func (r *Response) handleNonStream() error {
 	buf := getBuffer()
 	defer putBuffer(buf)
+	defer r.rawResponse.Body.Close() //nolint:errcheck // buffered response ownership treats close as best-effort
 
 	_, err := buf.ReadFrom(r.rawResponse.Body)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrResponseReadFailed, err)
 	}
-	_ = r.rawResponse.Body.Close()
 
 	// Copy data before returning buffer to pool to prevent data race.
 	// Without this, concurrent goroutines could get the same pooled buffer,
@@ -155,22 +155,24 @@ func (r *Response) ContentType() string {
 
 // IsContentType checks if the response Content-Type header matches a given content type.
 func (r *Response) IsContentType(contentType string) bool {
-	return strings.Contains(r.ContentType(), contentType)
+	actual, actualOK := canonicalMediaType(r.ContentType())
+	want, wantOK := canonicalMediaType(contentType)
+	return actualOK && wantOK && actual == want
 }
 
 // IsJSON checks if the response Content-Type indicates JSON.
 func (r *Response) IsJSON() bool {
-	return r.IsContentType("application/json")
+	return classifyMediaType(r.ContentType()) == mediaJSON
 }
 
 // IsXML checks if the response Content-Type indicates XML.
 func (r *Response) IsXML() bool {
-	return r.IsContentType("application/xml")
+	return classifyMediaType(r.ContentType()) == mediaXML
 }
 
 // IsYAML checks if the response Content-Type indicates YAML.
 func (r *Response) IsYAML() bool {
-	return r.IsContentType("application/yaml")
+	return classifyMediaType(r.ContentType()) == mediaYAML
 }
 
 // ContentLength returns the length of the response body.
@@ -223,39 +225,79 @@ func (r *Response) String() string {
 
 // Decode decodes the response body based on its content type.
 func (r *Response) Decode(v any) error {
-	switch {
-	case r.IsJSON():
+	switch classifyMediaType(r.ContentType()) {
+	case mediaJSON:
 		return r.DecodeJSON(v)
-	case r.IsXML():
+	case mediaXML:
 		return r.DecodeXML(v)
-	case r.IsYAML():
+	case mediaYAML:
 		return r.DecodeYAML(v)
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedContentType, r.ContentType())
+	}
+}
+
+type mediaKind uint8
+
+const (
+	mediaUnsupported mediaKind = iota
+	mediaJSON
+	mediaXML
+	mediaYAML
+)
+
+func canonicalMediaType(value string) (string, bool) {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(mediaType), true
+}
+
+func classifyMediaType(value string) mediaKind {
+	mediaType, ok := canonicalMediaType(value)
+	if !ok {
+		return mediaUnsupported
 	}
 
-	return fmt.Errorf("%w: %s", ErrUnsupportedContentType, r.ContentType())
+	switch mediaType {
+	case "application/json":
+		return mediaJSON
+	case "application/xml", "text/xml":
+		return mediaXML
+	case "application/yaml":
+		return mediaYAML
+	default:
+		switch {
+		case strings.HasSuffix(mediaType, "+json"):
+			return mediaJSON
+		case strings.HasSuffix(mediaType, "+xml"):
+			return mediaXML
+		case strings.HasSuffix(mediaType, "+yaml"):
+			return mediaYAML
+		}
+		return mediaUnsupported
+	}
 }
 
 // DecodeJSON decodes the response body as JSON.
 func (r *Response) DecodeJSON(v any) error {
-	return r.decodeWith(r.jsonDecoder, DefaultJSONDecoder, v)
+	return r.decodeWith(r.jsonDecoder, v)
 }
 
 // DecodeXML decodes the response body as XML.
 func (r *Response) DecodeXML(v any) error {
-	return r.decodeWith(r.xmlDecoder, DefaultXMLDecoder, v)
+	return r.decodeWith(r.xmlDecoder, v)
 }
 
 // DecodeYAML decodes the response body as YAML.
 func (r *Response) DecodeYAML(v any) error {
-	return r.decodeWith(r.yamlDecoder, DefaultYAMLDecoder, v)
+	return r.decodeWith(r.yamlDecoder, v)
 }
 
-func (r *Response) decodeWith(decoder, fallback Decoder, v any) error {
+func (r *Response) decodeWith(decoder Decoder, v any) error {
 	if r.body == nil {
 		return nil
-	}
-	if decoder == nil {
-		decoder = fallback
 	}
 	return decoder.Decode(bytes.NewReader(r.body), v)
 }
@@ -316,20 +358,27 @@ func (r *Response) saveToWriter(w io.Writer) error {
 // Lines returns an iterator over the buffered response body lines.
 func (r *Response) Lines() iter.Seq[[]byte] {
 	return func(yield func([]byte) bool) {
-		if r.body == nil {
-			return
-		}
-
-		scanner := bufio.NewScanner(bytes.NewReader(r.body))
-		for scanner.Scan() {
-			if !yield(scanner.Bytes()) {
-				break
+		remaining := r.body
+		for len(remaining) > 0 {
+			line := remaining
+			if i := bytes.IndexByte(remaining, '\n'); i >= 0 {
+				line = remaining[:i]
+				remaining = remaining[i+1:]
+			} else {
+				remaining = nil
+			}
+			if len(line) > 0 && line[len(line)-1] == '\r' {
+				line = line[:len(line)-1]
+			}
+			if !yield(bytes.Clone(line)) {
+				return
 			}
 		}
 	}
 }
 
-// Close closes the response body.
+// Close closes the replacement reader over the buffered body.
+// Send has already closed the transport body before returning the Response.
 func (r *Response) Close() error {
 	return r.rawResponse.Body.Close()
 }

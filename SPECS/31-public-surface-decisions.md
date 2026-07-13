@@ -37,6 +37,20 @@ Request bodies are described with `JSON`, `XML`, `YAML`, `Text`, `Bytes`,
   Raw byte and reader bodies do not imply content type unless the caller sets
   one.
 
+### Instance-Owned Codecs
+
+Each client owns its configured JSON, XML, and YAML encoder and decoder. The
+concrete codec types and `With*Encoder` / `With*Decoder` options are public
+integration points; default instances are private client state.
+
+- **Why**: Mutable package-level defaults allow one caller to change unrelated
+  clients. A standalone form encoder duplicates the builder's explicit form
+  vocabulary without participating in the `Encoder` content-type contract.
+- **Rejected**: Exported mutable `Default*Encoder` / `Default*Decoder` globals
+  and a standalone `FormEncoder` / `DefaultFormEncoder` path.
+- **Contract Impact**: Construct codec values explicitly when customizing a
+  client. Build URL-encoded forms through `RequestBuilder` form helpers.
+
 ### Caller-Owned Streaming
 
 `Send(ctx)` is the buffered path. `SendStream(ctx)` is the streaming path and
@@ -115,14 +129,18 @@ These symbols remain public because they name real integration points:
 - `AsHTTPClient` and `AsTransport` expose standard-library adapter shapes.
 - `UnsafeHTTPClient` exposes the underlying client for advanced integration.
   Callers that mutate it own synchronization and consistency risk.
-- `GetTLSConfig` returns a clone so extension modules can inherit TLS intent
-  without taking ownership of mutable client state.
+- `GetTLSConfig` returns a standard shallow `tls.Config.Clone` so extension
+  modules can inherit TLS intent without receiving the client's top-level
+  config pointer. Referenced collaborators keep the ownership contract defined
+  by `SPECS/20-client-api-specs.md`.
 - `RoundRobinProxies` and `RandomProxies` create proxy selectors for
   `WithProxySelector`.
 
 ## Forbidden
 
 - Do not add aliases for removed construction, body, streaming, or retry names.
+- Do not restore request-builder cloning, cache middleware, standalone form
+  encoders, or mutable package-level default codec instances.
 - Do not add public runtime setters for client defaults; use `Clone(opts...)` to
   derive a modified client.
 - Do not expose mutable response internals as fields.
@@ -132,7 +150,7 @@ These symbols remain public because they name real integration points:
 
 ## Contract Invariants
 
-- Public construction is limited to `New`, `Clone`, builder creation, and verb
+- Public construction is limited to `New`, `Client.Clone`, builder creation, and verb
   helpers.
 - Request body APIs are explicit about encoding and ownership.
 - Buffered and streaming response ownership remain separate.

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/test-go/testify/require"
 )
 
 type mockLoggerRecorder struct {
@@ -37,6 +38,18 @@ func TestDefaultLoggerLevels(t *testing.T) {
 	assert.Contains(t, rec.Records[3], "error message", "Error log message should match")
 }
 
+func TestDefaultLoggerSetLevel(t *testing.T) {
+	rec := &mockLoggerRecorder{}
+	logger := NewDefaultLogger(rec, LevelInfo)
+
+	logger.Debugf("hidden")
+	logger.SetLevel(LevelDebug)
+	logger.Debugf("visible")
+
+	require.Len(t, rec.Records, 1)
+	assert.Contains(t, rec.Records[0], "visible")
+}
+
 type mockLogger struct {
 	Infos  []string
 	Errors []string
@@ -51,7 +64,6 @@ func (m *mockLogger) Errorf(format string, v ...any) {
 	m.Errors = append(m.Errors, fmt.Sprintf(format, v...))
 }
 
-func (m *mockLogger) SetLevel(level Level) {}
 func TestRetryLogMessage(t *testing.T) {
 	// Initialize attempt counter
 	var attempts int

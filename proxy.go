@@ -107,7 +107,11 @@ func verifyProxy(proxyURL string) (*url.URL, error) {
 // Must be called with c.mu held.
 func (c *Client) ensureTransport() (*http.Transport, error) {
 	if c.httpClient.Transport == nil {
-		c.httpClient.Transport = &http.Transport{}
+		baseline, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return nil, fmt.Errorf("%w: expected default *http.Transport, got %T", ErrInvalidTransportType, http.DefaultTransport)
+		}
+		c.httpClient.Transport = baseline.Clone()
 	}
 	transport, ok := c.httpClient.Transport.(*http.Transport)
 	if !ok {
@@ -248,18 +252,14 @@ func RandomProxies(proxyURLs ...string) (func(*http.Request) (*url.URL, error), 
 }
 
 // removeProxy clears any configured proxy, allowing direct connections.
-func (c *Client) removeProxy() {
+func (c *Client) removeProxy() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.httpClient.Transport == nil {
-		return
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return err
 	}
-
-	transport, ok := c.httpClient.Transport.(*http.Transport)
-	if !ok {
-		return
-	}
-
 	transport.Proxy = nil
+	return nil
 }

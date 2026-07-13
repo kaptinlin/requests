@@ -23,25 +23,12 @@ func (e *XMLEncoder) Encode(v any) (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
-
-	buf := getBuffer()
-	_, err = buf.Write(data)
-	if err != nil {
-		putBuffer(buf)
-		return nil, fmt.Errorf("failed to write XML to buffer: %w", err)
-	}
-
-	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
+	return bytes.NewReader(data), nil
 }
 
 // ContentType returns the content type for XML data.
 func (e *XMLEncoder) ContentType() string {
 	return "application/xml;charset=utf-8"
-}
-
-// DefaultXMLEncoder is the default XMLEncoder instance using the standard xml.Marshal function.
-var DefaultXMLEncoder = &XMLEncoder{
-	MarshalFunc: xml.Marshal,
 }
 
 // XMLDecoder handles decoding of XML data.
@@ -65,9 +52,4 @@ func (d *XMLDecoder) Decode(r io.Reader, v any) error {
 		return fmt.Errorf("failed to unmarshal XML: %w", err)
 	}
 	return nil
-}
-
-// DefaultXMLDecoder is the default XMLDecoder instance using the standard xml.Unmarshal function.
-var DefaultXMLDecoder = &XMLDecoder{
-	UnmarshalFunc: xml.Unmarshal,
 }

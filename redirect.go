@@ -2,10 +2,13 @@ package requests
 
 import (
 	"fmt"
-	"maps"
 	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // sensitiveHeaders are headers that should be stripped when redirecting across hosts or
@@ -53,54 +56,8 @@ func (a *AllowRedirectPolicy) Apply(req *http.Request, via []*http.Request) erro
 	if len(via) >= a.numberRedirects {
 		return fmt.Errorf("stopped after %d redirects: %w", a.numberRedirects, ErrTooManyRedirects)
 	}
-	checkHostAndAddHeaders(req, via[0])
+	stripSensitiveHeadersOnRedirect(req, via[0])
 	return nil
-}
-
-// SmartRedirectPolicy is a redirect policy that downgrades POST to GET on 301/302/303
-// redirects and strips sensitive headers on cross-host or scheme-downgrade redirects.
-type SmartRedirectPolicy struct {
-	maxRedirects int
-}
-
-// NewSmartRedirectPolicy creates a new SmartRedirectPolicy with the given redirect limit.
-func NewSmartRedirectPolicy(maxRedirects int) *SmartRedirectPolicy {
-	return &SmartRedirectPolicy{maxRedirects: maxRedirects}
-}
-
-// Apply enforces the redirect limit, performs method downgrade for 301/302/303, and
-// strips sensitive headers on cross-host or HTTPS-to-HTTP redirects.
-func (s *SmartRedirectPolicy) Apply(req *http.Request, via []*http.Request) error {
-	if len(via) >= s.maxRedirects {
-		return fmt.Errorf("stopped after %d redirects: %w", s.maxRedirects, ErrTooManyRedirects)
-	}
-
-	prev := via[len(via)-1]
-	checkHostAndAddHeaders(req, prev)
-
-	if prev.Response == nil {
-		return nil
-	}
-
-	status := prev.Response.StatusCode
-	shouldDowngrade := (status == http.StatusMovedPermanently || status == http.StatusFound) && req.Method == http.MethodPost
-	shouldDowngrade = shouldDowngrade || status == http.StatusSeeOther && req.Method != http.MethodHead
-	if shouldDowngrade {
-		req.Method = http.MethodGet
-		req.Body = nil
-		req.ContentLength = 0
-		dropPayloadHeaders(req.Header)
-	}
-
-	return nil
-}
-
-// dropPayloadHeaders removes headers related to request body content.
-func dropPayloadHeaders(h http.Header) {
-	h.Del("Content-Type")
-	h.Del("Content-Length")
-	h.Del("Content-Encoding")
-	h.Del("Transfer-Encoding")
 }
 
 // getHostname extracts the hostname from a host string, removing any port number.
@@ -140,16 +97,51 @@ func stripSensitiveHeaders(h http.Header) {
 	}
 }
 
-// checkHostAndAddHeaders copies headers from the previous request when the host and scheme match.
-// On cross-host or HTTPS-to-HTTP redirects, sensitive headers are stripped instead.
-func checkHostAndAddHeaders(cur *http.Request, pre *http.Request) {
-	sameHost := strings.EqualFold(getHostname(cur.URL.Host), getHostname(pre.URL.Host))
-	schemeDowngrade := pre.URL.Scheme == "https" && cur.URL.Scheme == "http"
-
-	if sameHost && !schemeDowngrade {
-		maps.Copy(cur.Header, pre.Header)
+func stripSensitiveHeadersOnRedirect(cur *http.Request, pre *http.Request) {
+	if sameOrigin(cur.URL, pre.URL) {
 		return
 	}
 
 	stripSensitiveHeaders(cur.Header)
+}
+
+func sameOrigin(left, right *url.URL) bool {
+	leftHostname, leftOK := canonicalHostname(left)
+	rightHostname, rightOK := canonicalHostname(right)
+
+	return strings.EqualFold(left.Scheme, right.Scheme) &&
+		leftOK && rightOK &&
+		leftHostname == rightHostname &&
+		effectivePort(left) == effectivePort(right)
+}
+
+func canonicalHostname(u *url.URL) (string, bool) {
+	hostname := u.Hostname()
+	if hostname == "" {
+		return "", false
+	}
+	if addr, err := netip.ParseAddr(hostname); err == nil {
+		return addr.String(), true
+	}
+
+	hostname, err := idna.Lookup.ToASCII(hostname)
+	if err != nil {
+		return "", false
+	}
+	return strings.ToLower(hostname), true
+}
+
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
 }

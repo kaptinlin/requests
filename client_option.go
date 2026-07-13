@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/kaptinlin/orderedobject"
@@ -50,6 +51,34 @@ func validateDecoderOption(name string, decoder Decoder) error {
 	return nil
 }
 
+func isNilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	switch reflected := reflect.ValueOf(value); reflected.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}
+
+func validateAuthOption(auth AuthMethod) error {
+	if isNilInterface(auth) || !auth.Valid() {
+		return invalidOptionValue("Auth")
+	}
+	return nil
+}
+
+func validateMiddlewares(middlewares []Middleware) error {
+	for i, middleware := range middlewares {
+		if middleware == nil {
+			return invalidOptionValue(fmt.Sprintf("Middleware[%d]", i))
+		}
+	}
+	return nil
+}
+
 // WithBaseURL sets the base URL for the client.
 func WithBaseURL(baseURL string) Option {
 	return func(c *Client) error {
@@ -82,8 +111,8 @@ func WithHeader(key, value string) Option {
 	}
 }
 
-// WithHeaders sets all default headers on the client.
-func WithHeaders(headers *http.Header) Option {
+// WithHeaders sets all default headers on the client from a construction-time copy.
+func WithHeaders(headers http.Header) Option {
 	return func(c *Client) error {
 		c.setDefaultHeaders(headers)
 		return nil
@@ -149,14 +178,16 @@ func WithCookieJar(jar *cookiejar.Jar) Option {
 // WithSession enables cookie and TLS session reuse.
 func WithSession() Option {
 	return func(c *Client) error {
-		c.enableSession()
-		return nil
+		return c.enableSession()
 	}
 }
 
 // WithAuth sets the authentication method for the client.
 func WithAuth(auth AuthMethod) Option {
 	return func(c *Client) error {
+		if err := validateAuthOption(auth); err != nil {
+			return err
+		}
 		c.setAuth(auth)
 		return nil
 	}
@@ -164,18 +195,12 @@ func WithAuth(auth AuthMethod) Option {
 
 // WithBasicAuth sets HTTP Basic Authentication credentials.
 func WithBasicAuth(username, password string) Option {
-	return func(c *Client) error {
-		c.setAuth(BasicAuth{Username: username, Password: password})
-		return nil
-	}
+	return WithAuth(BasicAuth{Username: username, Password: password})
 }
 
 // WithBearerAuth sets a Bearer token for authentication.
 func WithBearerAuth(token string) Option {
-	return func(c *Client) error {
-		c.setAuth(BearerAuth{Token: token})
-		return nil
-	}
+	return WithAuth(BearerAuth{Token: token})
 }
 
 // WithRetry sets the default retry policy.
@@ -200,6 +225,9 @@ func WithoutRetry() Option {
 // WithMiddleware adds middleware to the client.
 func WithMiddleware(middlewares ...Middleware) Option {
 	return func(c *Client) error {
+		if err := validateMiddlewares(middlewares); err != nil {
+			return err
+		}
 		c.addMiddleware(middlewares...)
 		return nil
 	}
@@ -212,27 +240,25 @@ func WithProfile(profile Profile) Option {
 	}
 }
 
-// WithTLSConfig sets the TLS configuration for the client.
+// WithTLSConfig sets TLS configuration from a standard shallow [tls.Config.Clone].
+// Callers must not mutate referenced values after construction.
 func WithTLSConfig(config *tls.Config) Option {
 	return func(c *Client) error {
-		c.setTLSConfig(config)
-		return nil
+		return c.setTLSConfig(config)
 	}
 }
 
 // WithInsecureSkipVerify configures the client to skip TLS certificate verification.
 func WithInsecureSkipVerify() Option {
 	return func(c *Client) error {
-		c.insecureSkipVerify()
-		return nil
+		return c.insecureSkipVerify()
 	}
 }
 
-// WithCertificates sets TLS client certificates.
+// WithCertificates copies certificate metadata while borrowing private keys and parsed leaves.
 func WithCertificates(certs ...tls.Certificate) Option {
 	return func(c *Client) error {
-		c.setCertificates(certs...)
-		return nil
+		return c.setCertificates(certs...)
 	}
 }
 
@@ -243,16 +269,14 @@ func WithClientCertificate(certFile, keyFile string) Option {
 		if err != nil {
 			return fmt.Errorf("load client certificate: %w", err)
 		}
-		c.setCertificates(cert)
-		return nil
+		return c.setCertificates(cert)
 	}
 }
 
 // WithTLSServerName sets the TLS server name (SNI).
 func WithTLSServerName(serverName string) Option {
 	return func(c *Client) error {
-		c.setTLSServerName(serverName)
-		return nil
+		return c.setTLSServerName(serverName)
 	}
 }
 
@@ -263,16 +287,14 @@ func WithRootCertificate(pemFilePath string) Option {
 		if err != nil {
 			return fmt.Errorf("read root certificate: %w", err)
 		}
-		c.addRootCAs(rootPemData)
-		return nil
+		return c.addRootCAs(rootPemData)
 	}
 }
 
 // WithRootCertificateFromString sets the root certificate from a PEM string.
 func WithRootCertificateFromString(pemCerts string) Option {
 	return func(c *Client) error {
-		c.setRootCertificateFromString(pemCerts)
-		return nil
+		return c.setRootCertificateFromString(pemCerts)
 	}
 }
 
@@ -410,6 +432,14 @@ func WithIdleConnTimeout(d time.Duration) Option {
 // WithRedirectPolicy sets the redirect policy for the client.
 func WithRedirectPolicy(policies ...RedirectPolicy) Option {
 	return func(c *Client) error {
+		if len(policies) == 0 {
+			return invalidOptionValue("RedirectPolicy")
+		}
+		for i, policy := range policies {
+			if isNilInterface(policy) {
+				return invalidOptionValue(fmt.Sprintf("RedirectPolicy[%d]", i))
+			}
+		}
 		c.setRedirectPolicy(policies...)
 		return nil
 	}
@@ -453,8 +483,7 @@ func WithProxySelector(selector func(*http.Request) (*url.URL, error)) Option {
 // WithoutProxy clears any configured proxy.
 func WithoutProxy() Option {
 	return func(c *Client) error {
-		c.removeProxy()
-		return nil
+		return c.removeProxy()
 	}
 }
 

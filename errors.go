@@ -17,19 +17,14 @@ var (
 	// use a typed body setter (JSON, XML, YAML, Text, Bytes).
 	ErrUnsupportedContentType = errors.New("unsupported content type")
 
-	// ErrUnsupportedDataType is returned when a decoder cannot handle the
-	// destination type. Pass a pointer to a struct, map, or slice that the
-	// codec can populate.
-	ErrUnsupportedDataType = errors.New("unsupported data type")
-
 	// ErrEncodingFailed is returned when an encoder rejects a body value.
 	// Wrapped errors carry the codec-specific cause; inspect with errors.As.
 	ErrEncodingFailed = errors.New("encoding failed")
 
 	// ErrRequestCreationFailed is returned when http.NewRequestWithContext
-	// rejects the resolved method, URL, or body. Almost always indicates a
-	// malformed BaseURL + path combination; verify with errors.As to surface
-	// the underlying *url.Error.
+	// rejects the context, method, or resolved URL. Validation happens before
+	// opening the request body. Verify with errors.As to inspect an underlying
+	// *url.Error when present.
 	ErrRequestCreationFailed = errors.New("failed to create request")
 
 	// ErrRequestBodyNotReplayable is returned when retries are configured but
@@ -126,9 +121,11 @@ func IsCanceled(err error) bool {
 	return errors.Is(err, context.Canceled)
 }
 
-// IsConnectionError reports whether err is a connection-level failure
-// (DNS resolution, TCP connect, TLS handshake), as surfaced by
-// [net.OpError].
+// IsConnectionError reports whether err contains a [net.OpError]. In the
+// standard HTTP transport this includes DNS resolution and TCP dial failures.
+// TLS certificate verification errors and HTTP transport timeouts do not
+// necessarily contain net.OpError; use [IsTimeout] for timeout-classified
+// failures and errors.As to inspect a specific TLS cause.
 func IsConnectionError(err error) bool {
 	if err == nil {
 		return false

@@ -25,15 +25,7 @@ func (e *JSONEncoder) Encode(v any) (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
-
-	buf := getBuffer()
-	_, err = buf.Write(data)
-	if err != nil {
-		putBuffer(buf)
-		return nil, fmt.Errorf("failed to write JSON to buffer: %w", err)
-	}
-
-	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
+	return bytes.NewReader(data), nil
 }
 
 // ContentType returns the content type for JSON data.
@@ -43,11 +35,6 @@ func (e *JSONEncoder) ContentType() string {
 
 func jsonMarshal(v any) ([]byte, error) {
 	return json.Marshal(v)
-}
-
-// DefaultJSONEncoder is the default JSONEncoder instance using the JSON v2 marshal function.
-var DefaultJSONEncoder = &JSONEncoder{
-	MarshalFunc: jsonMarshal,
 }
 
 // JSONDecoder handles decoding of JSON data.
@@ -66,6 +53,3 @@ func (d *JSONDecoder) Decode(r io.Reader, v any) error {
 	}
 	return nil
 }
-
-// DefaultJSONDecoder is the default JSONDecoder instance using the JSON v2 streaming decoder.
-var DefaultJSONDecoder = &JSONDecoder{}

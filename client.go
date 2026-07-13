@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -93,12 +94,12 @@ func (c *Client) Clone(opts ...Option) (*Client, error) {
 func newClient() *Client {
 	return &Client{
 		httpClient:  &http.Client{},
-		jsonEncoder: DefaultJSONEncoder,
-		jsonDecoder: DefaultJSONDecoder,
-		xmlEncoder:  DefaultXMLEncoder,
-		xmlDecoder:  DefaultXMLDecoder,
-		yamlEncoder: DefaultYAMLEncoder,
-		yamlDecoder: DefaultYAMLDecoder,
+		jsonEncoder: &JSONEncoder{},
+		jsonDecoder: &JSONDecoder{},
+		xmlEncoder:  &XMLEncoder{},
+		xmlDecoder:  &XMLDecoder{},
+		yamlEncoder: &YAMLEncoder{},
+		yamlDecoder: &YAMLDecoder{},
 		retry:       DefaultRetryPolicy(),
 	}
 }
@@ -164,6 +165,17 @@ func cloneTLSConfig(config *tls.Config) *tls.Config {
 	return config.Clone()
 }
 
+func cloneCertificates(certificates []tls.Certificate) []tls.Certificate {
+	clones := slices.Clone(certificates)
+	for i := range clones {
+		clones[i].Certificate = cloneByteSlices(clones[i].Certificate)
+		clones[i].SupportedSignatureAlgorithms = slices.Clone(clones[i].SupportedSignatureAlgorithms)
+		clones[i].OCSPStaple = slices.Clone(clones[i].OCSPStaple)
+		clones[i].SignedCertificateTimestamps = cloneByteSlices(clones[i].SignedCertificateTimestamps)
+	}
+	return clones
+}
+
 func cloneHTTPClient(client *http.Client, tlsConfig *tls.Config) *http.Client {
 	if client == nil {
 		return &http.Client{}
@@ -195,110 +207,120 @@ func (c *Client) addMiddleware(middlewares ...Middleware) {
 	c.middlewares = append(c.middlewares, middlewares...)
 }
 
-func (c *Client) syncTLSConfigLocked() {
+func (c *Client) syncTLSConfigLocked() error {
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
 	}
-	if c.tlsConfig == nil {
-		return
+	transport, err := c.ensureTransport()
+	if err != nil {
+		return err
 	}
-	if transport, ok := c.httpClient.Transport.(*http.Transport); ok {
-		transport.TLSClientConfig = c.tlsConfig
-		if isHTTP2Configured(transport) {
-			ensureHTTP2NextProtos(transport)
-			transport.ForceAttemptHTTP2 = true
-		}
-		return
+	transport.TLSClientConfig = c.tlsConfig
+	if isHTTP2Configured(transport) {
+		ensureHTTP2NextProtos(transport)
+		transport.ForceAttemptHTTP2 = true
 	}
-	if transport, ok := c.httpClient.Transport.(*http2.Transport); ok {
-		transport.TLSClientConfig = c.tlsConfig
-		return
-	}
-	c.httpClient.Transport = &http.Transport{TLSClientConfig: c.tlsConfig}
+	return nil
 }
 
 // setTLSConfig replaces the TLS configuration.
-func (c *Client) setTLSConfig(config *tls.Config) *Client {
+func (c *Client) setTLSConfig(config *tls.Config) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	config = cloneTLSConfig(config)
+	previous := c.tlsConfig
 	c.tlsConfig = config
-	c.syncTLSConfigLocked()
-	return c
+	if err := c.syncTLSConfigLocked(); err != nil {
+		c.tlsConfig = previous
+		return err
+	}
+	return nil
 }
 
-// ensureTLSConfig initializes the TLS configuration if nil.
-// Must be called with c.mu held.
-func (c *Client) ensureTLSConfig() {
-	if c.tlsConfig == nil {
-		c.tlsConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
+func (c *Client) updateTLSConfigLocked(update func(*tls.Config) error) error {
+	config := cloneTLSConfig(c.tlsConfig)
+	if config == nil {
+		config = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
+	if err := update(config); err != nil {
+		return err
+	}
+
+	previous := c.tlsConfig
+	c.tlsConfig = config
+	if err := c.syncTLSConfigLocked(); err != nil {
+		c.tlsConfig = previous
+		return err
+	}
+	return nil
 }
 
 // InsecureSkipVerify sets the TLS configuration to skip certificate verification.
-func (c *Client) insecureSkipVerify() *Client {
+func (c *Client) insecureSkipVerify() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ensureTLSConfig()
-	c.tlsConfig.InsecureSkipVerify = true
-	c.syncTLSConfigLocked()
-	return c
+	return c.updateTLSConfigLocked(func(config *tls.Config) error {
+		config.InsecureSkipVerify = true
+		return nil
+	})
 }
 
 // setCertificates replaces the TLS client certificates.
-func (c *Client) setCertificates(certs ...tls.Certificate) *Client {
+func (c *Client) setCertificates(certs ...tls.Certificate) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ensureTLSConfig()
-	c.tlsConfig.Certificates = certs
-	c.syncTLSConfigLocked()
-	return c
+	return c.updateTLSConfigLocked(func(config *tls.Config) error {
+		config.Certificates = cloneCertificates(certs)
+		return nil
+	})
 }
 
 // setTLSServerName sets the TLS server name (SNI).
-func (c *Client) setTLSServerName(serverName string) *Client {
+func (c *Client) setTLSServerName(serverName string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ensureTLSConfig()
-	c.tlsConfig.ServerName = serverName
-	c.syncTLSConfigLocked()
-	return c
+	return c.updateTLSConfigLocked(func(config *tls.Config) error {
+		config.ServerName = serverName
+		return nil
+	})
 }
 
 // setRootCertificate loads root certificates from a PEM file.
-func (c *Client) setRootCertificate(pemFilePath string) *Client {
+func (c *Client) setRootCertificate(pemFilePath string) error {
 	cleanPath := filepath.Clean(pemFilePath)
 	rootPemData, err := os.ReadFile(cleanPath)
 	if err != nil {
-		if c.logger != nil {
-			c.logger.Errorf("failed to read root certificate: %v", err)
-		}
-		return c
+		return fmt.Errorf("read root certificate: %w", err)
 	}
 	return c.addRootCAs(rootPemData)
 }
 
 // setRootCertificateFromString loads root certificates from PEM text.
-func (c *Client) setRootCertificateFromString(pemCerts string) *Client {
+func (c *Client) setRootCertificateFromString(pemCerts string) error {
 	return c.addRootCAs([]byte(pemCerts))
 }
 
-func (c *Client) addRootCAs(pemCerts []byte) *Client {
+func (c *Client) addRootCAs(pemCerts []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.ensureTLSConfig()
-	if c.tlsConfig.RootCAs == nil {
-		c.tlsConfig.RootCAs = x509.NewCertPool()
-	}
-	c.tlsConfig.RootCAs.AppendCertsFromPEM(pemCerts)
-	c.syncTLSConfigLocked()
-	return c
+	return c.updateTLSConfigLocked(func(config *tls.Config) error {
+		roots := config.RootCAs
+		if roots == nil {
+			roots = x509.NewCertPool()
+		} else {
+			roots = roots.Clone()
+		}
+		if !roots.AppendCertsFromPEM(pemCerts) {
+			return invalidOptionValue("RootCertificate")
+		}
+		config.RootCAs = roots
+		return nil
+	})
 }
 
 // setHTTPClient replaces the underlying HTTP client.
@@ -310,11 +332,15 @@ func (c *Client) setHTTPClient(httpClient *http.Client) {
 }
 
 // setDefaultHeaders replaces the default semantic headers.
-func (c *Client) setDefaultHeaders(headers *http.Header) {
+func (c *Client) setDefaultHeaders(headers http.Header) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.headers = headers
+	clone := headers.Clone()
+	if clone == nil {
+		clone = http.Header{}
+	}
+	c.headers = &clone
 	c.orderedHeaders = nil
 }
 
@@ -418,31 +444,33 @@ func (c *Client) setDefaultCookieJar(jar *cookiejar.Jar) {
 }
 
 // enableSession enables cookie and TLS session reuse without replacing existing session stores.
-func (c *Client) enableSession() *Client {
+func (c *Client) enableSession() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
 	}
-	if c.httpClient.Jar == nil {
-		jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-		if err == nil {
-			c.httpClient.Jar = jar
-		} else if c.logger != nil {
-			c.logger.Errorf("failed to create cookie jar: %v", err)
+
+	jar := c.httpClient.Jar
+	if jar == nil {
+		var err error
+		jar, err = cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+		if err != nil {
+			return fmt.Errorf("create session cookie jar: %w", err)
 		}
 	}
 
-	c.ensureTLSConfig()
-	if c.tlsConfig.ClientSessionCache == nil {
-		c.tlsConfig.ClientSessionCache = tls.NewLRUClientSessionCache(0)
+	if err := c.updateTLSConfigLocked(func(config *tls.Config) error {
+		if config.ClientSessionCache == nil {
+			config.ClientSessionCache = tls.NewLRUClientSessionCache(0)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	switch c.httpClient.Transport.(type) {
-	case nil, *http.Transport, *http2.Transport:
-		c.syncTLSConfigLocked()
-	}
-	return c
+	c.httpClient.Jar = jar
+	return nil
 }
 
 // setDefaultCookies adds default cookies.
@@ -613,9 +641,7 @@ func (c *Client) setAuth(auth AuthMethod) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if auth.Valid() {
-		c.auth = auth
-	}
+	c.auth = auth
 }
 
 // setRedirectPolicy replaces the redirect policy chain.

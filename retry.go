@@ -93,8 +93,9 @@ func (p RetryPolicy) delay(attempt int, resp *http.Response) time.Duration {
 	return retryAfterDelay(resp, delay)
 }
 
-// DefaultRetryIf is a simple retry condition that retries on transport errors,
-// request timeouts, rate limiting, and 5xx status codes.
+// DefaultRetryIf retries timeout-classified errors, errors containing
+// *net.OpError, rate limiting, and 5xx status codes. Deterministic TLS
+// verification failures are not retried by default.
 func DefaultRetryIf(req *http.Request, resp *http.Response, err error) bool {
 	if err != nil {
 		return IsTimeout(err) || IsConnectionError(err)

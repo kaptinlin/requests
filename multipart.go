@@ -25,7 +25,7 @@ type FilePart struct {
 	Field       string
 	Filename    string
 	ContentType string
-	Body        io.Reader
+	Body        io.Reader // Body is borrowed and is never closed by requests.
 }
 
 // NewMultipart creates an empty multipart builder.
@@ -75,7 +75,7 @@ func (m *Multipart) Boundary(boundary string) *Multipart {
 	return m
 }
 
-// Replayable buffers the multipart body up to maxBytes so it can be replayed for retries.
+// Replayable buffers the multipart body up to maxBytes for retries and body-preserving redirects.
 func (m *Multipart) Replayable(maxBytes int64) *Multipart {
 	m.canReplay = true
 	m.replayMaxBytes = maxBytes
@@ -170,11 +170,6 @@ func writeFilePart(writer *mimeMultipart.Writer, part FilePart) error {
 	}
 	if _, err := io.Copy(writerPart, part.Body); err != nil {
 		return fmt.Errorf("copying file content failed: %w", err)
-	}
-	if closer, ok := part.Body.(io.Closer); ok {
-		if err := closer.Close(); err != nil {
-			return fmt.Errorf("closing file content failed: %w", err)
-		}
 	}
 	return nil
 }

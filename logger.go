@@ -20,7 +20,7 @@ const (
 	LevelError
 )
 
-// Logger is a logger interface that outputs logs with a format.
+// Logger receives formatted diagnostic messages emitted by a Client.
 type Logger interface {
 	// Debugf logs a message at the Debug level.
 	Debugf(format string, v ...any)
@@ -30,8 +30,6 @@ type Logger interface {
 	Warnf(format string, v ...any)
 	// Errorf logs a message at the Error level.
 	Errorf(format string, v ...any)
-	// SetLevel sets the log level of the logger.
-	SetLevel(level Level)
 }
 
 // DefaultLogger is a default logger that uses `slog` as the underlying logger.
@@ -75,7 +73,7 @@ func (l *DefaultLogger) SetLevel(level Level) {
 }
 
 // NewDefaultLogger creates a new `DefaultLogger` with the given output and log level.
-func NewDefaultLogger(output io.Writer, level Level) Logger {
+func NewDefaultLogger(output io.Writer, level Level) *DefaultLogger {
 	levelVar := &slog.LevelVar{}
 	textHandler := slog.NewTextHandler(output, &slog.HandlerOptions{
 		Level: levelVar,

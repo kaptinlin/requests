@@ -7,13 +7,13 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/go-json-experiment/json"
@@ -155,22 +155,6 @@ func TestSetDefaultOrderedHeadersNilClearsDefaults(t *testing.T) {
 	resp, err := client.Get(server.URL).Send(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, resp.Close())
-}
-
-func TestOrderedHeadersCloneIsIndependent(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
-		Set("X-First", []string{"1"}).
-		Set("X-Second", []string{"2"})
-
-	builder := newTestClient(t).Get("/").OrderedHeaders(headers)
-	clone := builder.Clone()
-	builder.Header("X-First", "changed")
-
-	require.NotNil(t, clone.orderedHeaders)
-	assert.Equal(t, []string{"X-First", "X-Second"}, clone.orderedHeaders.Keys())
-	first, ok := clone.orderedHeaders.Get("X-First")
-	require.True(t, ok)
-	assert.Equal(t, []string{"1"}, first)
 }
 
 func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
@@ -562,9 +546,15 @@ func TestSendInvalidResolvedURLDoesNotDispatch(t *testing.T) {
 			return nil, nil
 		}),
 	}))
+	source := newTrackingReadCloser("payload")
+	body := NewMultipart().
+		Boundary(strings.Repeat("x", 71)).
+		File("upload", "payload.txt", source)
 
-	_, err := client.Get("/bad/%zz").Send(t.Context())
+	_, err := client.Post("/bad/%zz").Multipart(body).Send(t.Context())
 	require.Error(t, err)
+	assert.Zero(t, atomic.LoadInt64(&source.readBytes))
+	assert.False(t, source.closed.Load())
 	assert.False(t, called.Load())
 }
 
@@ -633,6 +623,353 @@ func TestQueryStructWithClient(t *testing.T) {
 
 	err = resp.Close()
 	assert.NoError(t, err)
+}
+
+type failingQueryValue struct{}
+
+func (failingQueryValue) EncodeValues(string, *url.Values) error {
+	return assert.AnError
+}
+
+func TestQueriesStructReturnsPreparationErrorWithoutDispatch(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		transportCalls.Add(1)
+		return nil, fmt.Errorf("unexpected transport call")
+	})))
+	queryInput := struct {
+		Value failingQueryValue `url:"value"`
+	}{}
+
+	resp, err := client.Get("https://example.com").QueriesStruct(queryInput).Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Zero(t, transportCalls.Load())
+}
+
+type countingEncoder struct {
+	calls *atomic.Int64
+}
+
+func (e countingEncoder) Encode(any) (io.Reader, error) {
+	e.calls.Add(1)
+	return strings.NewReader("{}"), nil
+}
+
+func (countingEncoder) ContentType() string {
+	return "application/json"
+}
+
+type readErrorEncoder struct{}
+
+func (readErrorEncoder) Encode(any) (io.Reader, error) {
+	return failingReader{}, nil
+}
+
+func (readErrorEncoder) ContentType() string {
+	return "application/json"
+}
+
+type closeObservingReader struct {
+	io.Reader
+	closes *atomic.Int64
+}
+
+func (r closeObservingReader) Close() error {
+	r.closes.Add(1)
+	return nil
+}
+
+type closeObservingEncoder struct {
+	closes *atomic.Int64
+}
+
+func (e closeObservingEncoder) Encode(any) (io.Reader, error) {
+	return closeObservingReader{
+		Reader: strings.NewReader("{}"),
+		closes: e.closes,
+	}, nil
+}
+
+func (closeObservingEncoder) ContentType() string {
+	return "application/json"
+}
+
+func TestCustomEncoderReaderLifecycleIsReadOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	var closes atomic.Int64
+	client := newTestClient(t,
+		WithBaseURL(server.URL),
+		WithJSONEncoder(closeObservingEncoder{closes: &closes}),
+	)
+
+	resp, err := client.Post("/").JSON(struct{}{}).Send(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode())
+	assert.Zero(t, closes.Load())
+}
+
+func TestEncodedBodyReadErrorPreservesCauseWithoutDispatch(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t,
+		WithJSONEncoder(readErrorEncoder{}),
+		WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			transportCalls.Add(1)
+			return nil, fmt.Errorf("unexpected transport call")
+		})),
+	)
+
+	resp, err := client.Post("https://example.com").JSON(struct{}{}).Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, errCodecRead)
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestFormReturnsPreparationErrorBeforeBodyEncoding(t *testing.T) {
+	var encoderCalls atomic.Int64
+	var transportCalls atomic.Int64
+	client := newTestClient(t,
+		WithJSONEncoder(countingEncoder{calls: &encoderCalls}),
+		WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			transportCalls.Add(1)
+			return nil, fmt.Errorf("unexpected transport call")
+		})),
+	)
+	formInput := struct {
+		Value failingQueryValue `url:"value"`
+	}{}
+
+	resp, err := client.Post("https://example.com").Form(formInput).JSON(struct{}{}).Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Zero(t, encoderCalls.Load())
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestFormFieldsReturnsPreparationErrorFromSendStream(t *testing.T) {
+	var encoderCalls atomic.Int64
+	var transportCalls atomic.Int64
+	client := newTestClient(t,
+		WithJSONEncoder(countingEncoder{calls: &encoderCalls}),
+		WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+			transportCalls.Add(1)
+			return nil, fmt.Errorf("unexpected transport call")
+		})),
+	)
+	formInput := struct {
+		Value failingQueryValue `url:"value"`
+	}{}
+
+	resp, err := client.Post("https://example.com").
+		FormFields(formInput).
+		JSON(struct{}{}).
+		SendStream(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Zero(t, encoderCalls.Load())
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestRequestAuthReturnsPreparationErrorWithoutDispatch(t *testing.T) {
+	tests := []struct {
+		name string
+		auth AuthMethod
+	}{
+		{name: "nil", auth: nil},
+		{name: "typed nil", auth: (*nilAuth)(nil)},
+		{name: "empty basic", auth: BasicAuth{}},
+		{name: "empty bearer", auth: BearerAuth{}},
+		{name: "empty custom", auth: CustomAuth{}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var transportCalls atomic.Int64
+			client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+				transportCalls.Add(1)
+				return nil, fmt.Errorf("unexpected transport call")
+			})))
+
+			resp, err := client.Get("https://example.com").Auth(test.auth).Send(t.Context())
+
+			assert.Nil(t, resp)
+			assert.ErrorIs(t, err, ErrInvalidConfigValue)
+			assert.Zero(t, transportCalls.Load())
+		})
+	}
+}
+
+func TestRequestMiddlewareReturnsPreparationErrorWithoutDispatch(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		transportCalls.Add(1)
+		return nil, fmt.Errorf("unexpected transport call")
+	})))
+	builder := client.Get("https://example.com")
+	builder.AddMiddleware(nil)
+
+	resp, err := builder.Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrInvalidConfigValue)
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestRequestPreparationErrorKeepsFirstCause(t *testing.T) {
+	client := newTestClient(t)
+	queryInput := struct {
+		Value failingQueryValue `url:"value"`
+	}{}
+	source := newTrackingReadCloser("payload")
+	body := NewMultipart().
+		Boundary(strings.Repeat("x", 71)).
+		File("upload", "payload.txt", source)
+	builder := client.Get("https://example.com").
+		QueriesStruct(queryInput).
+		Auth(nil).
+		Multipart(body)
+
+	resp, err := builder.Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.NotErrorIs(t, err, ErrInvalidConfigValue)
+	assert.Zero(t, atomic.LoadInt64(&source.readBytes))
+	assert.False(t, source.closed.Load())
+}
+
+func TestInvalidResolvedMethodFailsBeforeOpeningMultipart(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		transportCalls.Add(1)
+		return nil, fmt.Errorf("unexpected transport call")
+	})))
+	source := newTrackingReadCloser("payload")
+	body := NewMultipart().
+		Boundary(strings.Repeat("x", 71)).
+		File("upload", "payload.txt", source)
+
+	resp, err := client.Request("bad method", "https://example.com").
+		Multipart(body).
+		Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrRequestCreationFailed)
+	assert.Zero(t, atomic.LoadInt64(&source.readBytes))
+	assert.False(t, source.closed.Load())
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestNilRequestContextFailsBeforeOpeningMultipart(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		transportCalls.Add(1)
+		return nil, fmt.Errorf("unexpected transport call")
+	})))
+	source := newTrackingReadCloser("payload")
+	body := NewMultipart().
+		Boundary(strings.Repeat("x", 71)).
+		File("upload", "payload.txt", source)
+
+	resp, err := client.Post("https://example.com").Multipart(body).Send(nil) //nolint:staticcheck // verifies nil context rejection
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrRequestCreationFailed)
+	assert.Zero(t, atomic.LoadInt64(&source.readBytes))
+	assert.False(t, source.closed.Load())
+	assert.Zero(t, transportCalls.Load())
+}
+
+func TestMultipartProducerExitsWhenTransportRejectsRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client := newTestClient(t, WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			_ = req.Body.Close()
+			return nil, assert.AnError
+		})))
+		body := NewMultipart().Field("name", "value")
+
+		resp, err := client.Post("https://example.com").Multipart(body).Send(t.Context())
+
+		assert.Nil(t, resp)
+		assert.ErrorIs(t, err, assert.AnError)
+	})
+}
+
+type gatedReader struct {
+	ready  <-chan struct{}
+	reader io.Reader
+}
+
+func (r gatedReader) Read(p []byte) (int, error) {
+	<-r.ready
+	return r.reader.Read(p)
+}
+
+func TestMultipartStreamsAfterTransportStarts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ready := make(chan struct{})
+		var requestBody []byte
+		client := newTestClient(t, WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			close(ready)
+			var err error
+			requestBody, err = io.ReadAll(req.Body)
+			if err != nil {
+				return nil, err
+			}
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       http.NoBody,
+				Request:    req,
+			}, nil
+		})))
+		body := NewMultipart().File("upload", "payload.txt", gatedReader{
+			ready:  ready,
+			reader: strings.NewReader("payload"),
+		})
+
+		resp, err := client.Post("https://example.com").Multipart(body).Send(t.Context())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode())
+		assert.Contains(t, string(requestBody), "payload")
+	})
+}
+
+func TestMultipartProducerExitsAfterRequestCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		started := make(chan struct{})
+		client := newTestClient(t, WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+			close(started)
+			<-req.Context().Done()
+			_ = req.Body.Close()
+			return nil, req.Context().Err()
+		})))
+		ctx, cancel := context.WithCancel(t.Context())
+		result := make(chan error)
+
+		go func() {
+			_, err := client.Post("https://example.com").
+				Multipart(NewMultipart().Field("name", "value")).
+				Send(ctx)
+			result <- err
+		}()
+
+		<-started
+		cancel()
+		assert.ErrorIs(t, <-result, context.Canceled)
+	})
 }
 
 func TestHeaderManipulationMethods(t *testing.T) {
@@ -908,6 +1245,25 @@ func TestFormField(t *testing.T) {
 	assert.Equal(t, expectedEncodedFormData, response["body"], "The body content should match the single form field")
 }
 
+func TestBodySelectionFormFieldReplacesJSONAndRemainsAdditive(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		JSON(map[string]string{"source": "json"}).
+		FormField("source", "form").
+		FormField("source", "second").
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Equal(t, "source=form&source=second", response["body"])
+	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"])
+}
+
 func TestDelFormField(t *testing.T) {
 	server := startEchoServer() // Setup mock server
 	defer server.Close()
@@ -985,6 +1341,75 @@ func TestJSON(t *testing.T) {
 	assert.Equal(t, "application/json", response["contentType"], "The content type should be set to application/json.")
 }
 
+func TestBodySelectionJSONReplacesForm(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+	payload := map[string]string{"source": "json"}
+
+	resp, err := client.Post("/").
+		Form(url.Values{"source": {"form"}}).
+		JSON(payload).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.JSONEq(t, `{"source":"json"}`, response["body"])
+	assert.Equal(t, "application/json", response["contentType"])
+}
+
+func TestBodySelectionJSONNilEncodesNull(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").JSON(nil).Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.JSONEq(t, "null", response["body"])
+	assert.Equal(t, "application/json", response["contentType"])
+}
+
+func TestBodySelectionEmptyFormReplacesJSON(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		JSON(map[string]string{"source": "json"}).
+		Form(nil).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Empty(t, response["body"])
+	assert.Equal(t, "application/x-www-form-urlencoded", response["contentType"])
+}
+
+func TestBodySelectionNilMultipartReturnsPreparationError(t *testing.T) {
+	var transportCalls atomic.Int64
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		transportCalls.Add(1)
+		return nil, fmt.Errorf("unexpected transport call")
+	})))
+
+	resp, err := client.Post("https://example.com").
+		JSON(map[string]string{"source": "json"}).
+		Multipart(nil).
+		Send(t.Context())
+
+	assert.Nil(t, resp)
+	assert.ErrorIs(t, err, ErrInvalidConfigValue)
+	assert.Zero(t, transportCalls.Load())
+}
+
 func TestXML(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
@@ -1045,11 +1470,11 @@ func TestPrepareBodyWithFormFields(t *testing.T) {
 		"age":  {"32"},
 	})
 
-	body, contentType, err := builder.prepareBody(&clientSnapshot{})
+	body, err := builder.prepareBody(&clientSnapshot{})
 	require.NoError(t, err)
-	assert.Equal(t, "application/x-www-form-urlencoded", contentType)
+	assert.Equal(t, "application/x-www-form-urlencoded", body.contentType)
 
-	data, err := io.ReadAll(body)
+	data, err := io.ReadAll(body.body)
 	require.NoError(t, err)
 	assert.Equal(t, url.Values{"name": {"Jane Doe"}, "age": {"32"}}.Encode(), string(data))
 }
@@ -1178,6 +1603,61 @@ func TestBytesPreservesBytesWithJSONContentType(t *testing.T) {
 	assert.Equal(t, "application/json", response["contentType"])
 }
 
+func TestBodySelectionBytesRemovesReplacedBodyContentType(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		JSON(map[string]string{"source": "json"}).
+		Bytes([]byte("raw")).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Equal(t, "raw", response["body"])
+	assert.Empty(t, response["contentType"])
+}
+
+func TestBodySelectionBytesReplacesForm(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		Form(url.Values{"source": {"form"}}).
+		Bytes([]byte("raw")).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Equal(t, "raw", response["body"])
+	assert.Empty(t, response["contentType"])
+}
+
+func TestBodySelectionBytesPreservesExplicitContentType(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		JSON(map[string]string{"source": "json"}).
+		ContentType("application/custom").
+		Bytes([]byte("raw")).
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Equal(t, "raw", response["body"])
+	assert.Equal(t, "application/custom", response["contentType"])
+}
+
 func TestReader(t *testing.T) {
 	server := startEchoServer()
 	defer server.Close()
@@ -1199,6 +1679,50 @@ func TestReader(t *testing.T) {
 	assert.Equal(t, "text/plain", response["contentType"])
 }
 
+type countingReader struct {
+	reader io.Reader
+	reads  *atomic.Int64
+}
+
+type trackingSizedReadCloser struct {
+	*bytes.Reader
+	closed atomic.Bool
+}
+
+func (r *trackingSizedReadCloser) Close() error {
+	r.closed.Store(true)
+	return nil
+}
+
+func (r countingReader) Read(p []byte) (int, error) {
+	r.reads.Add(1)
+	return r.reader.Read(p)
+}
+
+func TestBodySelectionReaderReplacesMultipartWithoutReadingIt(t *testing.T) {
+	server := startEchoServer()
+	defer server.Close()
+
+	var replacedReads atomic.Int64
+	replaced := NewMultipart().File("upload", "old.txt", countingReader{
+		reader: strings.NewReader("old"),
+		reads:  &replacedReads,
+	})
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").
+		Multipart(replaced).
+		Reader(strings.NewReader("reader"), "text/plain").
+		Send(t.Context())
+	require.NoError(t, err)
+
+	var response map[string]string
+	require.NoError(t, resp.Decode(&response))
+	assert.Equal(t, "reader", response["body"])
+	assert.Equal(t, "text/plain", response["contentType"])
+	assert.Zero(t, replacedReads.Load())
+}
+
 func TestReaderOctetStream(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -1218,6 +1742,102 @@ func TestReaderOctetStream(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.Equal(t, data, resp.Bytes())
+}
+
+func TestReaderSourceClosesAtTransportBoundary(t *testing.T) {
+	source := &trackingSizedReadCloser{Reader: bytes.NewReader([]byte("payload"))}
+	var closedAtDispatch atomic.Bool
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		closedAtDispatch.Store(source.closed.Load())
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		if err := req.Body.Close(); err != nil {
+			return nil, err
+		}
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Request:    req,
+		}, nil
+	})))
+
+	resp, err := client.Post("https://example.com").Reader(source, "text/plain").Send(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "payload", resp.String())
+	assert.False(t, closedAtDispatch.Load())
+	assert.True(t, source.closed.Load())
+}
+
+func TestReaderPreservesCurrentOffset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(w, r.Body)
+	}))
+	defer server.Close()
+
+	source := bytes.NewReader([]byte("prefixpayload"))
+	_, err := source.Seek(int64(len("prefix")), io.SeekStart)
+	require.NoError(t, err)
+	client := newTestClient(t, WithBaseURL(server.URL))
+
+	resp, err := client.Post("/").Reader(source, "text/plain").Send(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, "payload", resp.String())
+}
+
+func TestBuiltInBodyGetBodyReturnsFreshReaders(t *testing.T) {
+	client := newTestClient(t, WithTransport(testRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.GetBody == nil {
+			return nil, fmt.Errorf("missing GetBody")
+		}
+		first, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		defer first.Close() //nolint:errcheck // test transport cleanup
+		second, err := req.GetBody()
+		if err != nil {
+			return nil, err
+		}
+		defer second.Close() //nolint:errcheck // test transport cleanup
+
+		prefix := make([]byte, 1)
+		if _, err := io.ReadFull(first, prefix); err != nil {
+			return nil, err
+		}
+		firstRest, err := io.ReadAll(first)
+		if err != nil {
+			return nil, err
+		}
+		secondBody, err := io.ReadAll(second)
+		if err != nil {
+			return nil, err
+		}
+		firstBody := make([]byte, 0, len(prefix)+len(firstRest))
+		firstBody = append(firstBody, prefix...)
+		firstBody = append(firstBody, firstRest...)
+		if !bytes.Equal(firstBody, secondBody) {
+			return nil, fmt.Errorf("GetBody readers are not independent")
+		}
+		_ = req.Body.Close()
+		return &http.Response{
+			Status:     "200 OK",
+			StatusCode: http.StatusOK,
+			Header:     http.Header{},
+			Body:       http.NoBody,
+			Request:    req,
+		}, nil
+	})))
+
+	resp, err := client.Post("https://example.com").JSON(map[string]string{"message": "hello"}).Send(t.Context())
+
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode())
 }
 
 func TestDefaultRetryOn408And429(t *testing.T) {
@@ -1335,6 +1955,54 @@ func TestRetryReplaysJSON(t *testing.T) {
 	require.Len(t, bodies, 2)
 	assert.Equal(t, bodies[0], bodies[1])
 	assert.Equal(t, 2, resp.Attempts())
+}
+
+func TestRetryReplaysFormAndBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*Client) *RequestBuilder
+	}{
+		{
+			name: "form",
+			build: func(client *Client) *RequestBuilder {
+				return client.Post("/").Form(url.Values{"message": {"hello"}})
+			},
+		},
+		{
+			name: "bytes",
+			build: func(client *Client) *RequestBuilder {
+				return client.Post("/").Bytes([]byte("hello"))
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var bodies []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				bodies = append(bodies, string(body))
+				if len(bodies) == 1 {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			client := newTestClient(t,
+				WithBaseURL(server.URL),
+				WithRetry(RetryPolicy{Max: 1, Backoff: DefaultBackoffStrategy(0)}),
+			)
+			resp, err := test.build(client).Send(t.Context())
+
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, resp.StatusCode())
+			require.Len(t, bodies, 2)
+			assert.Equal(t, bodies[0], bodies[1])
+		})
+	}
 }
 
 func TestRetryRejectsNonReplayableBody(t *testing.T) {
@@ -1595,92 +2263,6 @@ func TestFormWithNil(t *testing.T) {
 	assert.Contains(t, response, "body", "Body should be present")
 }
 
-func startFormHandlingServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		err := r.ParseMultipartForm(32 << 20) // limit to 32MB
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		fields := make(map[string][]string)
-		files := make(map[string][]string)
-		if r.MultipartForm != nil {
-			maps.Copy(fields, r.MultipartForm.Value)
-
-			for key, fileHeaders := range r.MultipartForm.File {
-				for _, fileHeader := range fileHeaders {
-					files[key] = append(files[key], fileHeader.Filename)
-				}
-			}
-		}
-		response := map[string]any{
-			"fields": fields,
-			"files":  files,
-		}
-		if err := json.MarshalWrite(w, response); err != nil {
-			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
-		}
-	}))
-}
-
-func TestFormWithFiles(t *testing.T) {
-	server := startFormHandlingServer()
-	defer server.Close()
-
-	client := newTestClient(t, WithBaseURL(server.URL))
-
-	fileContent1 := strings.NewReader("File content 1")
-	fileContent2 := strings.NewReader("File content 2")
-
-	formData := map[string]any{
-		"file1": &File{Name: "file1", FileName: "file1.txt", Content: io.NopCloser(fileContent1)},
-		"file2": &File{Name: "file2", FileName: "file2.txt", Content: io.NopCloser(fileContent2)},
-	}
-
-	resp, err := client.Post("/").Form(formData).Send(context.Background())
-	assert.NoError(t, err, "No error expected on sending request with files")
-
-	var response map[string]any
-	err = resp.DecodeJSON(&response)
-	assert.NoError(t, err, "Expect no error on parsing response")
-
-	// Assert files are correctly received
-	assert.Contains(t, response["files"].(map[string]any), "file1", "File1 should be present")
-	assert.Contains(t, response["files"].(map[string]any), "file2", "File2 should be present")
-}
-
-func TestFormWithMixedFilesAndFields(t *testing.T) {
-	server := startFormHandlingServer()
-	defer server.Close()
-
-	client := newTestClient(t, WithBaseURL(server.URL))
-
-	fileContent := strings.NewReader("File content 1")
-
-	formData := map[string]any{
-		"name": "John Doe",
-		"age":  "30",
-		"file": &File{Name: "file", FileName: "file.txt", Content: io.NopCloser(fileContent)},
-	}
-
-	resp, err := client.Post("/").Form(formData).Send(context.Background())
-	assert.NoError(t, err, "No error expected on sending request with mixed form data")
-
-	var response map[string]any
-	err = resp.Decode(&response)
-	assert.NoError(t, err, "Expect no error on parsing response")
-
-	// Assert fields and files are correctly received
-	fields := response["fields"].(map[string]any)
-	assert.Contains(t, fields, "name", "Name should be present")
-	assert.Contains(t, fields, "age", "Age should be present")
-
-	files := response["files"].(map[string]any)
-	assert.Contains(t, files, "file", "File should be present")
-}
-
 // TestAuthRequest verifies that the Auth method correctly applies basic authentication to a request.
 func TestAuthRequest(t *testing.T) {
 	// Expected username and password for basic authentication.
@@ -1842,199 +2424,4 @@ func TestDelCookie_EmptyCookies(t *testing.T) {
 
 	// Should remain nil
 	assert.Nil(t, builder.cookies)
-}
-
-// TestDelFile_SingleFile tests deleting a single file
-func TestDelFile_SingleFile(t *testing.T) {
-	builder := &RequestBuilder{
-		formFiles: []*File{
-			{Name: "avatar", FileName: "avatar.jpg"},
-			{Name: "document", FileName: "doc.pdf"},
-			{Name: "image", FileName: "pic.png"},
-		},
-	}
-
-	builder.DelFile("document")
-
-	// Should have 2 files remaining
-	assert.Len(t, builder.formFiles, 2)
-
-	// Verify the correct files remain
-	fileNames := make([]string, len(builder.formFiles))
-	for i, file := range builder.formFiles {
-		fileNames[i] = file.Name
-	}
-
-	assert.Contains(t, fileNames, "avatar")
-	assert.Contains(t, fileNames, "image")
-	assert.NotContains(t, fileNames, "document")
-}
-
-// TestDelFile_MultipleFiles tests deleting multiple files at once
-func TestDelFile_MultipleFiles(t *testing.T) {
-	builder := &RequestBuilder{
-		formFiles: []*File{
-			{Name: "file1", FileName: "f1.txt"},
-			{Name: "file2", FileName: "f2.txt"},
-			{Name: "file3", FileName: "f3.txt"},
-			{Name: "file4", FileName: "f4.txt"},
-			{Name: "file5", FileName: "f5.txt"},
-		},
-	}
-
-	// Delete multiple files including consecutive ones
-	builder.DelFile("file2", "file3", "file5")
-
-	// Should have 2 files remaining
-	assert.Len(t, builder.formFiles, 2)
-
-	// Verify the correct files remain
-	assert.Equal(t, "file1", builder.formFiles[0].Name)
-	assert.Equal(t, "file4", builder.formFiles[1].Name)
-}
-
-// TestDelFile_ConsecutiveFiles specifically tests the bug case
-func TestDelFile_ConsecutiveFiles(t *testing.T) {
-	builder := &RequestBuilder{
-		formFiles: []*File{
-			{Name: "keep1", FileName: "k1.txt"},
-			{Name: "delete1", FileName: "d1.txt"},
-			{Name: "delete2", FileName: "d2.txt"},
-			{Name: "delete3", FileName: "d3.txt"},
-			{Name: "keep2", FileName: "k2.txt"},
-		},
-	}
-
-	// This would fail with the old buggy implementation
-	builder.DelFile("delete1", "delete2", "delete3")
-
-	// Should have 2 files remaining
-	assert.Len(t, builder.formFiles, 2)
-
-	// Verify the correct files remain
-	assert.Equal(t, "keep1", builder.formFiles[0].Name)
-	assert.Equal(t, "keep2", builder.formFiles[1].Name)
-}
-
-// TestDelFile_DuplicateKeys tests deleting with duplicate keys
-func TestDelFile_DuplicateKeys(t *testing.T) {
-	builder := &RequestBuilder{
-		formFiles: []*File{
-			{Name: "keep1", FileName: "k1.txt"},
-			{Name: "delete", FileName: "d1.txt"},
-			{Name: "keep2", FileName: "k2.txt"},
-		},
-	}
-
-	builder.DelFile("delete", "delete")
-
-	assert.Len(t, builder.formFiles, 2)
-	assert.Equal(t, "keep1", builder.formFiles[0].Name)
-	assert.Equal(t, "keep2", builder.formFiles[1].Name)
-}
-
-// TestDelFile_EmptyFiles tests deleting from empty file slice
-func TestDelFile_EmptyFiles(t *testing.T) {
-	builder := &RequestBuilder{}
-
-	// Should not panic
-	builder.DelFile("any")
-
-	// Should remain nil
-	assert.Nil(t, builder.formFiles)
-}
-
-func TestClone(t *testing.T) {
-	t.Run("ProducesIndependentCopy", func(t *testing.T) {
-		client := newTestClient(t, WithBaseURL("http://example.com"))
-		original := client.Get("/users").
-			Header("Authorization", "Bearer token").
-			Query("page", "1").
-			PathParam("id", "123").
-			Cookie("session", "abc")
-
-		clone := original.Clone()
-
-		// Clone should have same values
-		assert.Equal(t, original.method, clone.method)
-		assert.Equal(t, original.path, clone.path)
-		assert.Equal(t, original.client, clone.client)
-		assert.Equal(t, original.headers.Get("Authorization"), clone.headers.Get("Authorization"))
-		assert.Equal(t, original.queries.Get("page"), clone.queries.Get("page"))
-		assert.Equal(t, original.pathParams["id"], clone.pathParams["id"])
-		assert.Len(t, clone.cookies, 1)
-		assert.Equal(t, "session", clone.cookies[0].Name)
-	})
-
-	t.Run("ModifyingCloneDoesNotAffectOriginal", func(t *testing.T) {
-		client := newTestClient(t, WithBaseURL("http://example.com"))
-		original := client.Get("/users").
-			Header("Authorization", "Bearer token").
-			Query("page", "1").
-			PathParam("id", "123").
-			Cookie("session", "abc")
-
-		clone := original.Clone()
-
-		// Modify the clone
-		clone.Header("Authorization", "Bearer different")
-		clone.Query("page", "2")
-		clone.PathParam("id", "456")
-		clone.Cookie("extra", "xyz")
-		clone.Method("POST")
-		clone.Path("/posts")
-
-		// Original should be unchanged
-		assert.Equal(t, "Bearer token", original.headers.Get("Authorization"))
-		assert.Equal(t, "1", original.queries.Get("page"))
-		assert.Equal(t, "123", original.pathParams["id"])
-		assert.Len(t, original.cookies, 1)
-		assert.Equal(t, http.MethodGet, original.method)
-		assert.Equal(t, "/users", original.path)
-	})
-
-	t.Run("ClonePreservesFormFields", func(t *testing.T) {
-		client := newTestClient(t, WithBaseURL("http://example.com"))
-		original := client.Post("/submit").
-			FormField("name", "John").
-			FormField("age", "30")
-
-		clone := original.Clone()
-
-		// Modify clone's form fields
-		clone.FormField("name", "Jane")
-		clone.FormField("extra", "field")
-
-		// Original form fields should be unchanged
-		assert.Equal(t, "John", original.formFields.Get("name"))
-		assert.Empty(t, original.formFields.Get("extra"))
-
-		// Clone should have new values
-		assert.Contains(t, clone.formFields["name"], "Jane")
-	})
-
-	t.Run("CloneNilFields", func(t *testing.T) {
-		client := newTestClient(t, WithBaseURL("http://example.com"))
-		original := client.Get("/simple")
-
-		clone := original.Clone()
-
-		// Should not panic and should work with nil fields
-		assert.Nil(t, clone.cookies)
-		assert.Nil(t, clone.pathParams)
-		assert.Nil(t, clone.formFields)
-	})
-
-	t.Run("CloneDoesNotCopyBodyOrRequestState", func(t *testing.T) {
-		client := newTestClient(t, WithBaseURL("http://example.com"))
-		original := client.Post("/data").
-			JSON(map[string]string{"key": "value"}).
-			Retry(RetryPolicy{Max: 1})
-
-		clone := original.Clone()
-
-		assert.Nil(t, clone.bodyData, "Body data should not be copied")
-		assert.Nil(t, clone.middlewares, "Middlewares should not be copied")
-		assert.False(t, clone.hasRetryPolicy, "Retry policy should not be copied")
-	})
 }

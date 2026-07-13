@@ -83,17 +83,20 @@ func cloneWithClientDefaults(req *http.Request, snap *clientSnapshot) *http.Requ
 	if snap.auth != nil {
 		snap.auth.Apply(cloned)
 	}
+	clientCookies := cloned.Cookies()
 	for key, values := range original {
 		deleteHeaderValues(cloned.Header, key)
 		for _, value := range values {
 			cloned.Header.Add(key, value)
 		}
 	}
+	applyCookiePrecedence(cloned, clientCookies, req.Cookies())
 
 	ordered := cloneOrderedHeaders(snap.orderedHeaders)
 	for key := range original {
 		deleteOrderedHeader(ordered, key)
 	}
+	syncOrderedHeaderValues(ordered, cloned.Header)
 	if ordered != nil && ordered.Len() == 0 {
 		ordered = nil
 	}

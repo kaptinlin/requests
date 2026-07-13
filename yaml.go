@@ -24,25 +24,12 @@ func (e *YAMLEncoder) Encode(v any) (io.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEncodingFailed, err)
 	}
-
-	buf := getBuffer()
-	_, err = buf.Write(data)
-	if err != nil {
-		putBuffer(buf)
-		return nil, fmt.Errorf("failed to write YAML to buffer: %w", err)
-	}
-
-	return &poolReader{Reader: bytes.NewReader(buf.B), poolBuf: buf}, nil
+	return bytes.NewReader(data), nil
 }
 
 // ContentType returns the content type for YAML data.
 func (e *YAMLEncoder) ContentType() string {
 	return "application/yaml;charset=utf-8"
-}
-
-// DefaultYAMLEncoder is the default YAMLEncoder instance using the goccy/go-yaml Marshal function.
-var DefaultYAMLEncoder = &YAMLEncoder{
-	MarshalFunc: yaml.Marshal,
 }
 
 // YAMLDecoder handles decoding of YAML data.
@@ -61,6 +48,3 @@ func (d *YAMLDecoder) Decode(r io.Reader, v any) error {
 	}
 	return nil
 }
-
-// DefaultYAMLDecoder is the default YAMLDecoder instance using the goccy/go-yaml streaming decoder.
-var DefaultYAMLDecoder = &YAMLDecoder{}

@@ -19,6 +19,14 @@ type Profile interface {
 
 `WithProfile(profile)` applies the returned options in order during `New` or `Clone`. If a profile option fails, construction fails with profile context.
 
+A profile that installs a transport is an explicit whole-transport replacement. Earlier settings that the new transport can consume, such as TLS/session intent, are preserved by that profile. Transport-specific settings it cannot represent, such as TCP dial or HTTP proxy settings on HTTP/3, are replaced. Later incompatible root transport options fail construction instead of silently replacing the profile transport.
+
+TLS options on the `fingerprint` and `http3` profile constructors capture a
+standard shallow `tls.Config.Clone` when the profile option is applied. Delayed
+profile application MUST NOT retain or mutate the caller's top-level config
+pointer. Referenced collaborators retain the ownership rules defined in
+`SPECS/20-client-api-specs.md`.
+
 ## Scope
 
 Profiles MAY contribute:
@@ -50,4 +58,5 @@ Fixed browser header profiles in the `browser` module MUST name the browser majo
 - Profiles are client-level only.
 - Profile errors surface through `New` or `Clone`.
 - `WithProfile` preserves construction-time option ordering.
+- Unsupported profile/option combinations fail rather than partially applying or changing protocol.
 - Request-local metadata overrides profile defaults.

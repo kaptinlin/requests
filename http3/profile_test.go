@@ -75,6 +75,82 @@ func TestProfileUsesClientTLSConfig(t *testing.T) {
 	require.Equal(t, "example.com", transport.TLSClientConfig.ServerName)
 }
 
+func TestProfileCapturesTLSConfig(t *testing.T) {
+	tlsConfig := &tls.Config{ServerName: "initial.example.com", MinVersion: tls.VersionTLS13}
+	profile := Profile(WithTLSConfig(tlsConfig))
+	tlsConfig.ServerName = "mutated.example.com"
+
+	client, err := requests.New(requests.WithProfile(profile))
+	require.NoError(t, err)
+	transport, ok := client.UnsafeHTTPClient().Transport.(*qhttp3.Transport)
+	require.True(t, ok)
+	require.False(t, tlsConfig == transport.TLSClientConfig)
+	require.Equal(t, "initial.example.com", transport.TLSClientConfig.ServerName)
+}
+
+func TestProfileRejectsTLSConfigAppliedAfterHTTP3(t *testing.T) {
+	client, err := requests.New(
+		requests.WithProfile(Profile()),
+		requests.WithTLSConfig(&tls.Config{ServerName: "example.com"}),
+	)
+
+	require.Nil(t, client)
+	require.True(t, errors.Is(err, requests.ErrInvalidTransportType))
+}
+
+func TestProfileRejectsSessionAppliedAfterHTTP3(t *testing.T) {
+	client, err := requests.New(
+		requests.WithProfile(Profile()),
+		requests.WithSession(),
+	)
+
+	require.Nil(t, client)
+	require.True(t, errors.Is(err, requests.ErrInvalidTransportType))
+}
+
+func TestProfileRejectsTLSMutationAppliedAfterHTTP3(t *testing.T) {
+	client, err := requests.New(
+		requests.WithProfile(Profile()),
+		requests.WithInsecureSkipVerify(),
+	)
+
+	require.Nil(t, client)
+	require.True(t, errors.Is(err, requests.ErrInvalidTransportType))
+}
+
+func TestProfileRejectsUnsupportedOptionsAppliedAfterHTTP3(t *testing.T) {
+	tests := []struct {
+		name   string
+		option requests.Option
+	}{
+		{name: "certificates", option: requests.WithCertificates(tls.Certificate{})},
+		{name: "TLS server name", option: requests.WithTLSServerName("example.com")},
+		{name: "root certificate", option: requests.WithRootCertificate("../.github/testdata/cert.pem")},
+		{name: "dial timeout", option: requests.WithDialTimeout(time.Second)},
+		{name: "proxy", option: requests.WithProxy("http://proxy.example.com:8080")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := requests.New(requests.WithProfile(Profile()), test.option)
+
+			require.Nil(t, client)
+			require.True(t, errors.Is(err, requests.ErrInvalidTransportType))
+		})
+	}
+}
+
+func TestProfileUsesSessionConfiguredBeforeHTTP3(t *testing.T) {
+	client, err := requests.New(requests.WithSession(), requests.WithProfile(Profile()))
+	require.NoError(t, err)
+
+	transport, ok := client.UnsafeHTTPClient().Transport.(*qhttp3.Transport)
+	require.True(t, ok)
+	require.NotNil(t, client.UnsafeHTTPClient().Jar)
+	require.NotNil(t, transport.TLSClientConfig)
+	require.NotNil(t, transport.TLSClientConfig.ClientSessionCache)
+}
+
 func TestProfileSendsHTTP3Request(t *testing.T) {
 	source := httptest.NewTLSServer(http.NotFoundHandler())
 	cert := source.TLS.Certificates[0]

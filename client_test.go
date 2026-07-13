@@ -852,7 +852,7 @@ func TestSetTLSConfig(t *testing.T) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
-	client.setTLSConfig(tlsConfig)
+	require.NoError(t, client.setTLSConfig(tlsConfig))
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -887,7 +887,7 @@ func TestSetTLSConfigWithCert(t *testing.T) {
 	tlsConfig := &tls.Config{
 		RootCAs: certPool,
 	}
-	client.setTLSConfig(tlsConfig)
+	require.NoError(t, client.setTLSConfig(tlsConfig))
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -911,7 +911,7 @@ func TestInsecureSkipVerify(t *testing.T) {
 	client := newTestClient(t, WithBaseURL(server.URL))
 
 	// Configure TLS to skip certificate verification.
-	client.insecureSkipVerify()
+	require.NoError(t, client.insecureSkipVerify())
 
 	// Make a request to the test server.
 	response, err := client.Get("/").Send(context.Background())
@@ -1046,10 +1046,10 @@ func TestClientCertificates(t *testing.T) {
 		clientCert, err := tls.LoadX509KeyPair(".github/testdata/cert.pem", ".github/testdata/key.pem")
 		require.NoError(t, err, "load client certificate failed")
 
-		client.setTLSConfig(&tls.Config{
+		require.NoError(t, client.setTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
-		})
-		client.setCertificates(clientCert)
+		}))
+		require.NoError(t, client.setCertificates(clientCert))
 		resp, err := client.Get("/").Send(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to send request: %v", err)
@@ -1062,9 +1062,9 @@ func TestClientCertificates(t *testing.T) {
 
 	t.Run("do not use client certificate", func(t *testing.T) {
 		clientWithoutCert := newTestClient(t, WithBaseURL(server.URL))
-		clientWithoutCert.setTLSConfig(&tls.Config{
+		require.NoError(t, clientWithoutCert.setTLSConfig(&tls.Config{
 			InsecureSkipVerify: true,
-		})
+		}))
 
 		_, err := clientWithoutCert.Get("/").Send(context.Background())
 		assert.Error(t, err, "expect request failed")
@@ -1073,10 +1073,10 @@ func TestClientCertificates(t *testing.T) {
 
 func TestClientSetRootCertificate(t *testing.T) {
 	t.Run("root cert", func(t *testing.T) {
-		filePath := ".testdata/sample_root.pem"
+		filePath := ".github/testdata/cert.pem"
 
 		client := newTestClient(t)
-		client.setRootCertificate(filePath)
+		require.NoError(t, client.setRootCertificate(filePath))
 
 		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
 			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
@@ -1087,19 +1087,17 @@ func TestClientSetRootCertificate(t *testing.T) {
 		filePath := "../.testdata/not-exists-sample-root.pem"
 
 		client := newTestClient(t)
-		client.setRootCertificate(filePath)
-
-		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
-			assert.Nil(t, transport.TLSClientConfig)
-		}
+		assert.Error(t, client.setRootCertificate(filePath))
+		assert.Nil(t, client.GetTLSConfig())
 	})
 
 	t.Run("root cert from string", func(t *testing.T) {
 		client := newTestClient(t)
 
-		cert := `-----BEGIN CERTIFICATE-----`
+		cert, err := os.ReadFile(".github/testdata/cert.pem")
+		require.NoError(t, err)
 
-		client.setRootCertificateFromString(cert)
+		require.NoError(t, client.setRootCertificateFromString(string(cert)))
 		if transport, ok := client.httpClient.Transport.(*http.Transport); ok {
 			assert.NotNil(t, transport.TLSClientConfig.RootCAs)
 		}
@@ -1186,7 +1184,8 @@ func TestHTTP2OptionsPreserveHTTPTransportSettings(t *testing.T) {
 
 	transport, ok := client.httpClient.Transport.(*http.Transport)
 	require.True(t, ok)
-	assert.Same(t, tlsConfig, transport.TLSClientConfig)
+	assert.NotSame(t, tlsConfig, transport.TLSClientConfig)
+	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify)
 	assert.NotNil(t, transport.DialContext)
 	assert.Equal(t, 4*time.Second, transport.TLSHandshakeTimeout)
 	assert.Equal(t, 3*time.Second, transport.ResponseHeaderTimeout)

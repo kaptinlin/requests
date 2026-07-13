@@ -69,6 +69,75 @@ func TestProfileUsesDialContextSetAfterProfile(t *testing.T) {
 	require.True(t, called.Load())
 }
 
+func TestProfileUsesTLSConfigSetAfterProfile(t *testing.T) {
+	tlsConfig := &tls.Config{ServerName: "example.com"}
+	client, err := requests.New(
+		requests.WithProfile(Chrome()),
+		requests.WithTLSConfig(tlsConfig),
+	)
+	require.NoError(t, err)
+
+	transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
+	require.True(t, ok)
+	require.False(t, transport.TLSClientConfig == tlsConfig)
+	require.Equal(t, "example.com", transport.TLSClientConfig.ServerName)
+	require.NotNil(t, transport.DialTLSContext)
+}
+
+func TestProfilePreservesStandardTransportOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		options []requests.Option
+	}{
+		{
+			name: "proxy before profile",
+			options: []requests.Option{
+				requests.WithProxy("http://proxy.example.com:8080"),
+				requests.WithProfile(Chrome()),
+			},
+		},
+		{
+			name: "proxy after profile",
+			options: []requests.Option{
+				requests.WithProfile(Chrome()),
+				requests.WithProxy("http://proxy.example.com:8080"),
+			},
+		},
+		{
+			name: "session before profile",
+			options: []requests.Option{
+				requests.WithSession(),
+				requests.WithProfile(Chrome()),
+			},
+		},
+		{
+			name: "session after profile",
+			options: []requests.Option{
+				requests.WithProfile(Chrome()),
+				requests.WithSession(),
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client, err := requests.New(test.options...)
+			require.NoError(t, err)
+
+			transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
+			require.True(t, ok)
+			require.NotNil(t, transport.DialTLSContext)
+			if strings.HasPrefix(test.name, "proxy") {
+				require.NotNil(t, transport.Proxy)
+			}
+			if strings.HasPrefix(test.name, "session") {
+				require.NotNil(t, client.UnsafeHTTPClient().Jar)
+				require.NotNil(t, transport.TLSClientConfig.ClientSessionCache)
+			}
+		})
+	}
+}
+
 func TestProfileRejectsCustomTransport(t *testing.T) {
 	client, err := requests.New(
 		requests.WithTransport(roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -117,12 +186,14 @@ func TestProfileWithTLSConfigConfiguresTransport(t *testing.T) {
 	tlsConfig.Certificates[0].OCSPStaple = []byte{4, 5, 6}
 	tlsConfig.Certificates[0].SignedCertificateTimestamps = [][]byte{{7, 8, 9}}
 	tlsConfig.CurvePreferences = []tls.CurveID{tls.X25519}
-	client, err := requests.New(requests.WithProfile(Custom("custom", utls.HelloChrome_Auto, WithTLSConfig(tlsConfig))))
+	profile := Custom("custom", utls.HelloChrome_Auto, WithTLSConfig(tlsConfig))
+	tlsConfig.ServerName = "mutated.example.com"
+	client, err := requests.New(requests.WithProfile(profile))
 	require.NoError(t, err)
 
 	transport, ok := client.UnsafeHTTPClient().Transport.(*http.Transport)
 	require.True(t, ok)
-	require.True(t, tlsConfig == transport.TLSClientConfig)
+	require.False(t, tlsConfig == transport.TLSClientConfig)
 	require.Equal(t, "example.com", transport.TLSClientConfig.ServerName)
 	require.Contains(t, transport.TLSClientConfig.NextProtos, "h2")
 	require.Contains(t, transport.TLSClientConfig.NextProtos, "http/1.1")

@@ -1,3 +1,3 @@
-// Package middlewares provides reusable middleware components for the requests
-// HTTP client, including caching, cookie management, and header injection.
+// Package middlewares provides reusable cookie and header middleware for the
+// requests HTTP client.
 package middlewares

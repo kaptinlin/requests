@@ -13,6 +13,17 @@ replaced with a reader over the buffered bytes, and buffered helpers such as
 `Bytes()` and `String()` are available. `Bytes()` returns a caller-owned copy;
 callers that need mutable `net/http` state use `Raw()`.
 
+`Send` owns the transport response body as soon as delivery returns it. The body
+is closed exactly once after either a successful read or a read failure. Read
+failures wrap `ErrResponseReadFailed` and preserve the I/O cause; close errors
+are best-effort and do not replace a successful result or a read error. The
+`Raw().Body` exposed on success is the replacement reader over owned bytes, not
+the live transport body.
+
+Callers do not need to call `Response.Close` for connection reuse.
+`Response.Close` only closes the replacement reader over buffered bytes;
+caller-owned transport cleanup belongs exclusively to `StreamResponse`.
+
 > **Why**: Buffered helpers and caller-owned streaming solve different workloads. Keeping them separate avoids ambiguous ownership of the response body.
 >
 > **Rejected**: A hybrid response that partially buffers streamed data while also promising caller-owned streaming.
@@ -44,6 +55,18 @@ Diagnostics:
 
 `Decode` dispatches by `Content-Type` and only supports the content types recognized by `IsJSON`, `IsXML`, and `IsYAML`.
 
+One private classifier parses media types with `mime.ParseMediaType` and drives
+both the helpers and `Decode`:
+
+- JSON is `application/json` or a type ending in `+json`.
+- XML is `application/xml`, `text/xml`, or a type ending in `+xml`.
+- YAML is `application/yaml` or a type ending in `+yaml`.
+
+Media-type parameters, case, and permitted whitespace are normalized by the
+parser. Malformed values, `application/jsonp`, and otherwise unsupported types
+are not guessed. `IsContentType` compares the parsed base media type exactly;
+parameters do not change the match and substrings are not matches.
+
 - `DecodeJSON` uses the JSON decoder captured when `Send` dispatched the request.
 - `DecodeXML` uses the XML decoder captured when `Send` dispatched the request.
 - `DecodeYAML` uses the YAML decoder captured when `Send` dispatched the request.
@@ -68,7 +91,10 @@ When saving to an `io.Writer`, `Save` writes the buffered body but does not clos
 
 ## Line Iteration
 
-`Lines()` returns an `iter.Seq[[]byte]` over the buffered response body.
+`Lines()` returns an `iter.Seq[[]byte]` over the buffered response body. It has
+no scanner token limit because the complete body is already owned. Each yielded
+line is a caller-owned copy. Empty lines, CRLF trimming, the final unterminated
+line, and a trailing newline follow `bufio.ScanLines` semantics.
 
 ## Forbidden
 

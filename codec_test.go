@@ -30,9 +30,9 @@ func TestCodecContentTypes(t *testing.T) {
 		encoder Encoder
 		want    string
 	}{
-		{name: "json", encoder: DefaultJSONEncoder, want: "application/json;charset=utf-8"},
-		{name: "xml", encoder: DefaultXMLEncoder, want: "application/xml;charset=utf-8"},
-		{name: "yaml", encoder: DefaultYAMLEncoder, want: "application/yaml;charset=utf-8"},
+		{name: "json", encoder: &JSONEncoder{}, want: "application/json;charset=utf-8"},
+		{name: "xml", encoder: &XMLEncoder{}, want: "application/xml;charset=utf-8"},
+		{name: "yaml", encoder: &YAMLEncoder{}, want: "application/yaml;charset=utf-8"},
 	}
 
 	for _, tc := range tests {
@@ -62,6 +62,8 @@ func TestCodecEncodeDefaultMarshalers(t *testing.T) {
 
 			reader, err := tc.encoder.Encode(codecFixture{Name: "Jane"})
 			require.NoError(t, err)
+			_, requiresClose := reader.(io.Closer)
+			assert.False(t, requiresClose)
 			body, err := io.ReadAll(reader)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, string(body))
@@ -123,9 +125,9 @@ func TestCodecDecodeReadErrors(t *testing.T) {
 		name    string
 		decoder Decoder
 	}{
-		{name: "json", decoder: DefaultJSONDecoder},
-		{name: "xml", decoder: DefaultXMLDecoder},
-		{name: "yaml", decoder: DefaultYAMLDecoder},
+		{name: "json", decoder: &JSONDecoder{}},
+		{name: "xml", decoder: &XMLDecoder{}},
+		{name: "yaml", decoder: &YAMLDecoder{}},
 	}
 
 	for _, tc := range tests {
