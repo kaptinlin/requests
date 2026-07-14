@@ -3,7 +3,7 @@ module github.com/kaptinlin/requests/browser
 go 1.26.5
 
 require (
-	github.com/kaptinlin/orderedobject v0.2.14
+	github.com/kaptinlin/orderedobject v0.2.15
 	github.com/kaptinlin/requests v0.6.6
 	github.com/test-go/testify v1.1.4
 )

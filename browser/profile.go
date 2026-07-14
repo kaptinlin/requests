@@ -56,7 +56,7 @@ func firefoxHeaders() *orderedobject.Object[[]string] {
 }
 
 func baseHeaders(acceptLanguage string) *orderedobject.Object[[]string] {
-	return orderedobject.NewObject[[]string]().
+	return orderedobject.New[[]string]().
 		Set(":authority", nil).
 		Set(":method", nil).
 		Set(":path", nil).

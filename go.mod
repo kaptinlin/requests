@@ -7,7 +7,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-querystring v1.2.0
-	github.com/kaptinlin/orderedobject v0.2.14
+	github.com/kaptinlin/orderedobject v0.2.15
 	github.com/stretchr/testify v1.11.1
 	github.com/test-go/testify v1.1.4
 	github.com/valyala/bytebufferpool v1.0.0

@@ -124,10 +124,10 @@ func TestMetadataPrecedenceRequestHeadersOverrideClientAuth(t *testing.T) {
 }
 
 func TestMetadataPrecedenceRequestAuthSynchronizesOrderedAuthorization(t *testing.T) {
-	clientOrdered := orderedobject.NewObject[[]string]().
+	clientOrdered := orderedobject.New[[]string]().
 		Set("Authorization", []string{"client-header"}).
 		Set("X-Client", []string{"client"})
-	requestOrdered := orderedobject.NewObject[[]string]().
+	requestOrdered := orderedobject.New[[]string]().
 		Set(":authority", []string{"api.example.com"}).
 		Set("authorization", []string{"request-header"})
 	client := newTestClient(t,
@@ -189,7 +189,7 @@ func TestMetadataPrecedenceAdaptersSynchronizeOrderedAuthorization(t *testing.T)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ordered := orderedobject.NewObject[[]string]().
+			ordered := orderedobject.New[[]string]().
 				Set(":authority", []string{"api.example.com"}).
 				Set("Authorization", []string{"client-header"})
 			client := newTestClient(t,
@@ -295,9 +295,9 @@ func TestMetadataPrecedenceRequestCookiesOverrideByName(t *testing.T) {
 }
 
 func TestMetadataPrecedenceSynchronizesOrderedCookies(t *testing.T) {
-	clientOrdered := orderedobject.NewObject[[]string]().
+	clientOrdered := orderedobject.New[[]string]().
 		Set("Cookie", []string{"default=client; shared=client"})
-	requestOrdered := orderedobject.NewObject[[]string]().
+	requestOrdered := orderedobject.New[[]string]().
 		Set(":authority", []string{"api.example.com"}).
 		Set("cookie", []string{"shared=request"})
 	client := newTestClient(t,
@@ -493,7 +493,7 @@ func TestAsTransportAppliesDefaultsToExampleHost(t *testing.T) {
 }
 
 func TestAsTransportAttachesDefaultOrderedHeaders(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"1"}).
 		Set(":authority", []string{"metadata-only"}).
 		Set("X-Second", []string{"2"})
@@ -531,7 +531,7 @@ func TestAsTransportAttachesDefaultOrderedHeaders(t *testing.T) {
 }
 
 func TestAsTransportDropsOrderedMetadataForOriginalHeaderOverrides(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"default"}).
 		Set("X-Keep", []string{"default"})
 
@@ -568,7 +568,7 @@ func TestAsTransportDropsOrderedMetadataForOriginalHeaderOverrides(t *testing.T)
 }
 
 func TestAsTransportCanonicalizesOriginalHeaderOverrides(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"default"}).
 		Set("X-Keep", []string{"default"})
 

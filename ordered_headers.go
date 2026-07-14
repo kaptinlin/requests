@@ -16,15 +16,15 @@ func cloneOrderedHeaders(headers *orderedobject.Object[[]string]) *orderedobject
 		return nil
 	}
 
-	clone := orderedobject.NewObject[[]string](headers.Len())
-	headers.ForEach(func(key string, values []string) {
+	clone := orderedobject.NewCap[[]string](headers.Len())
+	for key, values := range headers.All() {
 		if existing, ok := orderedHeaderKey(clone, key); ok {
 			existingValues, _ := clone.Get(existing)
 			clone.Set(existing, append(existingValues, values...))
-			return
+			continue
 		}
 		clone.Set(key, slices.Clone(values))
-	})
+	}
 	return clone
 }
 
@@ -58,14 +58,14 @@ func addOrderedHeaders(dst http.Header, headers *orderedobject.Object[[]string])
 		return
 	}
 
-	headers.ForEach(func(key string, values []string) {
+	for key, values := range headers.All() {
 		if isPseudoHeader(key) {
-			return
+			continue
 		}
 		for _, value := range values {
 			dst.Add(key, value)
 		}
-	})
+	}
 }
 
 func addHeaderValues(dst http.Header, src http.Header, ordered *orderedobject.Object[[]string]) {
@@ -87,9 +87,9 @@ func overlayHeaderValues(dst http.Header, src http.Header, ordered *orderedobjec
 		deleteHeaderValues(dst, key)
 	}
 	if ordered != nil {
-		ordered.ForEach(func(key string, _ []string) {
+		for key := range ordered.All() {
 			deleteHeaderValues(dst, key)
-		})
+		}
 	}
 	addHeaderValues(dst, src, ordered)
 }
@@ -105,7 +105,7 @@ func deleteHeaderValues(headers http.Header, key string) {
 
 func setOrderedHeaderValues(headers **orderedobject.Object[[]string], key string, values []string) {
 	if *headers == nil {
-		*headers = orderedobject.NewObject[[]string]()
+		*headers = orderedobject.New[[]string]()
 	}
 	if existing, ok := orderedHeaderKey(*headers, key); ok {
 		key = existing
@@ -115,7 +115,7 @@ func setOrderedHeaderValues(headers **orderedobject.Object[[]string], key string
 
 func addOrderedHeaderValue(headers **orderedobject.Object[[]string], key, value string) {
 	if *headers == nil {
-		*headers = orderedobject.NewObject[[]string]()
+		*headers = orderedobject.New[[]string]()
 	}
 
 	existing, ok := orderedHeaderKey(*headers, key)
@@ -152,10 +152,10 @@ func mergeOrderedHeaders(
 		return cloneOrderedHeaders(override)
 	}
 
-	override.ForEach(func(key string, values []string) {
+	for key, values := range override.All() {
 		deleteOrderedHeader(merged, key)
 		merged.Set(key, slices.Clone(values))
-	})
+	}
 	return merged
 }
 

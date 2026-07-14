@@ -37,7 +37,7 @@ func TestRequestNilResponseError(t *testing.T) {
 }
 
 func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"1"}).
 		Set(":authority", []string{"metadata-only"}).
 		Set("X-Second", []string{"2a", "2b"})
@@ -72,7 +72,7 @@ func TestOrderedHeadersAttachMetadataAndApplyHeaders(t *testing.T) {
 }
 
 func TestOrderedHeadersCaseInsensitiveDuplicatesDoNotLeakAfterOverride(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-Dupe", []string{"one"}).
 		Set("x-dupe", []string{"two"}).
 		Set("X-Keep", []string{"keep"})
@@ -108,7 +108,7 @@ func TestOrderedHeadersCaseInsensitiveDuplicatesDoNotLeakAfterOverride(t *testin
 func TestOrderedHeadersNilClearsRequestHeaders(t *testing.T) {
 	t.Parallel()
 
-	headers := orderedobject.NewObject[[]string]().Set("X-First", []string{"1"})
+	headers := orderedobject.New[[]string]().Set("X-First", []string{"1"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("X-First"))
 		_, _ = w.Write([]byte("ok"))
@@ -135,7 +135,7 @@ func TestOrderedHeadersNilClearsRequestHeaders(t *testing.T) {
 func TestSetDefaultOrderedHeadersNilClearsDefaults(t *testing.T) {
 	t.Parallel()
 
-	headers := orderedobject.NewObject[[]string]().Set("X-Default", []string{"1"})
+	headers := orderedobject.New[[]string]().Set("X-Default", []string{"1"})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Empty(t, r.Header.Get("X-Default"))
 		_, _ = w.Write([]byte("ok"))
@@ -158,11 +158,11 @@ func TestSetDefaultOrderedHeadersNilClearsDefaults(t *testing.T) {
 }
 
 func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
-	clientHeaders := orderedobject.NewObject[[]string]().
+	clientHeaders := orderedobject.New[[]string]().
 		Set("X-First", []string{"client"}).
 		Set(":authority", []string{"metadata-only"}).
 		Set("X-Shared", []string{"client"})
-	requestHeaders := orderedobject.NewObject[[]string]().
+	requestHeaders := orderedobject.New[[]string]().
 		Set("X-Shared", []string{"request"}).
 		Set("X-Second", []string{"request"})
 
@@ -206,7 +206,7 @@ func TestOrderedHeadersMergeClientDefaultsAndRequestOverrides(t *testing.T) {
 }
 
 func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"1"}).
 		Set("X-Delete", []string{"remove"})
 
@@ -264,7 +264,7 @@ func TestOrderedHeadersStaySyncedWithHeaderHelpers(t *testing.T) {
 }
 
 func TestOrderedHeadersStaySyncedWithTextContentType(t *testing.T) {
-	headers := orderedobject.NewObject[[]string]().
+	headers := orderedobject.New[[]string]().
 		Set("X-First", []string{"1"})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,7 +295,7 @@ func TestOrderedHeadersStaySyncedWithTextContentType(t *testing.T) {
 }
 
 func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *testing.T) {
-	clientHeaders := orderedobject.NewObject[[]string]().
+	clientHeaders := orderedobject.New[[]string]().
 		Set("X-First", []string{"client"}).
 		Set("X-Shared", []string{"client"})
 
@@ -322,7 +322,7 @@ func TestOrderedHeadersDropClientMetadataWhenPlainRequestHeaderOverrides(t *test
 }
 
 func TestHeadersPreserveMultipleValuesWhenOverridingOrderedDefaults(t *testing.T) {
-	clientHeaders := orderedobject.NewObject[[]string]().
+	clientHeaders := orderedobject.New[[]string]().
 		Set("X-Keep", []string{"default"}).
 		Set("X-Multi", []string{"default"})
 
